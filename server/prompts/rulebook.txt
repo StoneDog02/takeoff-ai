@@ -1,0 +1,8 @@
+Rulebook for construction takeoff:
+
+1. Always use the scale and dimensions shown on the plans. Do not estimate scale.
+2. Count each item once; avoid double-counting across sheets or details.
+3. Apply waste factors only when standard for the trade (e.g. lumber, drywall) and note them.
+4. Use the units specified on the plans (LF, SF, CY, EA, etc.).
+5. When in doubt, round quantities per trade custom (e.g. lumber in whole pieces, concrete in quarter yards).
+6. Note any assumptions (e.g. "assumes 8' ceiling") in the line item or notes field.
