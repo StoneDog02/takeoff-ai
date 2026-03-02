@@ -3,11 +3,29 @@
   /* Colors */
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
+  --color-accent: #c0392b;
+  --color-accent-hover: #e84040;
+  --color-accent-glow: rgba(192, 57, 43, 0.35);
   --color-secondary: #64748b;
   --color-surface: #f8fafc;
   --color-surface-elevated: #ffffff;
   --color-border: #e2e8f0;
   --color-muted: #64748b;
+
+  /* Landing dark theme */
+  --color-dark: #0b0e14;
+  --color-dark-2: #111520;
+  --color-dark-3: #161b27;
+  --color-dark-4: #1e2436;
+  --color-white: #f5f3ef;
+  --color-white-dim: rgba(245, 243, 239, 0.6);
+  --color-white-faint: rgba(245, 243, 239, 0.12);
+  --color-border-dark: rgba(245, 243, 239, 0.08);
+  --color-light-bg: #f7f5f1;
+  --color-light-bg-2: #efecea;
+  --color-text-dark: #1a1a24;
+  --color-text-mid: #4a4a5e;
+  --color-text-light: #8a8a9e;
 
   /* Layout */
   --radius-sm: 0.25rem;
@@ -23,4 +41,75 @@
 
 body {
   @apply bg-surface text-gray-900 antialiased;
+}
+
+/* Landing: noise overlay */
+.landing-noise::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1000;
+  opacity: 0.4;
+}
+
+/* Landing: subtle blueprint grid for dark hero sections */
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(192, 57, 43, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(192, 57, 43, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(192, 57, 43, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(192, 57, 43, 0.035) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px, 20px 20px, 20px 20px;
+}
+
+/* Hero grid vignette: grid most visible around headline, fades to dark edges */
+.hero-grid-vignette {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(11, 14, 20, 0) 0%,
+    rgba(11, 14, 20, 0.16) 60%,
+    rgba(11, 14, 20, 0.82) 100%
+  );
+}
+
+/* Scroll reveal */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Bento card: red gradient top border on hover (white cards only) */
+.bento-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover));
+  opacity: 0;
+  transition: opacity 0.3s;
+  border-radius: 16px 16px 0 0;
+}
+.bento-card:hover::before {
+  opacity: 1;
 }
