@@ -26,7 +26,7 @@ export function SignInPage() {
         setLoading(false)
         return
       }
-      navigate('/takeoff', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {

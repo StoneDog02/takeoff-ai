@@ -1,0 +1,4 @@
+# Material takeoff custom project instructions
+
+Paste here the exact instructions from your Claude custom project (system prompt / custom instructions).
+The app will append the required JSON output format so responses work with the Takeoff tab and database.

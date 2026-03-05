@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type BuildListItem } from '@/api/client'
+import { formatDate } from '@/lib/date'
 
 export function BuildListsPage() {
   const [list, setList] = useState<BuildListItem[]>([])
@@ -55,7 +56,7 @@ export function BuildListsPage() {
               >
                 <span className="font-medium text-gray-900">{item.name}</span>
                 <span className="ml-2 text-sm text-muted">
-                  {new Date(item.created_at).toLocaleDateString()}
+                  {formatDate(item.created_at)}
                 </span>
               </Link>
             </li>

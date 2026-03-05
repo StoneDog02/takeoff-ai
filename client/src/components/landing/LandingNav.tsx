@@ -14,7 +14,7 @@ export function LandingNav() {
     <nav
       className={`fixed top-0 left-0 right-0 z-[999] h-[68px] px-6 md:px-12 flex items-center justify-between transition-all duration-300 border-b ${
         scrolled
-          ? 'bg-dark/85 backdrop-blur-xl border-border-dark'
+          ? 'bg-[rgba(11,14,20,0.94)] backdrop-blur-xl border-black/20'
           : 'bg-transparent border-transparent'
       }`}
     >

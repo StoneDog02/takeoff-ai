@@ -1,5 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk')
-const { buildSystemPrompt } = require('./build-prompts')
+const { buildSystemPrompt, buildCustomProjectSystemPrompt } = require('./build-prompts')
 
 const PDF_BETA = 'pdfs-2024-09-25'
 const MODEL = 'claude-3-5-sonnet-latest'
@@ -8,14 +8,16 @@ const MODEL = 'claude-3-5-sonnet-latest'
  * Run takeoff: send plan (PDF/image) to Claude and return parsed material list.
  * @param {Buffer} fileBuffer - Plan file content
  * @param {string} mimeType - e.g. 'application/pdf', 'image/jpeg'
+ * @param {{ useCustomProject?: boolean }} [options] - If useCustomProject is true, use custom project instructions + knowledge
  * @returns {Promise<{ materialList: object, rawText?: string }>}
  */
-async function runTakeoff(fileBuffer, mimeType) {
+async function runTakeoff(fileBuffer, mimeType, options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const anthropic = new Anthropic({ apiKey })
-  const system = buildSystemPrompt()
+  const system =
+    options.useCustomProject === true ? buildCustomProjectSystemPrompt() : buildSystemPrompt()
 
   const isPdf = mimeType === 'application/pdf'
   const content = [

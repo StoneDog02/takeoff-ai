@@ -7,14 +7,16 @@ export function SignUpPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setConfirmPasswordError(null)
     if (password !== confirmPassword) {
-      setError('Passwords do not match.')
+      setConfirmPasswordError('Passwords do not match.')
       return
     }
     setLoading(true)
@@ -31,7 +33,7 @@ export function SignUpPage() {
         setLoading(false)
         return
       }
-      navigate('/takeoff', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign up failed')
     } finally {
@@ -104,13 +106,21 @@ export function SignUpPage() {
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value)
+                  if (confirmPasswordError) setConfirmPasswordError(null)
+                }}
                 required
                 minLength={6}
                 autoComplete="new-password"
                 className="w-full px-4 py-3 bg-dark-4 border border-border-dark rounded-lg text-landing-white placeholder:text-white-dim focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-all"
                 placeholder="••••••••"
               />
+              {confirmPasswordError && (
+                <p className="mt-1.5 text-sm text-red-200">
+                  {confirmPasswordError}
+                </p>
+              )}
             </div>
             <button
               type="submit"

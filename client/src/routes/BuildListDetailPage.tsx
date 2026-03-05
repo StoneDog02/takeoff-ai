@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useLocation } from 'react-router-dom'
 import { api, type BuildListDetail, type MaterialList } from '@/api/client'
+import { formatDateTime } from '@/lib/date'
 
 function MaterialListView({ materialList }: { materialList: MaterialList }) {
   const { categories, summary } = materialList
@@ -95,7 +96,7 @@ export function BuildListDetailPage() {
       <header className="mb-8">
         <h1 className="text-2xl font-semibold text-gray-900">{detail.name}</h1>
         <p className="mt-1 text-sm text-muted">
-          {new Date(detail.created_at).toLocaleString()}
+          {formatDateTime(detail.created_at)}
           {detail.plan_file_name && ` · ${detail.plan_file_name}`}
         </p>
       </header>
