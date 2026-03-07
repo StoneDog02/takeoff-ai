@@ -22,11 +22,23 @@ export function SignInPage() {
       }
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
-        setError(error.message)
+        const message =
+          error.message === 'Email not confirmed'
+            ? 'Email not confirmed. For local development, turn off "Confirm email" in Supabase Dashboard → Authentication → Providers → Email, or confirm your email via the link sent to your inbox.'
+            : error.message
+        setError(message)
         setLoading(false)
         return
       }
-      navigate('/dashboard', { replace: true })
+      const { getMe } = await import('@/api/me')
+      try {
+        const me = await getMe()
+        if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+        else if (me.isAdmin) navigate('/admin', { replace: true })
+        else navigate('/dashboard', { replace: true })
+      } catch {
+        navigate('/dashboard', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {

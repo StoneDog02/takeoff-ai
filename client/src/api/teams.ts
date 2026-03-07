@@ -78,6 +78,15 @@ export const teamsApi = {
       const res = await fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE', headers })
       return handleResponse<void>(res)
     },
+    async invite(id: string): Promise<{ ok: boolean; expires_at: string; invite_link?: string | null }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/employees/${id}/invite`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      return handleResponse<{ ok: boolean; expires_at: string; invite_link?: string | null }>(res)
+    },
   },
 
   jobAssignments: {

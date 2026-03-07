@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Mail, Phone, MessageSquare, ChevronDown, Zap } from 'lucide-react'
+import { Search, Mail, Phone, MessageSquare, ChevronDown, Zap, Trash2 } from 'lucide-react'
 import type { DirectoryContractor } from '@/data/mockDirectoryData'
 import { DirectoryAvatar } from './DirectoryAvatar'
 import { TradePill } from './TradePill'
@@ -45,7 +45,6 @@ export function DirectoryTabView({
   )
 
   const totalUnread = contractors.reduce((s, c) => s + c.unread, 0)
-  const onlineCount = contractors.filter((c) => c.status === 'online').length
   const avgRating =
     contractors.length > 0
       ? (
@@ -112,7 +111,6 @@ export function DirectoryTabView({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {[
           { label: 'Total contractors', value: contractors.length },
-          { label: 'Online now', value: onlineCount },
           { label: 'Unread messages', value: totalUnread },
           { label: 'Avg rating', value: `${avgRating} ★` },
         ].map((m) => (
@@ -141,12 +139,7 @@ export function DirectoryTabView({
             >
               <div className="p-4">
                 <div className="flex gap-3.5 items-start mb-3">
-                  <DirectoryAvatar
-                    initials={c.avatar}
-                    color={c.color}
-                    size={46}
-                    status={c.status}
-                  />
+                  <DirectoryAvatar initials={c.avatar} color={c.color} size={46} />
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-[15px] text-[var(--text-primary)] mb-1">
                       {c.name}
@@ -156,11 +149,21 @@ export function DirectoryTabView({
                       <Stars rating={c.rating} />
                     </div>
                   </div>
-                  {c.unread > 0 && (
-                    <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--red)] text-white text-[10px] font-bold px-1">
-                      {c.unread}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {c.unread > 0 && (
+                      <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--red)] text-white text-[10px] font-bold px-1">
+                        {c.unread}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onRemove(c.id)}
+                      className="w-8 h-8 rounded-lg border border-border dark:border-border-dark bg-transparent text-[var(--text-muted)] cursor-pointer inline-flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-[var(--red)] hover:border-red-200 dark:hover:border-red-900/50 transition-colors"
+                      aria-label="Remove contractor"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-1 mb-3">
@@ -195,13 +198,6 @@ export function DirectoryTabView({
                   >
                     <MessageSquare size={13} />
                     Message
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(c.id)}
-                    className="py-2 px-3 rounded-lg bg-transparent border border-red-200 dark:border-red-900/50 text-[var(--red)] text-xs font-semibold cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20"
-                  >
-                    Remove
                   </button>
                   <div
                     ref={isDropdownOpen ? dropdownRef : undefined}

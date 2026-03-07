@@ -8,8 +8,9 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, from, to } = req.query
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     let q = supabase.from('attendance_records').select('*').order('date', { ascending: false })
-    if (employee_id) q = q.eq('employee_id', employee_id)
+    if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     if (from) q = q.gte('date', from)
     if (to) q = q.lte('date', to)
     const { data, error } = await q
@@ -33,11 +34,12 @@ router.post('/', async (req, res, next) => {
       early_departure_minutes,
       notes,
     } = req.body || {}
-    if (!employee_id || !date || !clock_in) return res.status(400).json({ error: 'employee_id, date, clock_in required' })
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
+    if (!effectiveEmployeeId || !date || !clock_in) return res.status(400).json({ error: 'employee_id, date, clock_in required' })
     const { data, error } = await supabase
       .from('attendance_records')
       .insert({
-        employee_id,
+        employee_id: effectiveEmployeeId,
         date,
         clock_in,
         clock_out: clock_out || null,

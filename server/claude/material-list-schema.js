@@ -20,6 +20,7 @@ module.exports = {
               type: 'object',
               required: ['description', 'quantity', 'unit'],
               properties: {
+                subcategory: { type: 'string', description: 'Subcategory within this category (e.g. Footings, Pipe, Manholes & Structures)' },
                 description: { type: 'string' },
                 quantity: { type: 'number' },
                 unit: { type: 'string', description: 'e.g. LF, SF, CY, EA' },

@@ -1,49 +1,37 @@
 import { useState } from 'react'
 import { EmployeeRoster } from '@/components/teams/EmployeeRoster'
 import { ManHoursTab } from '@/components/teams/ManHoursTab'
-import { JobAssignments } from '@/components/teams/JobAssignments'
 import { AttendanceRecordList } from '@/components/teams/AttendanceRecordList'
-import { PayRaiseHistory } from '@/components/teams/PayRaiseHistory'
-import { YtdPay } from '@/components/teams/YtdPay'
+import { PayrollTab } from '@/components/teams/PayrollTab'
 import { GeofenceTab } from '@/components/teams/GeofenceTab'
+import { EmployeePanel } from '@/components/teams/EmployeePanel'
+import type { Employee } from '@/types/global'
 
-type TeamsTab =
-  | 'roster'
-  | 'man-hours'
-  | 'assignments'
-  | 'attendance'
-  | 'pay-raises'
-  | 'ytd-pay'
-  | 'geofence'
+type TeamsTab = 'roster' | 'man-hours' | 'attendance' | 'payroll' | 'geofence'
 
 const TABS: { id: TeamsTab; label: string }[] = [
   { id: 'roster', label: 'Roster' },
-  { id: 'man-hours', label: 'Man hours' },
-  { id: 'assignments', label: 'Job assignments' },
+  { id: 'man-hours', label: 'Man Hours' },
   { id: 'attendance', label: 'Attendance' },
-  { id: 'pay-raises', label: 'Pay raises' },
-  { id: 'ytd-pay', label: 'YTD pay' },
+  { id: 'payroll', label: 'Payroll' },
   { id: 'geofence', label: 'GPS / Geofence' },
 ]
 
-const TAB_DESCRIPTIONS: Record<TeamsTab, string> = {
-  roster: 'View and manage your employee roster. Filter by status, switch between card and table views.',
-  'man-hours': 'Review logged hours per employee. Select an employee to view their individual time entries.',
-  assignments: "See who's assigned to which job. View by employee or by job site.",
-  attendance: 'View clock-in/out records and flag late arrivals or early departures per employee.',
-  'pay-raises': 'Review compensation history per employee. Select an employee to see their raise history.',
-  'ytd-pay': 'Year-to-date earnings per employee and company total. Optionally show monthly breakdown.',
-  geofence: 'View GPS-triggered clock-outs and manage geofence boundaries per job site.',
-}
-
 export function TeamsPage() {
   const [tab, setTab] = useState<TeamsTab>('roster')
+  const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null)
 
   return (
     <div className="dashboard-app teams-page">
       <div className="teams-page-inner">
-        <div className="dashboard-page-header teams-page-header">
-          <h1 className="dashboard-title">Teams</h1>
+        <div className="teams-page-header teams-page-header-new">
+          <div>
+            <div className="teams-page-header-label">Workforce</div>
+            <h1 className="teams-page-title">Teams</h1>
+          </div>
+          <button type="button" className="teams-btn teams-btn-primary teams-btn-add-employee">
+            <span className="teams-btn-add-icon">+</span> Add Employee
+          </button>
         </div>
 
         <div className="teams-tab-bar">
@@ -59,21 +47,26 @@ export function TeamsPage() {
           ))}
         </div>
 
-        <div className="teams-tab-header">
-          <h2 className="teams-tab-header-title">{TABS.find((t) => t.id === tab)?.label}</h2>
-          <p className="teams-tab-header-desc">{TAB_DESCRIPTIONS[tab]}</p>
-        </div>
-
         <div className="teams-page-content">
-          {tab === 'roster' && <EmployeeRoster />}
-          {tab === 'man-hours' && <ManHoursTab />}
-          {tab === 'assignments' && <JobAssignments />}
-          {tab === 'attendance' && <AttendanceRecordList />}
-          {tab === 'pay-raises' && <PayRaiseHistory />}
-          {tab === 'ytd-pay' && <YtdPay />}
-          {tab === 'geofence' && <GeofenceTab />}
+          {tab === 'roster' && (
+            <EmployeeRoster onSelectEmployee={setSelectedEmp} />
+          )}
+          {tab === 'man-hours' && (
+            <ManHoursTab onSelectEmployee={setSelectedEmp} />
+          )}
+          {tab === 'attendance' && (
+            <AttendanceRecordList onSelectEmployee={setSelectedEmp} />
+          )}
+          {tab === 'payroll' && (
+            <PayrollTab onSelectEmployee={setSelectedEmp} />
+          )}
+          {tab === 'geofence' && (
+            <GeofenceTab onSelectEmployee={setSelectedEmp} />
+          )}
         </div>
       </div>
+
+      <EmployeePanel emp={selectedEmp} onClose={() => setSelectedEmp(null)} />
     </div>
   )
 }

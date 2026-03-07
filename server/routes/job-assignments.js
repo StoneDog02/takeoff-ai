@@ -8,8 +8,9 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, active_only } = req.query
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     let q = supabase.from('job_assignments').select('*').order('assigned_at', { ascending: false })
-    if (employee_id) q = q.eq('employee_id', employee_id)
+    if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     if (job_id) q = q.eq('job_id', job_id)
     if (active_only === 'true') q = q.is('ended_at', null)
     const { data, error } = await q
@@ -22,6 +23,7 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot create job assignments' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, role_on_job } = req.body || {}
@@ -44,6 +46,7 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot update job assignments' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id, role_on_job, ended_at } = req.body || {}
@@ -67,6 +70,7 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot delete job assignments' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { error } = await supabase.from('job_assignments').delete().eq('id', req.params.id)

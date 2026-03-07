@@ -285,9 +285,11 @@ export const estimatesApi = {
   async createJobExpense(params: {
     job_id: string
     amount: number
-    category: 'materials' | 'labor' | 'equipment' | 'misc'
+    category: 'materials' | 'labor' | 'equipment' | 'misc' | 'subs'
     description?: string
     receipt_file_url?: string
+    billable?: boolean
+    vendor?: string
   }): Promise<JobExpense> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/job-expenses`, {
@@ -305,5 +307,25 @@ export const estimatesApi = {
       headers,
     })
     return handleResponse<void>(res)
+  },
+
+  /** Scan receipt image via backend (e.g. Claude). Returns extracted fields or throws. */
+  async scanReceipt(params: {
+    image_base64: string
+    media_type: string
+  }): Promise<{
+    vendor?: string
+    date?: string
+    total?: number
+    description?: string
+    category?: string
+  }> {
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/receipts/scan`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
+    return handleResponse(res)
   },
 }

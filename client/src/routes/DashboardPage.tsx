@@ -83,13 +83,64 @@ const expenseByPeriod: Record<'month' | 'ytd', { value: number; trend: number }>
   ytd: { value: profitRevenueByPeriod.ytd.revenue - profitRevenueByPeriod.ytd.profit, trend: 6 },
 }
 
-type ProjectStatus = 'Active' | 'On Hold' | 'Completed' | 'Planning'
-const projects: { id: string; name: string; client: string; budget: number; timeline: string; status: ProjectStatus }[] = [
-  { id: 'PRJ-001', name: 'Kitchen Remodel', client: 'Savannah Nguyen', budget: 48_200, timeline: 'Jun - Aug 2025', status: 'Active' },
-  { id: 'PRJ-002', name: 'Office Build-Out', client: 'Jordan Lee', budget: 125_000, timeline: 'Jul - Oct 2025', status: 'Planning' },
-  { id: 'PRJ-003', name: 'Bathroom Renovation', client: 'Alexis Kim', budget: 22_400, timeline: 'May - Jun 2025', status: 'Completed' },
-  { id: 'PRJ-004', name: 'Exterior Siding', client: 'Morgan Reed', budget: 67_500, timeline: 'Aug - Nov 2025', status: 'On Hold' },
+// Extended project data for health cards (budget/timeline bars)
+const PROJECT_COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#EF4444'] as const
+type ProjectStatusKey = 'active' | 'planning' | 'completed' | 'on-hold'
+const projects: {
+  id: string
+  name: string
+  client: string
+  initials: string
+  color: string
+  budget: number
+  spent: number
+  timelineStart: string
+  timelineEnd: string
+  pctTime: number
+  status: ProjectStatusKey
+}[] = [
+  { id: 'PRJ-001', name: 'Kitchen Remodel', client: 'Savannah Nguyen', initials: 'SN', color: PROJECT_COLORS[0], budget: 48200, spent: 31400, timelineStart: 'Jun 2025', timelineEnd: 'Aug 2025', pctTime: 78, status: 'active' },
+  { id: 'PRJ-002', name: 'Office Build-Out', client: 'Jordan Lee', initials: 'JL', color: PROJECT_COLORS[1], budget: 125000, spent: 44200, timelineStart: 'Jul 2025', timelineEnd: 'Oct 2025', pctTime: 35, status: 'planning' },
+  { id: 'PRJ-003', name: 'Bathroom Renovation', client: 'Alexis Kim', initials: 'AK', color: PROJECT_COLORS[2], budget: 22400, spent: 22100, timelineStart: 'May 2025', timelineEnd: 'Jun 2025', pctTime: 100, status: 'completed' },
+  { id: 'PRJ-004', name: 'Exterior Siding', client: 'Morgan Reed', initials: 'MR', color: PROJECT_COLORS[3], budget: 67500, spent: 18200, timelineStart: 'Aug 2025', timelineEnd: 'Nov 2025', pctTime: 20, status: 'on-hold' },
 ]
+
+const ATTENTION_ITEMS: { id: number; type: string; icon: string; label: string; sub: string; action: string; urgency: 'high' | 'medium' | 'low' }[] = [
+  { id: 1, type: 'invoice', icon: '🧾', label: 'Invoice #inv-3 overdue', sub: 'Kitchen Remodel · 12 days past due', action: 'View Invoice', urgency: 'high' },
+  { id: 2, type: 'estimate', icon: '📋', label: 'est-2 awaiting client response', sub: 'Master Bath · Sent 14 days ago', action: 'Follow Up', urgency: 'medium' },
+  { id: 3, type: 'timecard', icon: '⏱', label: '3 timesheets need approval', sub: 'Week of Mar 3 · Marcus, Dev, Raul', action: 'Review', urgency: 'medium' },
+]
+
+const CREW: { name: string; role: string; initials: string; color: string; job: string; clockedIn: string; hours: number }[] = [
+  { name: 'Marcus T.', role: 'Framing Lead', initials: 'MT', color: PROJECT_COLORS[0], job: 'Kitchen Remodel', clockedIn: '7:02 AM', hours: 4.2 },
+  { name: 'Dev P.', role: 'Electrician', initials: 'DP', color: PROJECT_COLORS[1], job: 'Office Build-Out', clockedIn: '7:45 AM', hours: 3.5 },
+  { name: 'Raul S.', role: 'Tile Installer', initials: 'RS', color: PROJECT_COLORS[2], job: 'Kitchen Remodel', clockedIn: '8:10 AM', hours: 3.1 },
+]
+
+const SPARKLINE_REVENUE = [68, 72, 65, 80, 74, 88, 95, 91, 100, 107, 112, 118]
+const SPARKLINE_EXPENSE = [30, 28, 35, 32, 38, 34, 40, 37, 42, 39, 44, 41]
+
+const STATUS_CONFIG: Record<ProjectStatusKey, { label: string; color: string; bg: string }> = {
+  active: { label: 'Active', color: '#10B981', bg: '#ECFDF5' },
+  planning: { label: 'Planning', color: '#3B82F6', bg: '#EFF6FF' },
+  completed: { label: 'Completed', color: '#9CA3AF', bg: '#F9FAFB' },
+  'on-hold': { label: 'On Hold', color: '#EF4444', bg: '#FEF2F2' },
+}
+
+const URGENCY_STYLES: Record<'high' | 'medium' | 'low', { color: string; bg: string; border: string }> = {
+  high: { color: '#EF4444', bg: '#FEF2F2', border: '#FECACA' },
+  medium: { color: '#F59E0B', bg: '#FFFBEB', border: '#FDE68A' },
+  low: { color: '#3B82F6', bg: '#EFF6FF', border: '#BFDBFE' },
+}
+
+const SCHEDULE_TYPE_STYLES: Record<string, { color: string; bg: string }> = {
+  meeting: { color: '#8B5CF6', bg: '#F5F3FF' },
+  delivery: { color: '#3B82F6', bg: '#EFF6FF' },
+  call: { color: '#10B981', bg: '#ECFDF5' },
+  admin: { color: '#9CA3AF', bg: '#F9FAFB' },
+  task: { color: '#3B82F6', bg: '#EFF6FF' },
+  milestone: { color: '#8B5CF6', bg: '#F5F3FF' },
+}
 
 function toDateKey(d: dayjs.Dayjs) {
   return d.format('YYYY-MM-DD')
@@ -100,10 +151,11 @@ const todayKey = toDateKey(now)
 // Chat: contacts + initial messages per conversation
 type ChatMsg = { id: string; role: 'user' | 'assistant'; text: string; time: string }
 type ChatContact = { id: string; name: string; initials: string; timeLabel: string; unread: number }
-const CHAT_CONTACTS: ChatContact[] = [
-  { id: 'support', name: 'Support', initials: 'S', timeLabel: '4:30 PM', unread: 2 },
-  { id: 'pm', name: 'Sarah (PM)', initials: 'SP', timeLabel: '4:30 PM', unread: 1 },
-  { id: 'estimator', name: 'Mike (Estimator)', initials: 'ME', timeLabel: 'Yesterday', unread: 0 },
+const CHAT_CONTACTS: (ChatContact & { color: string })[] = [
+  { id: 'support', name: 'Support', initials: 'S', timeLabel: '4:30 PM', unread: 2, color: '#6B7280' },
+  { id: 'pm', name: 'Sarah (PM)', initials: 'SP', timeLabel: '4:30 PM', unread: 1, color: '#8B5CF6' },
+  { id: 'estimator', name: 'Mike (Estimator)', initials: 'ME', timeLabel: 'Yesterday', unread: 0, color: '#F59E0B' },
+  { id: 'client', name: 'Savannah Nguyen', initials: 'SN', timeLabel: 'Yesterday', unread: 0, color: '#10B981' },
 ]
 const CHAT_CONVERSATIONS_INITIAL: Record<string, ChatMsg[]> = {
   support: [
@@ -118,9 +170,105 @@ const CHAT_CONVERSATIONS_INITIAL: Record<string, ChatMsg[]> = {
   estimator: [
     { id: 'e1', role: 'assistant', text: 'Revised estimate is ready. Total $48,200; I can break it down by trade if you need.', time: 'Yesterday' },
   ],
+  client: [
+    { id: 'c1', role: 'assistant', text: "Looks great! When can we do a walkthrough?", time: 'Yesterday' },
+  ],
 }
 function formatCurrency(n: number, decimals = 2) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n)
+}
+const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })
+const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0)
+
+/** Sparkline chart for KPI cards */
+function Sparkline({ data, color, height = 32, width = 80 }: { data: number[]; color: string; height?: number; width?: number }) {
+  const max = Math.max(...data)
+  const min = Math.min(...data)
+  const range = max - min || 1
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width
+    const y = height - ((v - min) / range) * height
+    return `${x},${y}`
+  })
+  const area = `0,${height} ${pts.join(' ')} ${width},${height}`
+  const id = `spark-${color.replace('#', '')}`
+  return (
+    <svg width={width} height={height} style={{ overflow: 'visible' }} aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.15} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${id})`} />
+      <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** Project health card with budget and timeline bars */
+function ProjectHealthCard({
+  project,
+  onClick,
+}: {
+  project: (typeof projects)[0]
+  onClick?: () => void
+}) {
+  const budgetPct = pct(project.spent, project.budget)
+  const budgetColor = budgetPct > 95 ? '#EF4444' : budgetPct > 80 ? '#F59E0B' : '#10B981'
+  const st = STATUS_CONFIG[project.status]
+  return (
+    <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
+      className="rounded-xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-4 cursor-pointer transition-all duration-150 hover:shadow-md hover:-translate-y-px focus:outline-none focus:ring-2 focus:ring-accent/30"
+    >
+      <div className="flex items-start justify-between gap-2 mb-3.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+            style={{ background: project.color + '20', color: project.color }}
+          >
+            {project.initials}
+          </div>
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-gray-900 dark:text-landing-white truncate">{project.name}</div>
+            <div className="text-[11px] text-gray-500 dark:text-white-dim">{project.id} · {project.client}</div>
+          </div>
+        </div>
+        <span
+          className="text-[10px] font-semibold px-2.5 py-1 rounded-full flex-shrink-0"
+          style={{ background: st.bg, color: st.color }}
+        >
+          {st.label}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className="flex justify-between mb-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim">Budget</span>
+            <span className="text-[10px] font-bold" style={{ color: budgetColor }}>{budgetPct}%</span>
+          </div>
+          <div className="h-1 bg-gray-100 dark:bg-dark-4 rounded overflow-hidden">
+            <div className="h-full rounded transition-all duration-500" style={{ width: `${budgetPct}%`, background: budgetColor }} />
+          </div>
+          <div className="text-[10px] text-gray-500 dark:text-white-dim mt-1">{fmt(project.spent)} of {fmt(project.budget)}</div>
+        </div>
+        <div>
+          <div className="flex justify-between mb-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim">Timeline</span>
+            <span className="text-[10px] font-bold text-gray-500 dark:text-white-dim">{project.pctTime}%</span>
+          </div>
+          <div className="h-1 bg-gray-100 dark:bg-dark-4 rounded overflow-hidden">
+            <div className="h-full rounded bg-gray-400 dark:bg-white-dim transition-all duration-500" style={{ width: `${project.pctTime}%` }} />
+          </div>
+          <div className="text-[10px] text-gray-500 dark:text-white-dim mt-1">{project.timelineStart} → {project.timelineEnd}</div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function IconChevronLeft({ className }: { className?: string }) {
@@ -196,8 +344,8 @@ function CalendarWidget({
         </button>
       </div>
       <div className="grid grid-cols-7 gap-0.5">
-        {weekLabels.map((label) => (
-          <span key={label} className="text-[10px] font-medium text-gray-400 dark:text-white-faint py-0.5">
+        {weekLabels.map((label, i) => (
+          <span key={`weekday-${i}`} className="text-[10px] font-medium text-gray-400 dark:text-white-faint py-0.5">
             {label}
           </span>
         ))}
@@ -245,7 +393,6 @@ export function DashboardPage() {
   const [revenuePeriod, setRevenuePeriod] = useState<'ytd' | 'month'>('ytd')
   const [expensePeriod, setExpensePeriod] = useState<'ytd' | 'month'>('month')
   const [projectSearch, setProjectSearch] = useState('')
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const [conversationsByContactId, setConversationsByContactId] = useState<Record<string, ChatMsg[]>>(CHAT_CONVERSATIONS_INITIAL)
   const [chatInput, setChatInput] = useState('')
@@ -257,9 +404,29 @@ export function DashboardPage() {
   })
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([])
   const [scheduleLoading, setScheduleLoading] = useState(false)
+  const [dismissedAlerts, setDismissedAlerts] = useState<number[]>([])
 
   const appLayout = useAppLayout()
   const navigate = useNavigate()
+
+  const visibleAlerts = ATTENTION_ITEMS.filter((a) => !dismissedAlerts.includes(a.id))
+  const activeJobsCount = projects.filter((p) => p.status === 'active').length
+
+  // Map API schedule items to today's schedule display (time placeholder when not available)
+  const scheduleForDisplay = scheduleItems.length > 0
+    ? scheduleItems.slice(0, 8).map((item, i) => ({
+        time: item.endDate ? dayjs(item.endDate).format('h:mm A') : '—',
+        title: item.title,
+        job: item.projectName,
+        who: item.responsible ?? '',
+        type: item.type === 'milestone' ? 'milestone' : 'task',
+      }))
+    : [
+        { time: '8:00 AM', title: 'Site walkthrough', job: 'Office Build-Out', who: 'Jordan Lee', type: 'meeting' as const },
+        { time: '11:00 AM', title: 'Tile delivery', job: 'Kitchen Remodel', who: 'Home Depot', type: 'delivery' as const },
+        { time: '2:00 PM', title: 'Estimate review call', job: 'Exterior Siding', who: 'Morgan Reed', type: 'call' as const },
+        { time: '4:30 PM', title: 'Crew checkout & timecard', job: 'All', who: '', type: 'admin' as const },
+      ]
 
   useEffect(() => {
     let cancelled = false
@@ -283,41 +450,6 @@ export function DashboardPage() {
 
   const calendarBusyDays = new Set<number>()
 
-  const isSelectedToday = selectedTaskDate === todayKey
-  const selectedDateLabel = isSelectedToday
-    ? "Today's Schedule"
-    : `${formatDate(selectedTaskDate)} Schedule`
-
-  const toggleScheduleItemCompleted = async (item: ScheduleItem) => {
-    const next = !item.completed
-    try {
-      if (item.type === 'task') {
-        await api.projects.updateTask(item.projectId, item.id, { completed: next })
-      } else {
-        await api.projects.updateMilestone(item.projectId, item.id, { completed: next })
-      }
-      setScheduleItems((prev) =>
-        prev.map((i) => (i.id === item.id && i.type === item.type ? { ...i, completed: next } : i))
-      )
-    } catch {
-      // keep UI state on error
-    }
-  }
-
-  const toggleRow = (id: string) => {
-    setSelectedRows((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const toggleAllRows = () => {
-    if (selectedRows.size === projects.length) setSelectedRows(new Set())
-    else setSelectedRows(new Set(projects.map((p) => p.id)))
-  }
-
   const filteredProjects = projects.filter(
     (p) =>
       projectSearch === '' ||
@@ -326,186 +458,162 @@ export function DashboardPage() {
       p.client.toLowerCase().includes(projectSearch.toLowerCase())
   )
 
+  const greeting = (() => {
+    const h = dayjs().hour()
+    if (h < 12) return 'Good morning'
+    if (h < 17) return 'Good afternoon'
+    return 'Good evening'
+  })()
+  const userName = 'Kyle'
+
   return (
     <div className="layout">
       <main className="main">
-        <div className="dashboard-page-header">
-          <button type="button" className="hamburger" onClick={() => appLayout?.openMobileNav()} aria-label="Open menu">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M2 4h12M2 8h12M2 12h12" /></svg>
+        {/* Page heading: hamburger + date & greeting + New Project */}
+        <div className="dashboard-page-header flex-wrap gap-3">
+          <button type="button" className="hamburger shrink-0" onClick={() => appLayout?.openMobileNav()} aria-label="Open menu">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M2 4h12M2 8h12M2 12h12" /></svg>
+          </button>
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 flex-1 min-w-0">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-white-dim mb-0.5">
+                {dayjs().format('dddd, MMMM D, YYYY')}
+              </div>
+              <h1 className="dashboard-title text-2xl font-normal tracking-tight m-0">
+                {greeting}, {userName}.
+              </h1>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary shrink-0 py-2 px-4 text-sm font-semibold flex items-center gap-1.5"
+              onClick={() => navigate('/projects')}
+            >
+              <IconPlus className="w-4 h-4" />
+              New Project
             </button>
-            <h1 className="dashboard-title">Dashboard</h1>
-            <div className="dashboard-main-search">
-              <div className="search-wrap">
-                <IconSearch className="w-[13px] h-[13px] shrink-0" />
-                <input
-                  type="search"
-                  placeholder="Search projects…"
-                  value={projectSearch}
-                  onChange={(e) => setProjectSearch(e.target.value)}
-                  aria-label="Search projects"
-                />
-              </div>
-            </div>
           </div>
-          <div className="metrics">
-            <div className="metric-card">
-              <div className="metric-label">Total Revenue</div>
-              <div className="metric-value">{formatCurrency(revenueData.revenue)}</div>
-              <div className="metric-footer">
-                <span className="badge-up">
-                  <IconArrowUp style={{ width: 9, height: 9 }} />
-                  +{revenueData.periodTrend}%
-                </span>
-                <div className="metric-tabs">
-                  <button type="button" className={`metric-tab ${revenuePeriod === 'ytd' ? 'active' : ''}`} onClick={() => setRevenuePeriod('ytd')}>YTD</button>
-                  <button type="button" className={`metric-tab ${revenuePeriod === 'month' ? 'active' : ''}`} onClick={() => setRevenuePeriod('month')}>Monthly</button>
-                </div>
-              </div>
-            </div>
-            <div className="metric-card">
-              <div className="metric-label">Total Expense</div>
-              <div className="metric-value">{formatCurrency(expenseData.value)}</div>
-              <div className="metric-footer">
-                <span className="badge-up">
-                  <IconArrowUp style={{ width: 9, height: 9 }} />
-                  +{expenseData.trend}%
-                </span>
-                <div className="metric-tabs">
-                  <button type="button" className={`metric-tab ${expensePeriod === 'ytd' ? 'active' : ''}`} onClick={() => setExpensePeriod('ytd')}>YTD</button>
-                  <button type="button" className={`metric-tab ${expensePeriod === 'month' ? 'active' : ''}`} onClick={() => setExpensePeriod('month')}>Monthly</button>
-                </div>
-              </div>
-            </div>
-          </div>
+        </div>
 
-          <div className="section-header">
-            <span className="section-title">{selectedDateLabel}</span>
-            <button type="button" className="add-pill" aria-label="Add task"><IconPlus style={{ width: 11, height: 11 }} /></button>
-          </div>
-          <div className="tasks-card">
-            {scheduleLoading ? (
-              <div className="task-item">
-                <div className="task-check" />
-                <div className="task-info">
-                  <div className="task-name">Loading schedule…</div>
-                  <div className="task-project">Fetching tasks and milestones</div>
-                </div>
-              </div>
-            ) : scheduleItems.length > 0 ? (
-              scheduleItems.map((item) => (
+        {/* Needs Attention */}
+        {visibleAlerts.length > 0 && (
+          <div className="space-y-1.5 mb-5">
+            {visibleAlerts.map((alert) => {
+              const u = URGENCY_STYLES[alert.urgency]
+              return (
                 <div
-                  key={`${item.type}-${item.id}`}
-                  className={`task-item ${item.completed ? 'done' : ''}`}
+                  key={alert.id}
+                  className="flex items-center gap-3 rounded-xl px-4 py-2.5 border"
+                  style={{ background: u.bg, borderColor: u.border }}
+                >
+                  <span className="text-base shrink-0" aria-hidden>{alert.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[13px] font-semibold" style={{ color: u.color }}>{alert.label}</span>
+                    <span className="text-xs text-gray-500 dark:text-white-dim ml-2">{alert.sub}</span>
+                  </div>
+                  <button type="button" className="text-[11px] font-semibold text-white px-3 py-1 rounded-md shrink-0" style={{ background: u.color }}>
+                    {alert.action}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedAlerts((d) => [...d, alert.id])}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-white-dim text-lg leading-none p-0 shrink-0"
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* KPI cards: 4 columns */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: 'Total Revenue', val: fmt(revenueData.revenue), sub: `+${revenueData.periodTrend}% YTD`, color: '#10B981', spark: SPARKLINE_REVENUE, sparkColor: '#10B981' },
+            { label: 'Total Expense', val: fmt(expenseData.value), sub: `+${expenseData.trend}% YTD`, color: '#F59E0B', spark: SPARKLINE_EXPENSE, sparkColor: '#F59E0B' },
+            { label: 'Outstanding', val: fmt(12835), sub: '2 open invoices', color: '#EF4444', spark: null, sparkColor: null },
+            { label: 'Active Jobs', val: String(activeJobsCount), sub: `of ${projects.length} projects`, color: '#3B82F6', spark: null, sparkColor: null },
+          ].map((k, i) => (
+            <div
+              key={i}
+              className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-4 pt-[18px] pb-3 relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-2xl" style={{ background: k.color }} />
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-white-dim mb-2">{k.label}</div>
+              <div className="text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1.5">{k.val}</div>
+              {k.spark ? (
+                <div className="flex items-end justify-between gap-2">
+                  <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
+                  <Sparkline data={k.spark} color={k.sparkColor} height={28} width={72} />
+                </div>
+              ) : (
+                <div className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Today's Schedule */}
+        <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden mb-6">
+          <div className="px-5 py-3.5 border-b border-gray-100 dark:border-border flex items-center justify-between">
+            <span className="text-[13px] font-bold text-gray-900 dark:text-landing-white">Today&apos;s Schedule</span>
+            <button type="button" className="text-[11px] px-2.5 py-1 rounded-md border border-gray-200 dark:border-border-dark text-gray-500 dark:text-white-dim hover:bg-gray-50 dark:hover:bg-dark-4">
+              + Add
+            </button>
+          </div>
+          {scheduleLoading ? (
+            <div className="px-5 py-4 text-sm text-gray-500 dark:text-white-dim">Loading schedule…</div>
+          ) : (
+            scheduleForDisplay.map((item, i) => {
+              const t = SCHEDULE_TYPE_STYLES[item.type] || SCHEDULE_TYPE_STYLES.admin
+              return (
+                <div
+                  key={i}
+                  className="flex items-center gap-3.5 px-5 py-3 border-b border-gray-50 dark:border-border/50 last:border-0 hover:bg-gray-50/80 dark:hover:bg-dark-4/50 cursor-pointer transition-colors"
+                  onClick={() => navigate('/projects')}
+                  onKeyDown={(e) => e.key === 'Enter' && navigate('/projects')}
                   role="button"
                   tabIndex={0}
-                  onClick={() => navigate(`/projects/${item.projectId}?tab=schedule`)}
-                  onKeyDown={(e) => e.key === 'Enter' && navigate(`/projects/${item.projectId}?tab=schedule`)}
                 >
-                  <div
-                    className={`task-check ${item.completed ? 'checked' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); toggleScheduleItemCompleted(item) }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); toggleScheduleItemCompleted(item) } }}
-                    aria-label={item.completed ? 'Mark incomplete' : 'Mark complete'}
-                  >
-                    <svg viewBox="0 0 10 8" aria-hidden><polyline points="1,4 4,7 9,1" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
+                  <div className="text-[11px] font-semibold text-gray-500 dark:text-white-dim w-14 shrink-0">{item.time}</div>
+                  <div className="w-0.5 h-8 rounded-sm shrink-0" style={{ background: t.color }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-gray-900 dark:text-landing-white">{item.title}</div>
+                    <div className="text-[11px] text-gray-500 dark:text-white-dim">{item.job}{item.who ? ` · ${item.who}` : ''}</div>
                   </div>
-                  <div className="task-info">
-                    <div className="task-name">{item.title}</div>
-                    <div className="task-project">
-                      {item.projectName}
-                      {item.responsible ? ` · ${item.responsible}` : ''}
-                    </div>
-                  </div>
-                  <span className="task-tag">{item.type === 'milestone' ? 'Milestone' : 'Task'}</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: t.bg, color: t.color }}>{item.type}</span>
                 </div>
-              ))
-            ) : (
-              <div className="task-item">
-                <div className="task-check" />
-                <div className="task-info">
-                  <div className="task-name">No tasks for this date</div>
-                  <div className="task-project">Select another day or add a task from a project Schedule tab</div>
-                </div>
-              </div>
-            )}
-          </div>
+              )
+            })
+          )}
+        </div>
 
-          <div className="section-header" style={{ marginTop: 24 }}>
-            <span className="section-title">Projects</span>
-          </div>
-          <div className="projects-card">
-            <div className="projects-top">
-              <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginLeft: 'auto' }}>
-                <button type="button" className="btn btn-ghost" style={{ padding: '6px 11px', gap: 5 }} aria-label="Filter">
-                  <IconBarChart style={{ width: 12, height: 12 }} />
-                  Filter
-                </button>
-                <button type="button" className="btn btn-ghost" style={{ padding: '6px 11px', gap: 5 }} aria-label="Manage projects">
-                  <IconChip className="w-3 h-3 shrink-0" />
-                  Manage Projects
-                </button>
-                <button type="button" className="add-pill" style={{ width: 34, height: 34 }} aria-label="Add project">
-                  <IconPlus style={{ width: 11, height: 11 }} />
-                </button>
-              </div>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th className="chk">
-                      <input type="checkbox" checked={selectedRows.size === projects.length && projects.length > 0} onChange={toggleAllRows} aria-label="Select all projects" />
-                    </th>
-                    <th>Project</th>
-                    <th>Client</th>
-                    <th>Budget</th>
-                    <th>Timeline</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProjects.map((row) => (
-                    <tr key={row.id}>
-                      <td className="chk">
-                        <input
-                          type="checkbox"
-                          checked={selectedRows.has(row.id)}
-                          onChange={() => toggleRow(row.id)}
-                          aria-label={`Select ${row.name}`}
-                        />
-                      </td>
-                      <td>
-                        <div className="proj-name">{row.name}</div>
-                        <div className="proj-id">{row.id}</div>
-                      </td>
-                      <td>
-                        <div className="client-cell">
-                          <div className={`c-av av-${['sn', 'jl', 'ak', 'mr'][filteredProjects.indexOf(row) % 4]}`}>
-                            {row.client.split(' ').map((n) => n[0]).join('')}
-                          </div>
-                          <span className="client-name">{row.client}</span>
-                        </div>
-                      </td>
-                      <td><span className="budget-val">{formatCurrency(row.budget)}</span></td>
-                      <td><span className="timeline-val">{row.timeline}</span></td>
-                      <td>
-                        <span className={`status-pill s-${row.status === 'Active' ? 'active' : row.status === 'Planning' ? 'planning' : row.status === 'Completed' ? 'completed' : 'hold'}`}>
-                          {row.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* Projects grid */}
+        <div>
+          <div className="flex items-center justify-between mb-3.5">
+            <span className="text-[13px] font-bold text-gray-900 dark:text-landing-white">Projects</span>
+            <div className="flex gap-1.5">
+              <button type="button" className="py-1.5 px-3 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
+                Filter
+              </button>
+              <button type="button" className="py-1.5 px-3 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3" onClick={() => navigate('/projects')}>
+                Manage
+              </button>
             </div>
           </div>
-        </main>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {filteredProjects.map((p) => (
+              <ProjectHealthCard key={p.id} project={p} onClick={() => navigate(`/projects/${p.id}`)} />
+            ))}
+          </div>
+        </div>
+      </main>
 
-        {/* Calendar + Chats: right side of page content (same level as main, no separate panel) */}
-        <div className="content-right">
-          <div className="rounded-xl bg-white dark:bg-dark-3 border border-gray-200 dark:border-border-dark shadow-card p-4 mb-6">
+        {/* Right sidebar: Calendar, Clocked In, Recent Chats */}
+        <div className="content-right flex flex-col gap-5">
+          {/* Calendar card */}
+          <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-4">
             <CalendarWidget
               viewYear={calendarView.year}
               viewMonth={calendarView.month}
@@ -527,39 +635,79 @@ export function DashboardPage() {
             />
           </div>
 
-          <div className="divider" />
+          {/* Clocked In Now */}
+          <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-border flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-900 dark:text-landing-white">Clocked In Now</span>
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">● {CREW.length} active</span>
+            </div>
+            {CREW.map((c, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ background: c.color + '20', color: c.color }}>{c.initials}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.name}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-white-dim truncate">{c.job}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.hours}h</div>
+                  <div className="text-[10px] text-gray-500 dark:text-white-dim">{c.clockedIn}</div>
+                </div>
+              </div>
+            ))}
+            <div className="px-4 py-2.5 border-t border-gray-100 dark:border-border">
+              <button type="button" className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
+                View Full Timeclock →
+              </button>
+            </div>
+          </div>
 
-          <div className="chats-header">
-            <span className="sidebar-label" style={{ marginBottom: 0 }}>Recent Chats</span>
-            <button type="button" className="add-pill" aria-label="New chat"><IconPlus className="w-[11px] h-[11px]" /></button>
-          </div>
-          <div className="s-search" style={{ marginBottom: 10 }}>
-            <IconSearch className="w-[13px] h-[13px]" />
-            <input type="search" placeholder="Search…" value={chatSearch} onChange={(e) => setChatSearch(e.target.value)} aria-label="Search chats" />
-          </div>
+          {/* Recent Chats card */}
+          <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden flex flex-col min-h-0">
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-border flex items-center justify-between shrink-0">
+              <span className="text-xs font-bold text-gray-900 dark:text-landing-white">Recent Chats</span>
+              <button type="button" className="text-gray-500 dark:text-white-dim hover:text-gray-700 dark:hover:text-landing-white text-lg leading-none" aria-label="New chat">+</button>
+            </div>
+            <div className="p-2 shrink-0">
+              <div className="relative">
+                <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-white-faint pointer-events-none" />
+                <input type="search" placeholder="Search…" value={chatSearch} onChange={(e) => setChatSearch(e.target.value)} className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 dark:border-border-dark bg-gray-50 dark:bg-dark-4 text-sm text-gray-900 dark:text-landing-white placeholder:text-gray-400 dark:placeholder:text-white-dim focus:outline-none focus:ring-2 focus:ring-accent/30" aria-label="Search chats" />
+              </div>
+            </div>
 
           {selectedContactId == null ? (
-            <div className="flex flex-col gap-0">
-              {CHAT_CONTACTS.filter((c) => !chatSearch || c.name.toLowerCase().includes(chatSearch.toLowerCase())).map((c) => {
-                const msgs = conversationsByContactId[c.id] ?? []
-                const last = msgs[msgs.length - 1]
-                const preview = last ? (last.role === 'user' ? 'You: ' : '') + last.text : 'No messages yet'
-                const avClass = c.id === 'support' ? 'ca-s' : c.id === 'pm' ? 'ca-sp' : 'ca-me'
-                return (
-                  <div key={c.id} className="chat-item" onClick={() => setSelectedContactId(c.id)} onKeyDown={(e) => e.key === 'Enter' && setSelectedContactId(c.id)} role="button" tabIndex={0}>
-                    <div className={`ch-av ${avClass}`}>{c.initials}</div>
-                    {c.unread > 0 && <div className="unread-badge">{c.unread > 99 ? '99+' : c.unread}</div>}
-                    <div className="chat-body">
-                      <div className="chat-row">
-                        <span className="chat-name">{c.name}</span>
-                        <span className="chat-time">{c.timeLabel}</span>
+            <>
+              <div className="flex flex-col overflow-y-auto min-h-0">
+                {CHAT_CONTACTS.filter((c) => !chatSearch || c.name.toLowerCase().includes(chatSearch.toLowerCase())).map((c) => {
+                  const msgs = conversationsByContactId[c.id] ?? []
+                  const last = msgs[msgs.length - 1]
+                  const preview = last ? (last.role === 'user' ? 'You: ' : '') + last.text : 'No messages yet'
+                  return (
+                    <div key={c.id} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0 hover:bg-gray-50 dark:hover:bg-dark-4/50 cursor-pointer transition-colors" onClick={() => setSelectedContactId(c.id)} onKeyDown={(e) => e.key === 'Enter' && setSelectedContactId(c.id)} role="button" tabIndex={0}>
+                      <div className="relative shrink-0">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: c.color + '20', color: c.color }}>{c.initials}</div>
+                        {c.unread > 0 && (
+                          <div className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-accent border-2 border-white dark:border-dark-3 flex items-center justify-center text-[8px] font-bold text-white">
+                            {c.unread > 99 ? '99+' : c.unread}
+                          </div>
+                        )}
                       </div>
-                      <div className="chat-pre">{preview.length > 40 ? preview.slice(0, 40) + '…' : preview}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center gap-2 mb-0.5">
+                          <span className={`text-xs truncate ${c.unread ? 'font-bold' : 'font-medium'} text-gray-900 dark:text-landing-white`}>{c.name}</span>
+                          <span className="text-[10px] text-gray-500 dark:text-white-dim shrink-0">{c.timeLabel}</span>
+                        </div>
+                        <div className="text-[11px] text-gray-500 dark:text-white-dim truncate">{preview.length > 40 ? preview.slice(0, 40) + '…' : preview}</div>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+              <div className="p-2.5 border-t border-gray-100 dark:border-border shrink-0">
+                <button type="button" className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
+                  View All Messages →
+                </button>
+              </div>
+            </>
           ) : (
             <div className="flex flex-col min-h-0">
               <div className="py-2 shrink-0 flex items-center gap-2">
@@ -632,6 +780,7 @@ export function DashboardPage() {
               </form>
             </div>
           )}
+          </div>
         </div>
     </div>
   )

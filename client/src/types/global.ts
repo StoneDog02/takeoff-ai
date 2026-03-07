@@ -103,6 +103,18 @@ export interface Subcontractor {
   phone?: string
 }
 
+/** Work type for a project: clock-in option for crew with name, rate, unit (e.g. General Labor $85/hr). */
+export interface ProjectWorkType {
+  id: string
+  project_id: string
+  name: string
+  description?: string
+  rate: number
+  unit: string
+  /** Optional type/category for icon/color (e.g. 'labor', 'tile', 'plumbing'). */
+  type_key?: string
+}
+
 /** Global contractor contact (Manage > Contractors). Not tied to a project. */
 export interface Contractor {
   id: string
@@ -126,6 +138,8 @@ export interface TakeoffItem {
   quantity: number
   unit: string
   notes?: string
+  /** Subcategory within the takeoff category (e.g. Footings, Pipe, Manholes & Structures). Used for sidebar sub-sections. */
+  subcategory?: string
   trade_tag?: string
   cost_estimate?: number | null
   [key: string]: unknown
@@ -210,6 +224,33 @@ export interface EstimateLineItem {
 
 export type InvoiceStatus = 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue'
 
+/** Pipeline stage for estimates & invoices (reference flow). */
+export type PipelineStage = 'draft' | 'sent' | 'accepted' | 'invoiced' | 'paid'
+
+/** Milestone for progress invoicing (estimate). */
+export interface PipelineMilestone {
+  label: string
+  pct: number
+  amount: number
+  status: 'pending' | 'invoiced'
+}
+
+/** Unified pipeline item (estimate or invoice) for Kanban/stage view. */
+export interface PipelineItem {
+  id: string
+  type: 'estimate' | 'invoice'
+  job_id: string
+  jobName: string
+  client: string | null
+  date: string
+  amount: number
+  stage: PipelineStage
+  invoiced: number
+  paid: number
+  milestones: PipelineMilestone[]
+  estimate_id?: string | null
+}
+
 export interface Invoice {
   id: string
   estimate_id: string
@@ -238,7 +279,7 @@ export interface CustomProduct {
   created_at: string
 }
 
-export type ExpenseCategory = 'materials' | 'labor' | 'equipment' | 'misc'
+export type ExpenseCategory = 'materials' | 'labor' | 'equipment' | 'misc' | 'subs'
 
 export interface JobExpense {
   id: string
@@ -248,6 +289,24 @@ export interface JobExpense {
   description?: string
   receipt_file_url?: string
   created_at: string
+  /** Optional: pass-through to client (include in invoice). */
+  billable?: boolean
+  /** Optional: vendor or store name. */
+  vendor?: string
+}
+
+/** Per-category budget for Budget vs Actual (e.g. mock). */
+export interface JobBudgetCategory {
+  allocated: number
+  color: string
+  bg: string
+}
+
+/** Optional job fields for Receipts: budget by category, progress, estimate total. */
+export interface JobReceiptsMeta {
+  estimateTotal?: number
+  pctComplete?: number
+  budget?: Partial<Record<string, JobBudgetCategory>>
 }
 
 /** For Projects tab: running spend total per job. */
@@ -348,6 +407,7 @@ export type EmployeeStatus = 'on_site' | 'off' | 'pto'
 export interface Employee {
   id: string
   user_id?: string
+  auth_user_id?: string | null
   name: string
   role: string
   email: string

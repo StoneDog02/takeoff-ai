@@ -49,6 +49,14 @@ export function LandingNav() {
         </li>
         <li>
           <Link
+            to="/sign-in"
+            className="text-white-dim text-sm no-underline hover:text-landing-white transition-colors"
+          >
+            Sign In
+          </Link>
+        </li>
+        <li>
+          <Link
             to="/sign-up"
             className="flex items-center gap-1.5 bg-accent text-white py-2.5 px-5 rounded-md font-medium text-sm shadow-[0_0_20px_var(--color-accent-glow)] hover:bg-accent-hover hover:-translate-y-px hover:shadow-[0_4px_30px_var(--color-accent-glow)] transition-all"
           >

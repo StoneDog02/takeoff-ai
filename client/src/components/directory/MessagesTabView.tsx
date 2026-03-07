@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Search, Send, Phone, Mail, Circle, Paperclip, Zap } from 'lucide-react'
+import { Search, Send, Phone, Mail, Paperclip, Zap } from 'lucide-react'
 import type { DirectoryContractor } from '@/data/mockDirectoryData'
 import type { ThreadMessage } from '@/data/mockDirectoryData'
-import { STATUS_COLOR } from '@/data/mockDirectoryData'
 import { DirectoryAvatar } from './DirectoryAvatar'
 import { TradePill } from './TradePill'
 import { Stars } from './Stars'
@@ -85,7 +84,7 @@ export function MessagesTabView({
             </div>
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
-            {filtered.map((c, i) => {
+            {filtered.map((c) => {
               const isActive = selected?.id === c.id
               const msgs = threads[c.id] ?? []
               const preview =
@@ -101,12 +100,7 @@ export function MessagesTabView({
                       : 'hover:bg-[var(--bg-hover)] dark:hover:bg-dark-4 border-l-[3px] border-l-transparent'
                   }`}
                 >
-                  <DirectoryAvatar
-                    initials={c.avatar}
-                    color={c.color}
-                    size={38}
-                    status={c.status}
-                  />
+                  <DirectoryAvatar initials={c.avatar} color={c.color} size={38} />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center mb-0.5">
                       <span
@@ -161,12 +155,7 @@ export function MessagesTabView({
                   {selected.name}
                 </div>
                 <div className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
-                  <Circle
-                    size={7}
-                    fill={STATUS_COLOR[selected.status]}
-                    color={STATUS_COLOR[selected.status]}
-                  />
-                  {selected.status} · <TradePill trade={selected.trade} />
+                  <TradePill trade={selected.trade} />
                 </div>
               </div>
               <div className="flex gap-2">
@@ -276,7 +265,6 @@ export function MessagesTabView({
                   initials={selected.avatar}
                   color={selected.color}
                   size={56}
-                  status={selected.status}
                 />
               </div>
               <div className="font-extrabold text-[15px] text-[var(--text-primary)] mb-0.5">

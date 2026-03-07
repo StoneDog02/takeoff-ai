@@ -8,7 +8,8 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id } = req.query
-    let q = supabase.from('job_geofences').select('*').eq('user_id', req.user?.id)
+    let q = supabase.from('job_geofences').select('*')
+    if (!req.employee) q = q.eq('user_id', req.user?.id)
     if (job_id) q = q.eq('job_id', job_id)
     const { data, error } = await q
     if (error) throw error
@@ -22,12 +23,9 @@ router.get('/job/:jobId', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
-    const { data, error } = await supabase
-      .from('job_geofences')
-      .select('*')
-      .eq('job_id', req.params.jobId)
-      .eq('user_id', req.user?.id)
-      .maybeSingle()
+    let q = supabase.from('job_geofences').select('*').eq('job_id', req.params.jobId)
+    if (!req.employee) q = q.eq('user_id', req.user?.id)
+    const { data, error } = await q.maybeSingle()
     if (error) throw error
     res.json(data || null)
   } catch (err) {
@@ -37,6 +35,7 @@ router.get('/job/:jobId', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot create geofences' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id, center_lat, center_lng, radius_value, radius_unit } = req.body || {}
@@ -67,6 +66,7 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot update geofences' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { center_lat, center_lng, radius_value, radius_unit } = req.body || {}
@@ -92,6 +92,7 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot delete geofences' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { error } = await supabase

@@ -4,10 +4,17 @@ import type { AttendanceRecord, Employee } from '@/types/global'
 import { dayjs, formatDate, formatDateTime } from '@/lib/date'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
 
-export function AttendanceRecordList() {
+type AttFilter = 'all' | 'on-time' | 'early-out' | 'late'
+
+interface AttendanceRecordListProps {
+  onSelectEmployee?: (emp: Employee) => void
+}
+
+export function AttendanceRecordList({ onSelectEmployee }: AttendanceRecordListProps) {
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [employeeFilter, setEmployeeFilter] = useState<string>('')
+  const [attFilter, setAttFilter] = useState<AttFilter>('all')
   const [loading, setLoading] = useState(true)
 
   const load = () => {
@@ -35,6 +42,16 @@ export function AttendanceRecordList() {
   const earlyCount = records.filter((r) => r.early_departure_minutes != null && r.early_departure_minutes > 0).length
   const onTimeCount = records.length - lateCount - earlyCount
 
+  const getRecordStatus = (r: AttendanceRecord): AttFilter => {
+    if (r.late_arrival_minutes != null && r.late_arrival_minutes > 0) return 'late'
+    if (r.early_departure_minutes != null && r.early_departure_minutes > 0) return 'early-out'
+    return 'on-time'
+  }
+  const filteredRecords =
+    attFilter === 'all'
+      ? records
+      : records.filter((r) => getRecordStatus(r) === attFilter)
+
   return (
     <div className="teams-tab-body">
       <div className="teams-metrics-row">
@@ -55,8 +72,7 @@ export function AttendanceRecordList() {
         </div>
       </div>
 
-      <div className="teams-toolbar-row">
-        <span className="teams-metric-label" style={{ marginBottom: 0, marginRight: 4 }}>Filter:</span>
+      <div className="teams-toolbar-row" style={{ flexWrap: 'wrap', gap: 12 }}>
         <select
           className="teams-select"
           value={employeeFilter}
@@ -68,6 +84,28 @@ export function AttendanceRecordList() {
             <option key={e.id} value={e.id}>{e.name}</option>
           ))}
         </select>
+        <div style={{ display: 'flex', background: 'var(--bg-raised)', borderRadius: 7, padding: 3, gap: 2, border: '1px solid var(--border)' }}>
+          {(['all', 'on-time', 'early-out', 'late'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setAttFilter(v)}
+              style={{
+                padding: '4px 10px',
+                border: 'none',
+                borderRadius: 5,
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: 'pointer',
+                background: attFilter === v ? 'var(--color-surface-elevated)' : 'transparent',
+                color: attFilter === v ? 'var(--text-primary)' : 'var(--text-muted)',
+                boxShadow: attFilter === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              {v === 'all' ? 'All' : v === 'on-time' ? 'On Time' : v === 'early-out' ? 'Early Out' : 'Late'}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="teams-table-wrap">
@@ -92,19 +130,27 @@ export function AttendanceRecordList() {
                 </td>
               </tr>
             ) : (
-              records.map((r) => {
+              filteredRecords.map((r) => {
                 const status = r.late_arrival_minutes != null && r.late_arrival_minutes > 0
                   ? 'late'
                   : r.early_departure_minutes != null && r.early_departure_minutes > 0
                     ? 'early'
                     : 'ontime'
                 const statusLabel = status === 'late' ? 'Late' : status === 'early' ? 'Early out' : 'On time'
+                const emp = employeeMap.get(r.employee_id)
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    role={onSelectEmployee && emp ? 'button' : undefined}
+                    tabIndex={onSelectEmployee && emp ? 0 : undefined}
+                    onClick={() => emp && onSelectEmployee?.(emp)}
+                    onKeyDown={(e) => emp && onSelectEmployee && e.key === 'Enter' && onSelectEmployee(emp)}
+                    style={{ cursor: onSelectEmployee && emp ? 'pointer' : undefined }}
+                  >
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <TeamsAvatar initials={getInitials(employeeMap.get(r.employee_id)?.name ?? '?')} size="sm" />
-                        <span className="teams-cell-name">{employeeMap.get(r.employee_id)?.name ?? r.employee_id}</span>
+                        <TeamsAvatar initials={getInitials(emp?.name ?? '?')} size="sm" />
+                        <span className="teams-cell-name">{emp?.name ?? r.employee_id}</span>
                       </div>
                     </td>
                     <td><span className="teams-cell-muted">{formatDate(r.date)}</span></td>

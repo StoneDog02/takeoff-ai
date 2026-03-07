@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, Send, Phone, Mail, MapPin, Circle, MoreHorizontal, Paperclip, Smile, Plus, X } from 'lucide-react'
+import { Search, Send, Phone, Mail, MapPin, MoreHorizontal, Paperclip, Smile, Plus, X } from 'lucide-react'
 import { teamsApi } from '@/api/teams'
 import { getAggregatedSubcontractors } from '@/api/directory'
 import { getInitials } from '@/components/teams/TeamsAvatar'
@@ -48,23 +48,15 @@ const THREAD_MESSAGES: Record<string, ThreadMessage[]> = {
   ],
 }
 
-const STATUS_COLOR: Record<ContactStatus, string> = {
-  online: '#22c55e',
-  away: '#f59e0b',
-  offline: 'var(--text-muted)',
-}
-
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
   initials,
   color,
   size = 40,
-  status,
 }: {
   initials: string
   color: string
   size?: number
-  status?: ContactStatus
 }) {
   return (
     <div className="messages-avatar-wrap">
@@ -81,15 +73,6 @@ function Avatar({
       >
         {initials}
       </div>
-      {status && (
-        <div
-          className="messages-avatar-status"
-          style={{
-            background: STATUS_COLOR[status],
-            borderColor: 'var(--bg-page)',
-          }}
-        />
-      )}
     </div>
   )
 }
@@ -349,7 +332,7 @@ export function MessagesPage() {
                       onKeyDown={(e) => e.key === 'Enter' && setSelected(person)}
                       className={`messages-contact-row ${isActive ? 'active' : ''}`}
                     >
-                      <Avatar initials={person.avatar} color={person.color} size={40} status={person.status} />
+                      <Avatar initials={person.avatar} color={person.color} size={40} />
                       <div className="messages-contact-info">
                         <div className="messages-contact-top">
                           <span className="messages-contact-name">{person.name}</span>
@@ -377,13 +360,10 @@ export function MessagesPage() {
               {selected && (
                 <>
                   <div className="messages-chat-header">
-                    <Avatar initials={selected.avatar} color={selected.color} size={42} status={selected.status} />
+                    <Avatar initials={selected.avatar} color={selected.color} size={42} />
                     <div className="messages-chat-header-info">
                       <div className="messages-chat-header-name">{selected.name}</div>
-                      <div className="messages-chat-header-meta">
-                        <Circle size={7} fill={STATUS_COLOR[selected.status]} color={STATUS_COLOR[selected.status]} />
-                        {selected.status.charAt(0).toUpperCase() + selected.status.slice(1)} · {selected.role}
-                      </div>
+                      <div className="messages-chat-header-meta">{selected.role}</div>
                     </div>
                     <div className="messages-chat-header-actions">
                       <a href={`tel:${selected.phone}`} className="messages-icon-btn" aria-label="Call">
@@ -490,7 +470,7 @@ export function MessagesPage() {
               <div className="messages-profile-panel">
                 <div className="messages-profile-card">
                   <div className="messages-profile-avatar-wrap">
-                    <Avatar initials={selected.avatar} color={selected.color} size={60} status={selected.status} />
+                    <Avatar initials={selected.avatar} color={selected.color} size={60} />
                   </div>
                   <div className="messages-profile-name">{selected.name}</div>
                   <div className="messages-profile-role">{selected.role}</div>
@@ -585,7 +565,7 @@ export function MessagesPage() {
                           className="messages-modal-contact-btn"
                           onClick={() => handlePickContact(contact)}
                         >
-                          <Avatar initials={contact.avatar} color={contact.color} size={36} status={contact.status} />
+                          <Avatar initials={contact.avatar} color={contact.color} size={36} />
                           <div className="messages-modal-contact-info">
                             <span className="messages-modal-contact-name">{contact.name}</span>
                             <span className="messages-modal-contact-meta">

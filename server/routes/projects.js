@@ -756,14 +756,14 @@ router.put('/:id/bid-sheet', loadProject, async (req, res, next) => {
       supabase.from('sub_bids').select('*'),
       supabase.from('bid_sheets').select('*').eq('project_id', projectId).maybeSingle(),
     ])
-    const trade_packages = packagesRes.data || []
-    const packageIdsFinal = trade_packages.map((p) => p.id)
-    const sub_bids = (bidsRes.data || []).filter((b) => packageIdsFinal.includes(b.trade_package_id))
+    const packages = packagesRes.data || []
+    const packageIdsFinal = packages.map((p) => p.id)
+    const bids = (bidsRes.data || []).filter((b) => packageIdsFinal.includes(b.trade_package_id))
     const sheet = sheetRes.data
     res.json({
       project_id: projectId,
-      trade_packages,
-      sub_bids,
+      trade_packages: packages,
+      sub_bids: bids,
       cost_buckets: sheet?.cost_buckets || {},
       proposal_lines: sheet?.proposal_lines || [],
     })

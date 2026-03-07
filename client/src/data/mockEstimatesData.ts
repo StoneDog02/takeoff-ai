@@ -10,6 +10,8 @@ import type {
   CustomProduct,
   JobExpense,
   JobSpendSummary,
+  PipelineItem,
+  JobReceiptsMeta,
 } from '@/types/global'
 import type { EstimateWithLines } from '@/api/estimates'
 
@@ -235,14 +237,42 @@ export const MOCK_INVOICES: Invoice[] = [
 
 // ——— Job expenses (receipts & spend) ———
 export const MOCK_JOB_EXPENSES: JobExpense[] = [
-  { id: 'exp-1', job_id: 'job-kitchen', amount: 420, category: 'materials', description: 'Lumber and fasteners', created_at: past(12) },
-  { id: 'exp-2', job_id: 'job-kitchen', amount: 185, category: 'labor', description: 'Sub – electrician', created_at: past(10) },
-  { id: 'exp-3', job_id: 'job-kitchen', amount: 90, category: 'equipment', description: 'Tool rental', created_at: past(8) },
-  { id: 'exp-4', job_id: 'job-bath', amount: 620, category: 'materials', description: 'Tile and thinset', created_at: past(6) },
-  { id: 'exp-5', job_id: 'job-bath', amount: 340, category: 'materials', description: 'Vanity and faucet', created_at: past(4) },
-  { id: 'exp-6', job_id: 'job-addition', amount: 1200, category: 'materials', description: 'Framing package', created_at: past(25) },
-  { id: 'exp-7', job_id: 'job-addition', amount: 450, category: 'labor', description: 'Crane day', created_at: past(22) },
+  { id: 'exp-1', job_id: 'job-kitchen', amount: 420, category: 'materials', description: 'Lumber and fasteners', created_at: past(12), billable: true, vendor: 'Home Depot' },
+  { id: 'exp-2', job_id: 'job-kitchen', amount: 185, category: 'subs', description: 'Sub – electrician', created_at: past(10), billable: false, vendor: 'ABC Electric' },
+  { id: 'exp-3', job_id: 'job-kitchen', amount: 90, category: 'equipment', description: 'Tool rental', created_at: past(8), billable: false, vendor: 'Sunbelt Rentals' },
+  { id: 'exp-4', job_id: 'job-kitchen', amount: 340, category: 'materials', description: 'Cabinet hardware', created_at: past(6), billable: true, vendor: "Lowe's" },
+  { id: 'exp-5', job_id: 'job-kitchen', amount: 680, category: 'labor', description: 'Framing crew – day 1', created_at: past(5), billable: true, vendor: 'Internal' },
+  { id: 'exp-6', job_id: 'job-kitchen', amount: 680, category: 'labor', description: 'Framing crew – day 2', created_at: past(4), billable: true, vendor: 'Internal' },
+  { id: 'exp-7', job_id: 'job-kitchen', amount: 890, category: 'materials', description: 'Drywall sheets', created_at: past(3), billable: true, vendor: '84 Lumber' },
+  { id: 'exp-8', job_id: 'job-kitchen', amount: 210, category: 'materials', description: 'Paint & primer', created_at: past(2), billable: true, vendor: 'Sherwin-Williams' },
+  { id: 'exp-9', job_id: 'job-bath', amount: 620, category: 'materials', description: 'Tile and thinset', created_at: past(6) },
+  { id: 'exp-10', job_id: 'job-bath', amount: 340, category: 'materials', description: 'Vanity and faucet', created_at: past(4) },
+  { id: 'exp-11', job_id: 'job-addition', amount: 1200, category: 'materials', description: 'Framing package', created_at: past(25) },
+  { id: 'exp-12', job_id: 'job-addition', amount: 450, category: 'labor', description: 'Crane day', created_at: past(22) },
 ]
+
+// ——— Job budget & progress (for Budget vs Actual, change-order alert) ———
+export const MOCK_JOB_RECEIPTS_META: Record<string, JobReceiptsMeta> = {
+  'job-kitchen': {
+    estimateTotal: 17835,
+    pctComplete: 60,
+    budget: {
+      Labor: { allocated: 5200, color: 'var(--est-amber)', bg: 'var(--est-amber-light)' },
+      Materials: { allocated: 9800, color: 'var(--blue)', bg: 'var(--blue-glow)' },
+      Equipment: { allocated: 1200, color: 'var(--orange)', bg: 'rgba(199, 107, 26, 0.12)' },
+      Subs: { allocated: 1635, color: 'var(--red-light)', bg: 'var(--red-glow-soft)' },
+    },
+  },
+  'job-deck': {
+    estimateTotal: 2560,
+    pctComplete: 20,
+    budget: {
+      Labor: { allocated: 800, color: 'var(--est-amber)', bg: 'var(--est-amber-light)' },
+      Materials: { allocated: 1500, color: 'var(--blue)', bg: 'var(--blue-glow)' },
+      Equipment: { allocated: 260, color: 'var(--orange)', bg: 'rgba(199, 107, 26, 0.12)' },
+    },
+  },
+}
 
 export const MOCK_JOB_SPEND_SUMMARIES: JobSpendSummary[] = [
   { job_id: 'job-kitchen', total_spend: 695, by_category: { materials: 420, labor: 185, equipment: 90 } },
@@ -268,4 +298,13 @@ export function getMockJobExpensesByJob(jobId: string): JobExpense[] {
 
 export function getMockSpendSummaryByJob(jobId: string): JobSpendSummary | null {
   return MOCK_JOB_SPEND_SUMMARIES.find((s) => s.job_id === jobId) ?? null
+}
+
+// ——— Pipeline: milestones for progress invoicing (mock) ———
+export const MOCK_ESTIMATE_MILESTONES: Record<string, PipelineItem['milestones']> = {
+  'est-1': [
+    { label: 'Deposit (30%)', pct: 30, amount: 5350.5, status: 'invoiced' },
+    { label: 'Rough-in (40%)', pct: 40, amount: 7134, status: 'pending' },
+    { label: 'Completion (30%)', pct: 30, amount: 5350.5, status: 'pending' },
+  ],
 }

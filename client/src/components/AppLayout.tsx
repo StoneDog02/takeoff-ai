@@ -1,11 +1,29 @@
-import { useState } from 'react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { PreviewBanner } from '@/components/PreviewBanner'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { usePreview } from '@/contexts/PreviewContext'
 
 export function AppLayout() {
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { isAdmin, type } = useAuth()
+  const { previewRole } = usePreview()
+  const showAdminNav = isAdmin && previewRole !== 'project_manager'
+  const showPmNav = !isAdmin || previewRole === 'project_manager'
+
+  useEffect(() => {
+    if (type === 'employee') navigate('/employee/clock', { replace: true })
+  }, [type, navigate])
+
+  useEffect(() => {
+    if (!isAdmin || previewRole === 'project_manager') return
+    if (location.pathname !== '/admin') navigate('/admin', { replace: true })
+  }, [isAdmin, previewRole, location.pathname, navigate])
 
   const toggleCollapse = () => setNavCollapsed((c) => !c)
   const openMobileNav = () => setMobileNavOpen(true)
@@ -30,36 +48,54 @@ export function AppLayout() {
           </div>
 
           <div className="nav-body">
-            <div className="nav-section-label">Workspace</div>
-            <NavLink to="/dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="1" y="1" width="6" height="6" rx="1.5" /><rect x="9" y="1" width="6" height="6" rx="1.5" /><rect x="1" y="9" width="6" height="6" rx="1.5" /><rect x="9" y="9" width="6" height="6" rx="1.5" /></svg>
-              <span className="nav-label">Dashboard</span>
-            </NavLink>
-            <NavLink to="/projects" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
-              <span className="nav-label">Projects</span>
-            </NavLink>
-            <NavLink to="/estimates" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12V4l6-2 6 2v8l-6 2-6-2z" /></svg>
-              <span className="nav-label">Estimates</span>
-            </NavLink>
-            <NavLink to="/revenue" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
-              <span className="nav-label">Revenue</span>
-            </NavLink>
+            {showPmNav && (
+              <>
+                <div className="nav-section-label">Workspace</div>
+                <NavLink to="/dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="1" y="1" width="6" height="6" rx="1.5" /><rect x="9" y="1" width="6" height="6" rx="1.5" /><rect x="1" y="9" width="6" height="6" rx="1.5" /><rect x="9" y="9" width="6" height="6" rx="1.5" /></svg>
+                  <span className="nav-label">Dashboard</span>
+                </NavLink>
+                <NavLink to="/projects" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
+                  <span className="nav-label">Projects</span>
+                </NavLink>
+                <NavLink to="/estimates" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12V4l6-2 6 2v8l-6 2-6-2z" /></svg>
+                  <span className="nav-label">Estimates</span>
+                </NavLink>
+                <NavLink to="/revenue" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
+                  <span className="nav-label">Revenue</span>
+                </NavLink>
 
-            <div className="nav-divider" />
-            <div className="nav-section-label">Manage</div>
-            <NavLink to="/teams" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M8 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM3 13c0-2.76 2.24-5 5-5s5 2.24 5 5" /></svg>
-              <span className="nav-label">Teams</span>
-            </NavLink>
-            <NavLink to="/directory" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 2h6v12H2zM8 2h6v12H8zM8 2v12M3 5h4M3 8h4M3 11h3" /></svg>
-              <span className="nav-label">Directory</span>
-            </NavLink>
+                <div className="nav-divider" />
+                <div className="nav-section-label">Manage</div>
+                <NavLink to="/teams" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M8 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM3 13c0-2.76 2.24-5 5-5s5 2.24 5 5" /></svg>
+                  <span className="nav-label">Teams</span>
+                </NavLink>
+                <NavLink to="/payroll" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12h3l2-4 2 6 2-4 3 2" /><path d="M2 14h12" /></svg>
+                  <span className="nav-label">Payroll</span>
+                </NavLink>
+                <NavLink to="/directory" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 2h6v12H2zM8 2h6v12H8zM8 2v12M3 5h4M3 8h4M3 11h3" /></svg>
+                  <span className="nav-label">Directory</span>
+                </NavLink>
 
-            <div className="nav-divider" />
+                <div className="nav-divider" />
+              </>
+            )}
+            {showAdminNav && (
+              <>
+                <div className="nav-section-label">Admin</div>
+                <NavLink to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12h3l2-4 2 6 2-4 3 2" /><path d="M2 14h12" /></svg>
+                  <span className="nav-label">Admin</span>
+                </NavLink>
+                <div className="nav-divider" />
+              </>
+            )}
             <div className="nav-section-label">Account</div>
           </div>
 
@@ -90,6 +126,7 @@ export function AppLayout() {
         </nav>
 
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
+          {previewRole === 'project_manager' && <PreviewBanner />}
           <AppLayoutProvider openMobileNav={openMobileNav}>
             <Outlet />
           </AppLayoutProvider>

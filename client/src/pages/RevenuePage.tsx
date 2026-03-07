@@ -1,320 +1,80 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { estimatesApi } from '@/api/estimates'
-import { useMockRevenue, getMockRevenueData } from '@/data/mockRevenueData'
-import type { Job, Invoice, JobExpense, JobSpendSummary } from '@/types/global'
-import type {
-  RevenueFiltersState,
-  RevenueSummary,
-  RevenueByJobRow,
-  RevenueTrendPoint,
-  ExpenditureByCategoryRow,
-} from '@/types/revenue'
-import { RevenueFilters } from '@/components/revenue/RevenueFilters'
-import { RevenueSummaryCards } from '@/components/revenue/RevenueSummaryCards'
-import { RevenueTrendChart } from '@/components/revenue/RevenueTrendChart'
-import { RevenueByJobTable, type JobTableRow } from '@/components/revenue/RevenueByJobTable'
-import { ExpenditureByCategoryChart } from '@/components/revenue/ExpenditureByCategoryChart'
+import { useState, useCallback } from 'react'
+import {
+  TREND_DATA,
+  LAST_YEAR,
+  JOBS,
+  EXPENDITURE,
+  CASHFLOW,
+  STATUS_CONFIG,
+} from '@/data/revenueSeedData'
+import type { TrendPeriodKey } from '@/data/revenueSeedData'
+import { RevenueAreaChart } from '@/components/revenue/RevenueAreaChart'
+import { RevenueDonutChart } from '@/components/revenue/RevenueDonutChart'
 import { RevenueExport } from '@/components/revenue/RevenueExport'
-import type { ExpenseCategory } from '@/types/global'
-import { dayjs, toISODate } from '@/lib/date'
 
-const CATEGORY_ORDER: ExpenseCategory[] = ['materials', 'labor', 'equipment', 'misc']
-
-function defaultFilters(): RevenueFiltersState {
-  const startOfMonth = dayjs().startOf('month')
-  return {
-    dateFrom: toISODate(startOfMonth),
-    dateTo: toISODate(dayjs()),
-    jobId: '',
-  }
-}
-
-function isInRange(dateStr: string | undefined, from: string, to: string): boolean {
-  if (!dateStr) return false
-  const d = dateStr.slice(0, 10)
-  return d >= from && d <= to
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const fmt = (n: number) =>
+  '$' + Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0 })
+const fmtK = (n: number) => (n >= 1000 ? '$' + (n / 1000).toFixed(0) + 'k' : fmt(n))
+const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0)
+const marginColor = (p: number) => (p >= 30 ? '#10B981' : p >= 15 ? '#F59E0B' : '#EF4444')
+const marginBg = (p: number) => (p >= 30 ? '#ECFDF5' : p >= 15 ? '#FFFBEB' : '#FEF2F2')
 
 export function RevenuePage() {
-  const isDemo = useMockRevenue()
-  const [filters, setFilters] = useState<RevenueFiltersState>(defaultFilters)
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [spendSummaries, setSpendSummaries] = useState<JobSpendSummary[]>([])
-  const [jobExpenses, setJobExpenses] = useState<JobExpense[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  /** True when we fell back to mock data after an API error */
-  const [showingMockFallback, setShowingMockFallback] = useState(false)
+  const [period, setPeriod] = useState<TrendPeriodKey>('YTD')
+  const [jobFilter, setJobFilter] = useState('All jobs')
+  const [viewMode, setViewMode] = useState<'overview' | 'margin'>('overview')
+  const [showComparison, setShowComparison] = useState(false)
+  const [fromDate, setFromDate] = useState('03/01/2026')
+  const [toDate, setToDate] = useState('03/06/2026')
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    setShowingMockFallback(false)
+  const chartData = TREND_DATA[period] ?? TREND_DATA.YTD
+  const comparisonData = period === 'Full year' ? LAST_YEAR['Full year'] ?? null : null
 
-    if (isDemo) {
-      const mock = getMockRevenueData(filters.jobId || undefined)
-      setJobs(mock.jobs)
-      setInvoices(mock.invoices)
-      setSpendSummaries(mock.spendSummaries)
-      setJobExpenses(mock.jobExpenses)
-      setLoading(false)
-      setFilters((prev) => {
-        const ytdFrom = toISODate(dayjs().startOf('year'))
-        const ytdTo = toISODate(dayjs())
-        if (prev.dateFrom === ytdFrom && prev.dateTo === ytdTo) return prev
-        return { ...prev, dateFrom: ytdFrom, dateTo: ytdTo }
-      })
-      return
-    }
+  const lastPoint = chartData[chartData.length - 1]
+  const totalRev = lastPoint.revenue
+  const totalExp = lastPoint.expenses
+  const netProfit = lastPoint.profit
+  const marginPct = pct(netProfit, totalRev)
+  const currentMonth =
+    chartData.length > 1
+      ? chartData[chartData.length - 1].revenue - chartData[chartData.length - 2].revenue
+      : chartData[0].revenue
 
-    Promise.all([
-      estimatesApi.getJobs(),
-      filters.jobId
-        ? estimatesApi.getInvoices(filters.jobId)
-        : estimatesApi.getInvoices(),
-      estimatesApi.getJobSpendSummaries(),
-      filters.jobId
-        ? estimatesApi.getJobExpenses(filters.jobId)
-        : Promise.resolve([]),
-    ])
-      .then(([jobsList, invList, summaries, expenses]) => {
-        if (!cancelled) {
-          setJobs(jobsList)
-          setInvoices(invList)
-          setSpendSummaries(summaries)
-          setJobExpenses(expenses)
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load data')
-          const mock = getMockRevenueData(filters.jobId || undefined)
-          setJobs(mock.jobs)
-          setInvoices(mock.invoices)
-          setSpendSummaries(mock.spendSummaries)
-          setJobExpenses(mock.jobExpenses)
-          setShowingMockFallback(true)
-          setFilters((prev) => {
-            const ytdFrom = toISODate(dayjs().startOf('year'))
-            const ytdTo = toISODate(dayjs())
-            if (prev.dateFrom === ytdFrom && prev.dateTo === ytdTo) return prev
-            return { ...prev, dateFrom: ytdFrom, dateTo: ytdTo }
-          })
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [filters.jobId, isDemo])
+  const totalCollected = CASHFLOW[0].amount
+  const totalInvoiced = CASHFLOW[1].amount
+  const totalInEstimate = CASHFLOW[2].amount
+  const cashflowMax = totalCollected + totalInvoiced + totalInEstimate
 
-  const jobMap = useMemo(() => {
-    const m: Record<string, string> = {}
-    jobs.forEach((j) => {
-      m[j.id] = j.name
-    })
-    return m
-  }, [jobs])
-
-  const { from, to } = useMemo(() => ({
-    from: filters.dateFrom,
-    to: filters.dateTo,
-  }), [filters.dateFrom, filters.dateTo])
-
-  const paidInvoices = useMemo(() => {
-    return invoices.filter((i) => i.status === 'paid')
-  }, [invoices])
-
-  const revenueInRange = useMemo(() => {
-    return paidInvoices
-      .filter((i) => isInRange(i.paid_at ?? i.created_at, from, to))
-      .reduce((sum, i) => sum + Number(i.total_amount), 0)
-  }, [paidInvoices, from, to])
-
-  const now = dayjs()
-  const ytdFrom = now.startOf('year').format('YYYY-MM-DD')
-  const ytdTo = toISODate(now)
-  const ytdRevenue = useMemo(() => {
-    return paidInvoices
-      .filter((i) => isInRange(i.paid_at ?? i.created_at, ytdFrom, ytdTo))
-      .reduce((sum, i) => sum + Number(i.total_amount), 0)
-  }, [paidInvoices, ytdFrom, ytdTo])
-
-  const startOfCurrentMonth = useMemo(() => toISODate(dayjs().startOf('month')), [])
-  const endOfCurrentMonth = toISODate(now)
-  const currentMonthRevenue = useMemo(() => {
-    return paidInvoices
-      .filter((i) =>
-        isInRange(i.paid_at ?? i.created_at, startOfCurrentMonth, endOfCurrentMonth)
-      )
-      .reduce((sum, i) => sum + Number(i.total_amount), 0)
-  }, [paidInvoices, startOfCurrentMonth, endOfCurrentMonth])
-
-  const expensesInRange = useMemo(() => {
-    if (jobExpenses.length > 0) {
-      return jobExpenses
-        .filter((e) => isInRange(e.created_at, from, to))
-        .reduce((sum, e) => sum + Number(e.amount), 0)
-    }
-    const jobIds = new Set(jobs.map((j) => j.id))
-    return spendSummaries
-      .filter((s) => jobIds.has(s.job_id))
-      .reduce((sum, s) => sum + Number(s.total_spend), 0)
-  }, [jobExpenses, from, to, spendSummaries, jobs])
-
-  const summary: RevenueSummary = useMemo(
-    () => ({
-      ytdRevenue,
-      currentMonthRevenue,
-      grossRevenue: revenueInRange,
-      totalExpenses: expensesInRange,
-      netProfit: revenueInRange - expensesInRange,
-    }),
-    [
-      ytdRevenue,
-      currentMonthRevenue,
-      revenueInRange,
-      expensesInRange,
-    ]
-  )
-
-  const spendByJob = useMemo(() => {
-    const m: Record<string, number> = {}
-    spendSummaries.forEach((s) => {
-      m[s.job_id] = Number(s.total_spend)
-    })
-    return m
-  }, [spendSummaries])
-
-  const trendData: RevenueTrendPoint[] = useMemo(() => {
-    const byMonth: Record<string, { revenue: number; expenses: number }> = {}
-    paidInvoices.forEach((i) => {
-      const d = (i.paid_at ?? i.created_at ?? '').slice(0, 7)
-      if (!d || d.length < 7) return
-      if (!byMonth[d]) byMonth[d] = { revenue: 0, expenses: 0 }
-      if (isInRange((i.paid_at ?? i.created_at) ?? '', from, to)) {
-        byMonth[d].revenue += Number(i.total_amount)
-      }
-    })
-    if (jobExpenses.length > 0) {
-      jobExpenses.forEach((e) => {
-        const d = (e.created_at ?? '').slice(0, 7)
-        if (!d || d.length < 7) return
-        if (!byMonth[d]) byMonth[d] = { revenue: 0, expenses: 0 }
-        if (isInRange(e.created_at, from, to)) {
-          byMonth[d].expenses += Number(e.amount)
-        }
-      })
-    }
-    const start = dayjs(from).startOf('month')
-    const end = dayjs(to).startOf('month')
-    const points: RevenueTrendPoint[] = []
-    let cur = start
-    while (cur.isBefore(end) || cur.isSame(end, 'month')) {
-      const key = cur.format('YYYY-MM')
-      const rev = byMonth[key]?.revenue ?? 0
-      const exp = byMonth[key]?.expenses ?? 0
-      points.push({
-        month: key,
-        year: cur.year(),
-        label: cur.format('MMM YYYY'),
-        revenue: rev,
-        expenses: exp,
-        profit: rev - exp,
-      })
-      cur = cur.add(1, 'month')
-    }
-    return points
-  }, [paidInvoices, from, to, filters.jobId, jobExpenses])
-
-  const chartSubtitle = useMemo(() => {
-    const fromLabel = dayjs(filters.dateFrom).format('MMM YYYY')
-    const toLabel = dayjs(filters.dateTo).format('MMM YYYY')
-    const jobLabel = filters.jobId ? jobMap[filters.jobId] ?? 'Job' : 'All jobs'
-    return `${fromLabel} – ${toLabel} · ${jobLabel}`
-  }, [filters.dateFrom, filters.dateTo, filters.jobId, jobMap])
-
-  const revenueByJob: RevenueByJobRow[] = useMemo(() => {
-    const byJob: Record<string, number> = {}
-    paidInvoices
-      .filter((i) => isInRange(i.paid_at ?? i.created_at, from, to))
-      .forEach((i) => {
-        const jid = i.job_id
-        if (!byJob[jid]) byJob[jid] = 0
-        byJob[jid] += Number(i.total_amount)
-      })
-    const list = Object.entries(byJob).map(([jobId, revenue]) => ({
-      jobId,
-      jobName: jobMap[jobId] ?? jobId.slice(0, 8),
-      revenue,
-    }))
-    list.sort((a, b) => b.revenue - a.revenue)
-    return list
-  }, [paidInvoices, from, to, jobMap])
-
-  const jobTableRows: JobTableRow[] = useMemo(() => {
-    return revenueByJob.map((r) => {
-      const cost = spendByJob[r.jobId] ?? 0
-      return {
-        jobId: r.jobId,
-        jobName: r.jobName,
-        revenue: r.revenue,
-        profit: r.revenue - cost,
-        status: 'active' as const,
-      }
-    })
-  }, [revenueByJob, spendByJob])
-
-  const expenditureByCategory: ExpenditureByCategoryRow[] = useMemo(() => {
-    const byCat: Record<string, number> = {}
-    if (filters.jobId) {
-      jobExpenses
-        .filter((e) => isInRange(e.created_at, from, to))
-        .forEach((e) => {
-          const c = e.category
-          byCat[c] = (byCat[c] ?? 0) + Number(e.amount)
-        })
-    } else {
-      spendSummaries.forEach((s) => {
-        const bc = s.by_category ?? {}
-        CATEGORY_ORDER.forEach((cat) => {
-          const v = Number(bc[cat] ?? 0)
-          if (v > 0) byCat[cat] = (byCat[cat] ?? 0) + v
-        })
-      })
-    }
-    return CATEGORY_ORDER.filter((c) => (byCat[c] ?? 0) > 0).map((category) => ({
-      category,
-      amount: byCat[category] ?? 0,
-    }))
-  }, [filters.jobId, jobExpenses, from, to, spendSummaries])
+  const activeJobsCount = JOBS.filter((j) => j.status === 'active').length
+  const totalExpenditure = EXPENDITURE.reduce((s, d) => s + d.amount, 0)
+  const largestCategory = [...EXPENDITURE].sort((a, b) => b.amount - a.amount)[0]
 
   const downloadCSV = useCallback(() => {
     const rows: string[][] = [
       ['Revenue summary', ''],
-      ['Date range', `${from} to ${to}`],
-      ['YTD Revenue', summary.ytdRevenue.toString()],
-      ['Current month revenue', summary.currentMonthRevenue.toString()],
-      ['Period revenue', summary.grossRevenue.toString()],
-      ['Total expenses', summary.totalExpenses.toString()],
-      ['Net profit', summary.netProfit.toString()],
+      ['Period', period],
+      ['Date range', `${fromDate} to ${toDate}`],
+      ['YTD Revenue', String(totalRev)],
+      ['Current month', String(currentMonth)],
+      ['Net profit', String(netProfit)],
+      ['Margin %', String(marginPct)],
       [],
-      ['Revenue by job', 'Amount'],
-      ...revenueByJob.map((r) => [r.jobName, r.revenue.toString()]),
+      ['Revenue by job', 'Invoiced', 'Collected', 'Margin %'],
+      ...JOBS.map((j) => [
+        j.name,
+        String(j.invoiced),
+        String(j.collected),
+        String(j.collected > 0 ? pct(j.collected - j.expenses, j.collected) : '—'),
+      ]),
       [],
-      ['Expenditure by category', 'Amount'],
-      ...expenditureByCategory.map((r) => [r.category, r.amount.toString()]),
+      ['Expenditure', 'Amount'],
+      ...EXPENDITURE.map((d) => [d.category, String(d.amount)]),
     ]
     const csv = rows
       .map((row) =>
         row
-          .map((cell) =>
-            /[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell
-          )
+          .map((cell) => (/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell))
           .join(',')
       )
       .join('\n')
@@ -322,10 +82,10 @@ export function RevenuePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `revenue-summary-${from}-${to}.csv`
+    a.download = `revenue-summary-${fromDate}-${toDate}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [from, to, summary, revenueByJob, expenditureByCategory])
+  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct])
 
   const downloadPDF = useCallback(async () => {
     const { jsPDF } = await import('jspdf')
@@ -341,92 +101,381 @@ export function RevenuePage() {
     line('Revenue summary', { size: 14 })
     doc.setFont('helvetica', 'normal')
     y += 4
-    line(`Date range: ${from} to ${to}`)
-    line(`YTD revenue: $${summary.ytdRevenue.toLocaleString()}`)
-    line(`Current month: $${summary.currentMonthRevenue.toLocaleString()}`)
-    line(`Period revenue: $${summary.grossRevenue.toLocaleString()}`)
-    line(`Total expenses: $${summary.totalExpenses.toLocaleString()}`)
-    line(`Net profit: $${summary.netProfit.toLocaleString()}`)
+    line(`Period: ${period}`)
+    line(`Date range: ${fromDate} to ${toDate}`)
+    line(`YTD revenue: ${fmt(totalRev)}`)
+    line(`Current month: ${fmt(currentMonth)}`)
+    line(`Net profit: ${fmt(netProfit)}`)
+    line(`Margin: ${marginPct}%`)
     y += 6
     doc.setFont('helvetica', 'bold')
     line('Revenue by job')
     doc.setFont('helvetica', 'normal')
-    revenueByJob.slice(0, 10).forEach((r) => {
-      line(`${r.jobName}: $${r.revenue.toLocaleString()}`)
+    JOBS.forEach((j) => {
+      line(`${j.name}: Invoiced ${fmt(j.invoiced)} · Collected ${fmt(j.collected)}`)
     })
     y += 6
     doc.setFont('helvetica', 'bold')
     line('Expenditure by category')
     doc.setFont('helvetica', 'normal')
-    expenditureByCategory.forEach((r) => {
-      line(`${r.category}: $${r.amount.toLocaleString()}`)
-    })
-    doc.save(`revenue-summary-${from}-${to}.pdf`)
-  }, [from, to, summary, revenueByJob, expenditureByCategory])
-
-  if (loading && jobs.length === 0) {
-    return (
-      <div className="dashboard-app revenue-page min-h-full">
-        <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
-          <div className="dashboard-page-header mb-6">
-            <h1 className="dashboard-title">Revenue</h1>
-          </div>
-          <div className="page-content">
-            <p className="text-muted dark:text-white-dim">Loading…</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+    EXPENDITURE.forEach((d) => line(`${d.category}: ${fmt(d.amount)}`))
+    doc.save(`revenue-summary-${fromDate}-${toDate}.pdf`)
+  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct])
 
   return (
     <div className="dashboard-app revenue-page min-h-full">
       <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
-        <div className="dashboard-page-header mb-6 flex justify-between items-center w-full">
-          <h1 className="dashboard-title">Revenue</h1>
-          <RevenueExport onExportCSV={downloadCSV} onExportPDF={downloadPDF} />
+        {/* ── HEADER ── */}
+        <div className="revenue-overhaul-header">
+          <div>
+            <div className="revenue-overhaul-breadcrumb">Finance</div>
+            <h1 className="dashboard-title revenue-overhaul-title">Revenue</h1>
+          </div>
+          <div className="revenue-overhaul-header-actions">
+            <div className="revenue-overhaul-date-wrap">
+              <span className="revenue-overhaul-date-label">From</span>
+              <input
+                type="text"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="revenue-overhaul-date-input"
+              />
+              <span className="revenue-overhaul-date-arrow">→</span>
+              <input
+                type="text"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="revenue-overhaul-date-input"
+              />
+            </div>
+            <div className="revenue-overhaul-pills">
+              {(['This month', 'YTD', 'Full year'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPeriod(p)}
+                  className={`revenue-overhaul-pill ${period === p ? 'active' : ''}`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <select
+              value={jobFilter}
+              onChange={(e) => setJobFilter(e.target.value)}
+              className="revenue-overhaul-select"
+            >
+              <option>All jobs</option>
+              {JOBS.map((j) => (
+                <option key={j.id}>{j.name}</option>
+              ))}
+            </select>
+            <RevenueExport onExportCSV={downloadCSV} onExportPDF={downloadPDF} />
+          </div>
         </div>
-        <RevenueFilters filters={filters} jobs={jobs} onFiltersChange={setFilters} />
 
-        <div className="page-content">
-        {isDemo && (
-          <div
-            className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm text-amber-800 dark:text-amber-200"
-            role="status"
-          >
-            Showing <strong>demo data</strong>. Remove <code className="rounded bg-black/10 dark:bg-white/10 px-1">?demo=1</code> from the URL to use real data.
+        {/* ── KPI CARDS ── */}
+        <div className="revenue-overhaul-kpi-row">
+          {/* Net Profit — hero card */}
+          <div className="revenue-overhaul-kpi-card revenue-overhaul-kpi-hero">
+            <div
+              className="revenue-overhaul-kpi-bar"
+              style={{ background: marginColor(marginPct) }}
+            />
+            <div className="revenue-overhaul-kpi-hero-inner">
+              <div>
+                <div className="revenue-overhaul-kpi-label">Net Profit</div>
+                <div className="revenue-overhaul-kpi-value-hero">{fmt(netProfit)}</div>
+                <div className="revenue-overhaul-kpi-meta">
+                  <span>Revenue {fmt(totalRev)}</span>
+                  <span className="revenue-overhaul-dot">·</span>
+                  <span>Expenses {fmt(totalExp)}</span>
+                </div>
+              </div>
+              <div className="revenue-overhaul-kpi-margin-wrap">
+                <div
+                  className="revenue-overhaul-margin-badge"
+                  style={{
+                    background: marginBg(marginPct),
+                    borderColor: marginColor(marginPct) + '30',
+                  }}
+                >
+                  <div
+                    className="revenue-overhaul-margin-value"
+                    style={{ color: marginColor(marginPct) }}
+                  >
+                    {marginPct}%
+                  </div>
+                  <div
+                    className="revenue-overhaul-margin-label"
+                    style={{ color: marginColor(marginPct) }}
+                  >
+                    Margin
+                  </div>
+                </div>
+                <div className="revenue-overhaul-margin-status">
+                  {marginPct >= 30 ? '🟢 Healthy' : marginPct >= 15 ? '🟡 Watch' : '🔴 Low'}
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-        {showingMockFallback && (
-          <div
-            className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm text-amber-800 dark:text-amber-200"
-            role="status"
-          >
-            API unavailable (<strong>{error}</strong>). Showing <strong>demo data</strong> so you can see the layout. Fix the backend or use <code className="rounded bg-black/10 dark:bg-white/10 px-1">?demo=1</code> to always use demo data.
+
+          <div className="revenue-overhaul-kpi-card">
+            <div className="revenue-overhaul-kpi-bar revenue-overhaul-kpi-bar-blue" />
+            <div className="revenue-overhaul-kpi-label">YTD Revenue</div>
+            <div className="revenue-overhaul-kpi-value">{fmt(totalRev)}</div>
+            <span className="revenue-overhaul-badge-up">↑ +12.1%</span>
           </div>
-        )}
-        {error && !showingMockFallback && (
-          <div
-            className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300 mb-4"
-            role="alert"
-          >
-            {error}
+
+          <div className="revenue-overhaul-kpi-card">
+            <div className="revenue-overhaul-kpi-bar revenue-overhaul-kpi-bar-purple" />
+            <div className="revenue-overhaul-kpi-label">Current Month</div>
+            <div className="revenue-overhaul-kpi-value">
+              {fmt(currentMonth > 0 ? currentMonth : chartData[0].revenue)}
+            </div>
+            <span className="revenue-overhaul-kpi-meta-small">this month</span>
           </div>
-        )}
-        <RevenueSummaryCards summary={summary} activeJobsCount={revenueByJob.length} />
-        <RevenueTrendChart
-          data={trendData}
-          chartSubtitle={chartSubtitle}
-          periodTotals={{
-            revenue: summary.grossRevenue,
-            expenses: summary.totalExpenses,
-            profit: summary.netProfit,
-          }}
-        />
-        <div className="bottom-grid">
-          <RevenueByJobTable rows={jobTableRows} summary={summary} />
-          <ExpenditureByCategoryChart data={expenditureByCategory} />
+
+          <div className="revenue-overhaul-kpi-card">
+            <div className="revenue-overhaul-kpi-bar revenue-overhaul-kpi-bar-amber" />
+            <div className="revenue-overhaul-kpi-label">Active Jobs</div>
+            <div className="revenue-overhaul-kpi-value">{activeJobsCount}</div>
+            <span className="revenue-overhaul-kpi-meta-small">of {JOBS.length} projects</span>
+          </div>
         </div>
+
+        {/* ── CASH FLOW STRIP ── */}
+        <div className="revenue-overhaul-card revenue-overhaul-cashflow">
+          <div className="revenue-overhaul-cashflow-head">
+            <div>
+              <span className="revenue-overhaul-cashflow-title">Cash Flow Pipeline</span>
+              <span className="revenue-overhaul-cashflow-sub">
+                Collected → Invoiced → In Estimate
+              </span>
+            </div>
+            <span className="revenue-overhaul-cashflow-total">{fmt(cashflowMax)} total pipeline</span>
+          </div>
+          <div className="revenue-overhaul-cashflow-bar">
+            {CASHFLOW.map((c, i) => (
+              <div
+                key={i}
+                className="revenue-overhaul-cashflow-segment"
+                style={{ width: `${pct(c.amount, cashflowMax)}%`, background: c.color }}
+              />
+            ))}
+          </div>
+          <div className="revenue-overhaul-cashflow-legend">
+            {CASHFLOW.map((c, i) => (
+              <div key={i} className="revenue-overhaul-cashflow-legend-item">
+                <div
+                  className="revenue-overhaul-cashflow-dot"
+                  style={{ background: c.color }}
+                />
+                <span className="revenue-overhaul-cashflow-legend-label">{c.label}</span>
+                <span className="revenue-overhaul-cashflow-legend-val">{fmt(c.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── TREND CHART ── */}
+        <div className="revenue-overhaul-card revenue-overhaul-trend">
+          <div className="revenue-overhaul-trend-head">
+            <div>
+              <div className="revenue-overhaul-trend-title">Revenue & Profit Trend</div>
+              <div className="revenue-overhaul-trend-sub">
+                {period} · {jobFilter}
+              </div>
+            </div>
+            <div className="revenue-overhaul-trend-controls">
+              <div className="revenue-overhaul-view-toggle">
+                {(
+                  [
+                    ['overview', 'Overview'],
+                    ['margin', 'Margin %'],
+                  ] as const
+                ).map(([v, l]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setViewMode(v)}
+                    className={`revenue-overhaul-view-btn ${viewMode === v ? 'active' : ''}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {period === 'Full year' && (
+                <label className="revenue-overhaul-compare-label">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setShowComparison((s) => !s)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setShowComparison((s) => !s)
+                      }
+                    }}
+                    className={`revenue-overhaul-toggle ${showComparison ? 'on' : ''}`}
+                  >
+                    <div className="revenue-overhaul-toggle-thumb" />
+                  </div>
+                  vs last year
+                </label>
+              )}
+              {viewMode === 'overview' && (
+                <div className="revenue-overhaul-legend">
+                  {[
+                    { label: 'Revenue', color: '#3B82F6', dash: false },
+                    { label: 'Expenses', color: '#EF4444', dash: true },
+                    { label: 'Net Profit', color: '#10B981', dash: false },
+                    ...(showComparison && period === 'Full year'
+                      ? [{ label: 'Last year', color: '#CBD5E1', dash: true }]
+                      : []),
+                  ].map((l, i) => (
+                    <div key={i} className="revenue-overhaul-legend-item">
+                      <svg width="20" height="10">
+                        <line
+                          x1="0"
+                          y1="5"
+                          x2="20"
+                          y2="5"
+                          stroke={l.color}
+                          strokeWidth="2"
+                          strokeDasharray={l.dash ? '4 3' : 'none'}
+                        />
+                      </svg>
+                      <span>{l.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <RevenueAreaChart
+            data={chartData}
+            showComparison={showComparison}
+            comparisonData={comparisonData}
+            viewMode={viewMode}
+          />
+        </div>
+
+        {/* ── BOTTOM ROW ── */}
+        <div className="revenue-overhaul-bottom">
+          {/* Revenue by Job */}
+          <div className="revenue-overhaul-card revenue-overhaul-jobs-card">
+            <div className="revenue-overhaul-card-head">
+              <div className="revenue-overhaul-card-title">Revenue by Job</div>
+              <div className="revenue-overhaul-card-sub">YTD performance across active projects</div>
+            </div>
+            <div className="revenue-overhaul-jobs-thead">
+              {['JOB', 'INVOICED', 'COLLECTED', 'MARGIN'].map((h) => (
+                <div
+                  key={h}
+                  className={`revenue-overhaul-jobs-th ${h === 'JOB' ? '' : 'right'}`}
+                >
+                  {h}
+                </div>
+              ))}
+            </div>
+            {JOBS.map((j, i) => {
+              const jMargin =
+                j.expenses > 0 ? pct(j.collected - j.expenses, j.collected || 1) : 0
+              const invoicedPct = pct(j.invoiced, j.contractValue)
+              const st = STATUS_CONFIG[j.status]
+              return (
+                <div
+                  key={j.id}
+                  className={`revenue-overhaul-job-row ${i < JOBS.length - 1 ? 'border' : ''}`}
+                >
+                  <div className="revenue-overhaul-job-grid">
+                    <div className="revenue-overhaul-job-cell-main">
+                      <div
+                        className="revenue-overhaul-job-avatar"
+                        style={{ background: j.color + '20', color: j.color }}
+                      >
+                        {j.initials}
+                      </div>
+                      <div>
+                        <div className="revenue-overhaul-job-name">{j.name}</div>
+                        <span
+                          className="revenue-overhaul-job-status"
+                          style={{ background: st.bg, color: st.color }}
+                        >
+                          {st.label}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="revenue-overhaul-job-cell right">{fmt(j.invoiced)}</div>
+                    <div className="revenue-overhaul-job-cell right">{fmt(j.collected)}</div>
+                    <div className="revenue-overhaul-job-cell right">
+                      {j.collected > 0 ? (
+                        <span
+                          className="revenue-overhaul-job-margin"
+                          style={{ color: marginColor(jMargin) }}
+                        >
+                          {jMargin}%
+                        </span>
+                      ) : (
+                        <span className="revenue-overhaul-job-margin-na">—</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="revenue-overhaul-job-progress-wrap">
+                    <div className="revenue-overhaul-job-progress-track">
+                      <div
+                        className="revenue-overhaul-job-progress-fill"
+                        style={{ width: `${invoicedPct}%`, background: j.color }}
+                      />
+                    </div>
+                    <div className="revenue-overhaul-job-progress-label">
+                      {invoicedPct}% of {fmt(j.contractValue)} contract invoiced
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            <div className="revenue-overhaul-jobs-footer">
+              <span className="revenue-overhaul-jobs-footer-label">Totals</span>
+              <span className="revenue-overhaul-jobs-footer-val right">
+                {fmt(JOBS.reduce((s, j) => s + j.invoiced, 0))}
+              </span>
+              <span className="revenue-overhaul-jobs-footer-val right green">
+                {fmt(JOBS.reduce((s, j) => s + j.collected, 0))}
+              </span>
+              <span className="revenue-overhaul-jobs-footer-val right">—</span>
+            </div>
+          </div>
+
+          {/* Expenditure Breakdown */}
+          <div className="revenue-overhaul-card revenue-overhaul-exp-card">
+            <div className="revenue-overhaul-card-head">
+              <div className="revenue-overhaul-card-title">Expenditure Breakdown</div>
+              <div className="revenue-overhaul-card-sub">Where the money&apos;s going</div>
+            </div>
+            <div className="revenue-overhaul-exp-body">
+              <RevenueDonutChart data={EXPENDITURE} />
+              <div className="revenue-overhaul-exp-summary">
+                <div>
+                  <div className="revenue-overhaul-exp-summary-label">Total Expenditure</div>
+                  <div className="revenue-overhaul-exp-summary-value">{fmt(totalExpenditure)}</div>
+                </div>
+                <div className="revenue-overhaul-exp-summary-right">
+                  <div className="revenue-overhaul-exp-summary-label">Largest Category</div>
+                  <div
+                    className="revenue-overhaul-exp-summary-cat"
+                    style={{ color: largestCategory?.color }}
+                  >
+                    {largestCategory?.category}
+                  </div>
+                  <div className="revenue-overhaul-exp-summary-pct">
+                    {pct(largestCategory?.amount ?? 0, totalExpenditure)}% of spend
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

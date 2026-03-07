@@ -3,8 +3,13 @@ import { ClockInView } from './ClockInView'
 import { GeofenceConfig } from './GeofenceConfig'
 import { GpsClockOutLogList } from './GpsClockOutLogList'
 import { teamsApi } from '@/api/teamsClient'
+import type { Employee } from '@/types/global'
 
-export function GeofenceTab() {
+interface GeofenceTabProps {
+  onSelectEmployee?: (emp: Employee) => void
+}
+
+export function GeofenceTab({ onSelectEmployee }: GeofenceTabProps) {
   const [gpsCount, setGpsCount] = useState(0)
   const [geofenceCount, setGeofenceCount] = useState(0)
 
@@ -50,7 +55,7 @@ export function GeofenceTab() {
             <span className="teams-roster-name">GPS-triggered clock-outs</span>
             <span className="teams-cell-muted" style={{ fontSize: 12 }}>Employees who left a geofenced job boundary while clocked in</span>
           </div>
-          <GpsClockOutLogList />
+          <GpsClockOutLogList onSelectEmployee={onSelectEmployee} />
         </div>
       </section>
     </div>

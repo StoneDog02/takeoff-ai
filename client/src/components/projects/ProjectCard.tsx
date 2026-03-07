@@ -8,165 +8,209 @@ interface ProjectCardProps {
   isDemo?: boolean
 }
 
-const STATUS_STYLES: Record<string, { dot: string; badge: string }> = {
-  active: {
-    dot: 'bg-sky-600 dark:bg-sky-500',
-    badge: 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200',
-  },
-  planning: {
-    dot: 'bg-amber-500',
-    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-  },
-  on_hold: {
-    dot: 'bg-gray-400',
-    badge: 'bg-gray-500 text-white dark:bg-gray-600 dark:text-gray-200',
-  },
-  completed: {
-    dot: 'bg-green-600 dark:bg-green-500',
-    badge: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200',
-  },
+const HEALTH_CONFIG: Record<string, { label: string; bar: string; bg: string; border: string }> = {
+  'on-track': { label: 'On Track', bar: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+  watch: { label: 'Watch', bar: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+  hold: { label: 'On Hold', bar: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb' },
+  complete: { label: 'Complete', bar: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
 }
 
-const AVATAR_COLORS = [
-  'bg-accent text-white dark:bg-accent dark:text-white',
-  'bg-primary text-white dark:bg-primary dark:text-white',
-  'bg-green-500 text-white',
-  'bg-amber-500 text-white',
-  'bg-purple-500 text-white dark:bg-purple-600',
-  'bg-teal-500 text-white dark:bg-teal-600',
-]
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  active: { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' },
+  planning: { bg: '#fefce8', text: '#a16207', dot: '#eab308' },
+  on_hold: { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' },
+  completed: { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
+}
+
+const AVATAR_COLORS = ['#16a34a', '#0ea5e9', '#8b5cf6', '#eab308', '#dc2626']
 
 function getAvatarColor(initials: string): string {
   const i = initials.charCodeAt(0) % AVATAR_COLORS.length
   return AVATAR_COLORS[i] ?? AVATAR_COLORS[0]
 }
 
+function getHealth(
+  isComplete: boolean | undefined,
+  phases: { completed: boolean }[],
+  status: string | undefined
+): keyof typeof HEALTH_CONFIG {
+  if (isComplete) return 'complete'
+  const key = (status ?? '').toLowerCase().replace(' ', '_')
+  if (key === 'on_hold') return 'hold'
+  if (phases.length === 0) return 'on-track'
+  const completedCount = phases.filter((p) => p.completed).length
+  const pct = (completedCount / phases.length) * 100
+  if (pct >= 80) return 'watch'
+  return 'on-track'
+}
+
+function fmt(n: number): string {
+  return '$' + n.toLocaleString()
+}
+
 export function ProjectCard({ project, cardData, isDemo }: ProjectCardProps) {
   const statusKey = (project.status ?? 'active').toLowerCase().replace(' ', '_')
   const statusStyle = STATUS_STYLES[statusKey] ?? STATUS_STYLES.active
   const phases = cardData?.phaseProgress ?? []
-  const hasProgress = phases.length > 0
-  const value = cardData?.value ?? project.estimated_value ?? 0
-  const assigneeDisplay = cardData?.assignedTo?.name ?? project.assigned_to_name
+  const phaseIndex = phases.findIndex((p) => !p.completed)
+  const currentIndex = phaseIndex < 0 ? phases.length - 1 : phaseIndex
+  const currentPhase = phases[currentIndex]
+  const phaseProgressPct =
+    phases.length && currentIndex >= 0 && currentIndex < phases.length
+      ? phaseIndex < 0
+        ? 100
+        : 50
+      : 0
+  const health = getHealth(cardData?.isComplete, phases, project.status)
+  const healthStyle = HEALTH_CONFIG[health]
+  const budget = cardData?.value ?? project.estimated_value ?? 0
+  const completedCount = phases.filter((p) => p.completed).length
+  const pct = phases.length ? Math.min(100, Math.round((completedCount / phases.length) * 100)) : 0
+  const spent = phases.length ? Math.round((budget * completedCount) / phases.length) : 0
+  const overBudget = budget > 0 && spent > budget
+  const address = [project.address_line_1, project.city].filter(Boolean).join(', ') || '—'
 
   return (
-    <Link
-      to={`/projects/${project.id}`}
-      className="block rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-5 shadow-card hover:shadow-md hover:border-primary/30 dark:hover:border-primary/40 transition-all"
-    >
-      {/* Title row + badges */}
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <h3 className="font-semibold text-gray-900 dark:text-landing-white text-[15px] leading-tight flex-1 min-w-0">
-          {project.name}
-        </h3>
-        <div className="flex flex-wrap gap-1.5 justify-end shrink-0">
-          {isDemo && (
-            <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium bg-accent/15 text-accent dark:bg-accent/25 dark:text-red-300">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-              Demo
-            </span>
-          )}
-          <span
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium capitalize ${statusStyle.badge}`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${statusStyle.dot}`} />
-            {(project.status ?? 'active').replace('_', ' ')}
-          </span>
-        </div>
-      </div>
-
-      {/* Project ID */}
-      {(cardData?.projectId ?? project.id) && (
-        <p className="text-xs text-muted dark:text-white-faint mb-3">
-          {cardData?.projectId ?? project.id}
-        </p>
-      )}
-
-      {/* Phase progress */}
-      {hasProgress && (
-        <div className="mb-3">
-          <p className="text-xs text-muted dark:text-white-dim mb-2">Phase progress</p>
-          <div className="flex rounded-lg overflow-hidden bg-gray-100 dark:bg-dark-4 h-2">
-            {phases.map((phase, i) => (
-              <div
-                key={i}
-                className={`flex-1 min-w-0 transition-colors ${
-                  phase.completed
-                    ? 'bg-primary dark:bg-primary'
-                    : 'bg-gray-200 dark:bg-gray-600'
-                }`}
-                style={{ width: `${100 / phases.length}%` }}
-                title={phase.name}
+    <Link to={`/projects/${project.id}`} className="projects-card block">
+      <div className="projects-card-accent" style={{ background: healthStyle.bar }} />
+      <div className="projects-card-body">
+        {/* Top row */}
+        <div className="projects-card-top">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-0.5">
+              <span className="projects-card-id font-mono">
+                {cardData?.projectId ?? project.id?.slice(0, 8) ?? '—'}
+              </span>
+              {isDemo && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                  Demo
+                </span>
+              )}
+            </div>
+            <h3 className="projects-card-name">{project.name}</h3>
+            <p className="projects-card-address">{address}</p>
+          </div>
+          <div className="flex flex-col items-end gap-1.5 ml-3 shrink-0">
+            <span
+              className="projects-card-status-pill"
+              style={{ background: statusStyle.bg, color: statusStyle.text }}
+            >
+              <span
+                style={{ width: 6, height: 6, borderRadius: '50%', background: statusStyle.dot }}
+                className="inline-block"
               />
-            ))}
-          </div>
-          <div className="flex justify-between mt-1.5 gap-1">
-            {phases.map((phase, i) => (
-              <span
-                key={i}
-                className={`text-[11px] truncate ${
-                  phase.completed
-                    ? 'text-primary dark:text-primary font-medium'
-                    : 'text-muted dark:text-white-faint'
-                }`}
-                style={{ maxWidth: `${100 / phases.length}%` }}
-              >
-                {phase.name}
-              </span>
-            ))}
+              {project.status === 'on_hold' ? 'On Hold' : (project.status ?? 'active').charAt(0).toUpperCase() + (project.status ?? 'active').slice(1).replace('_', ' ')}
+            </span>
+            <span
+              className="projects-card-health-pill"
+              style={{ background: healthStyle.bg, color: healthStyle.bar, borderColor: healthStyle.border }}
+            >
+              {healthStyle.label}
+            </span>
           </div>
         </div>
-      )}
 
-      {/* Next step */}
-      {(cardData?.nextStep ?? cardData?.isComplete) && (
-        <div
-          className={`rounded-lg px-3 py-2 flex items-center gap-2 text-sm mb-4 ${
-            cardData?.isComplete
-              ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-              : 'bg-gray-100 dark:bg-dark-4 text-gray-700 dark:text-white-dim'
-          }`}
-        >
-          {cardData?.isComplete ? (
-            <span className="shrink-0 text-green-600 dark:text-green-400" aria-hidden>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-            </span>
-          ) : (
-            <span className="shrink-0 text-muted dark:text-white-faint" aria-hidden>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-              </svg>
-            </span>
+        {/* Phase progress */}
+        <div className="projects-card-phase-section">
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="projects-card-phase-label">Phase</span>
+            <span className="projects-card-phase-name">{currentPhase?.name ?? '—'}</span>
+          </div>
+          {phases.length > 0 && (
+            <div className="projects-card-phase-steps">
+              {phases.map((ph, i) => {
+                const isPast = i < currentIndex
+                const isCurrent = i === currentIndex
+                const barBg = isPast ? 'var(--text-primary)' : 'var(--border)'
+                return (
+                  <div key={ph.name} className="projects-card-phase-step">
+                    <div
+                      className="projects-card-phase-bar"
+                      style={{ background: barBg }}
+                    >
+                      {isCurrent && (
+                        <div
+                          className="absolute left-0 top-0 h-full rounded-[2px]"
+                          style={{ width: `${phaseProgressPct}%`, background: healthStyle.bar }}
+                        />
+                      )}
+                    </div>
+                    <span
+                      className="projects-card-phase-step-label"
+                      style={{
+                        color: i <= currentIndex ? 'var(--text-secondary)' : 'var(--text-muted)',
+                        fontWeight: isCurrent ? 600 : 400,
+                      }}
+                    >
+                      {ph.name}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           )}
-          <span className="truncate">{cardData?.nextStep ?? 'All phases complete – closed out'}</span>
         </div>
-      )}
 
-      {/* Footer: assignee + value */}
-      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border dark:border-border-dark">
-        {assigneeDisplay ? (
-          <div className="flex items-center gap-2 min-w-0">
-            {cardData?.assignedTo?.initials ? (
-              <span
-                className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${getAvatarColor(cardData.assignedTo.initials)}`}
-              >
-                {cardData.assignedTo.initials}
-              </span>
-            ) : null}
-            <span className="text-sm text-gray-700 dark:text-white-dim truncate">
-              {assigneeDisplay}
-            </span>
+        {/* Next step */}
+        <div className="projects-card-next">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span>{cardData?.nextStep ?? (cardData?.isComplete ? 'All phases complete – closed out' : '—')}</span>
+        </div>
+
+        {/* Bottom stats */}
+        <div className="projects-card-stats">
+          <div>
+            <div className="projects-card-stat-label">Budget</div>
+            <div
+              className="projects-card-stat-value"
+              style={{ color: overBudget ? 'var(--red)' : undefined }}
+            >
+              {fmt(spent)}
+            </div>
+            <div className="projects-card-stat-sub">
+              {budget > 0 ? `${pct}% of ${fmt(budget)}` : '—'}
+            </div>
+            <div className="projects-card-budget-bar">
+              <div
+                className="projects-card-budget-fill"
+                style={{
+                  width: `${Math.min(100, budget > 0 ? (spent / budget) * 100 : 0)}%`,
+                  background:
+                    pct > 95 ? 'var(--red)' : pct > 80 ? '#f59e0b' : 'var(--green, #22c55e)',
+                }}
+              />
+            </div>
           </div>
-        ) : (
-          <div />
-        )}
-        {value > 0 && (
-          <span className="font-semibold text-gray-900 dark:text-landing-white shrink-0">
-            ${value.toLocaleString()}
-          </span>
-        )}
+          <div>
+            <div className="projects-card-stat-label">Days Left</div>
+            <div className="projects-card-stat-value">–</div>
+            <div className="projects-card-stat-sub">—</div>
+          </div>
+          <div>
+            <div className="projects-card-stat-label mb-1">PM</div>
+            <div className="projects-card-pm">
+              {cardData?.assignedTo ? (
+                <>
+                  <div
+                    className="projects-card-avatar"
+                    style={{ background: getAvatarColor(cardData.assignedTo.initials) }}
+                  >
+                    {cardData.assignedTo.initials}
+                  </div>
+                  <span className="text-xs font-medium text-[var(--text-secondary)] leading-tight">
+                    {cardData.assignedTo.name.split(' ')[0]}
+                  </span>
+                </>
+              ) : (
+                <span className="text-xs text-[var(--text-muted)]">
+                  {project.assigned_to_name ?? '—'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </Link>
   )

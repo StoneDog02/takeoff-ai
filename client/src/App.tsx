@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RootLayout } from '@/components/Layout'
 import { AppLayout } from '@/components/AppLayout'
+import { EmployeeLayout } from '@/components/EmployeeLayout'
 import { DashboardPage } from '@/routes/DashboardPage'
 import { TakeoffPage } from '@/routes/TakeoffPage'
 import { BuildListsPage } from '@/routes/BuildListsPage'
@@ -9,11 +10,19 @@ import { ProjectsPage } from '@/routes/ProjectsPage'
 import { RevenuePage } from '@/pages/RevenuePage'
 import { EstimatesPage } from '@/pages/EstimatesPage'
 import { TeamsPage } from '@/pages/TeamsPage'
+import { PayrollPage } from '@/pages/PayrollPage'
 import { DirectoryPage } from '@/pages/DirectoryPage'
 import SettingsPage from '@/pages/SettingsPage'
+import { AdminPage } from '@/pages/AdminPage'
+import { AdminGuard } from '@/components/AdminGuard'
 import { LandingPage } from '@/routes/LandingPage'
 import { SignInPage } from '@/routes/SignInPage'
 import { SignUpPage } from '@/routes/SignUpPage'
+import { AcceptInvitePage } from '@/routes/AcceptInvitePage'
+import { EmployeeClockPage } from '@/routes/EmployeeClockPage'
+import { EmployeeHoursPage } from '@/routes/EmployeeHoursPage'
+import { EmployeeJobsPage } from '@/routes/EmployeeJobsPage'
+import { EmployeeProfilePage } from '@/routes/EmployeeProfilePage'
 
 export const router = createBrowserRouter([
   {
@@ -24,6 +33,18 @@ export const router = createBrowserRouter([
       { path: 'landing', element: <LandingPage /> },
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'accept-invite', element: <AcceptInvitePage /> },
+      {
+        path: 'employee',
+        element: <EmployeeLayout />,
+        children: [
+          { index: true, element: <Navigate to="/employee/clock" replace /> },
+          { path: 'clock', element: <EmployeeClockPage /> },
+          { path: 'hours', element: <EmployeeHoursPage /> },
+          { path: 'jobs', element: <EmployeeJobsPage /> },
+          { path: 'profile', element: <EmployeeProfilePage /> },
+        ],
+      },
       {
         element: <AppLayout />,
         children: [
@@ -33,10 +54,12 @@ export const router = createBrowserRouter([
           { path: 'revenue', element: <RevenuePage /> },
           { path: 'estimates', element: <EstimatesPage /> },
           { path: 'teams', element: <TeamsPage /> },
+          { path: 'payroll', element: <PayrollPage /> },
           { path: 'directory', element: <DirectoryPage /> },
           { path: 'contractors', element: <Navigate to="/directory" replace /> },
           { path: 'messages', element: <DirectoryPage /> },
           { path: 'settings', element: <SettingsPage /> },
+          { path: 'admin', element: <AdminGuard><AdminPage /></AdminGuard> },
         ],
       },
       { path: 'takeoff', element: <TakeoffPage /> },

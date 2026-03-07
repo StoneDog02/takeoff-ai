@@ -6,10 +6,12 @@ import dayjs from 'dayjs'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
+import isBetween from 'dayjs/plugin/isBetween'
 
 dayjs.extend(customParseFormat)
 dayjs.extend(utc)
 dayjs.extend(timezone)
+dayjs.extend(isBetween)
 
 /** Display format for dates (no time). */
 export const DISPLAY_DATE_FORMAT = 'MM/DD/YYYY'

@@ -4,7 +4,11 @@ import type { Employee, GpsClockOutLog } from '@/types/global'
 import { formatDateTime } from '@/lib/date'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
 
-export function GpsClockOutLogList() {
+interface GpsClockOutLogListProps {
+  onSelectEmployee?: (emp: Employee) => void
+}
+
+export function GpsClockOutLogList({ onSelectEmployee }: GpsClockOutLogListProps) {
   const [logs, setLogs] = useState<GpsClockOutLog[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [jobs, setJobs] = useState<{ id: string; name: string }[]>([])
@@ -70,20 +74,30 @@ export function GpsClockOutLogList() {
                 </td>
               </tr>
             ) : (
-              logs.map((log) => (
-                <tr key={log.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <TeamsAvatar initials={getInitials(employeeMap.get(log.employee_id)?.name ?? '?')} size="sm" />
-                      <span className="teams-cell-name">{employeeMap.get(log.employee_id)?.name ?? log.employee_id}</span>
-                    </div>
-                  </td>
-                  <td><span className="teams-cell-muted">{jobMap.get(log.job_id) ?? log.job_id}</span></td>
-                  <td><span className="teams-cell-value" style={{ fontWeight: 500 }}>{formatDateTime(log.exited_at)}</span></td>
-                  <td><span className="teams-cell-muted" style={{ fontFamily: 'monospace', fontSize: 12 }}>{log.lat != null && log.lng != null ? `${log.lat.toFixed(5)}, ${log.lng.toFixed(5)}` : '—'}</span></td>
-                  <td><span className="teams-status-pill late">Left boundary</span></td>
-                </tr>
-              ))
+              logs.map((log) => {
+                const emp = employeeMap.get(log.employee_id)
+                return (
+                  <tr
+                    key={log.id}
+                    role={onSelectEmployee && emp ? 'button' : undefined}
+                    tabIndex={onSelectEmployee && emp ? 0 : undefined}
+                    onClick={() => emp && onSelectEmployee?.(emp)}
+                    onKeyDown={(e) => emp && onSelectEmployee && e.key === 'Enter' && onSelectEmployee(emp)}
+                    style={{ cursor: onSelectEmployee && emp ? 'pointer' : undefined }}
+                  >
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <TeamsAvatar initials={getInitials(emp?.name ?? '?')} size="sm" />
+                        <span className="teams-cell-name">{emp?.name ?? log.employee_id}</span>
+                      </div>
+                    </td>
+                    <td><span className="teams-cell-muted">{jobMap.get(log.job_id) ?? log.job_id}</span></td>
+                    <td><span className="teams-cell-value" style={{ fontWeight: 500 }}>{formatDateTime(log.exited_at)}</span></td>
+                    <td><span className="teams-cell-muted" style={{ fontFamily: 'monospace', fontSize: 12 }}>{log.lat != null && log.lng != null ? `${log.lat.toFixed(5)}, ${log.lng.toFixed(5)}` : '—'}</span></td>
+                    <td><span className="teams-status-pill late">Left boundary</span></td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>

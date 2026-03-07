@@ -17,12 +17,18 @@ router.get('/ytd', async (req, res, next) => {
       .lte('clock_in', to)
       .not('clock_out', 'is', null)
     if (entriesErr) throw entriesErr
-    const { data: employees, error: empErr } = await supabase
-      .from('employees')
-      .select('id, name, current_compensation')
-      .eq('user_id', req.user?.id)
-    if (empErr) throw empErr
-    const empMap = new Map((employees || []).map((e) => [e.id, e]))
+    let employees
+    if (req.employee) {
+      employees = [req.employee]
+    } else {
+      const { data: empData, error: empErr } = await supabase
+        .from('employees')
+        .select('id, name, current_compensation')
+        .eq('user_id', req.user?.id)
+      if (empErr) throw empErr
+      employees = empData || []
+    }
+    const empMap = new Map(employees.map((e) => [e.id, e]))
     const byEmployee = new Map()
     for (const e of entries || []) {
       if (!empMap.has(e.employee_id)) continue

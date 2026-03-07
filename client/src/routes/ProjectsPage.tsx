@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
-import type { Project, Phase, Milestone, ProjectTask, JobWalkMedia, Subcontractor } from '@/types/global'
+import type { Project, Phase, Milestone, ProjectTask, JobWalkMedia, Subcontractor, MaterialList, ProjectWorkType } from '@/types/global'
 import { ProjectCard } from '@/components/projects/ProjectCard'
-import { ProjectBreakdown } from '@/components/projects/ProjectBreakdown'
+import { HealthRing } from '@/components/projects/HealthRing'
 import { JobWalkGallery } from '@/components/projects/JobWalkGallery'
-import { BudgetChart } from '@/components/projects/BudgetChart'
 import { BudgetTab } from '@/components/projects/BudgetTab'
 import { LaunchTakeoffWidget } from '@/components/projects/LaunchTakeoffWidget'
 import { BulkSendModal } from '@/components/projects/BulkSendModal'
 import { BidSheetFlow } from '@/components/projects/BidSheetFlow'
+import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
+import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
 import { ScheduleBuilder, apiToBuilder, weekToDate, getMockScheduleData } from '@/components/projects/ScheduleBuilder'
 import type { BuilderPhase, BuilderMilestone } from '@/components/projects/ScheduleBuilder'
@@ -262,7 +263,7 @@ function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
   )
 }
 
-const DETAIL_TAB_IDS = ['overview', 'schedule', 'budget', 'media', 'takeoff', 'bidsheet'] as const
+const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
 
 export function ProjectsPage() {
@@ -291,7 +292,13 @@ export function ProjectsPage() {
   const [builderMilestones, setBuilderMilestones] = useState<BuilderMilestone[]>([])
   const [builderMeta, setBuilderMeta] = useState({ projectName: '', startDate: '', gcOwner: '' })
   const [scheduleSaving, setScheduleSaving] = useState(false)
+  const [workTypesByProject, setWorkTypesByProject] = useState<Record<string, ProjectWorkType[]>>({})
   const tabFromUrl = searchParams.get('tab')
+
+  const workTypes = id ? (workTypesByProject[id] ?? []) : []
+  const setWorkTypes = (list: ProjectWorkType[]) => {
+    if (id) setWorkTypesByProject((prev) => ({ ...prev, [id]: list }))
+  }
   const [activeTabState, setActiveTabState] = useState<DetailTabId>('overview')
   const activeTab: DetailTabId = (tabFromUrl && DETAIL_TAB_IDS.includes(tabFromUrl as DetailTabId)) ? (tabFromUrl as DetailTabId) : activeTabState
   const setActiveTab = (tab: DetailTabId) => {
@@ -322,6 +329,17 @@ export function ProjectsPage() {
       setBudget(detail.budget)
       setTakeoffs(detail.takeoffs)
       setSubcontractors(detail.subcontractors)
+      setWorkTypesByProject((prev) => {
+        if (prev[id]?.length) return prev
+        return {
+          ...prev,
+          [id]: [
+            { id: 'wt-demo-1', project_id: id, name: 'General Labor', description: 'Employees clock in under this work type on the job site.', rate: 85, unit: 'hr', type_key: 'labor' },
+            { id: 'wt-demo-2', project_id: id, name: 'Tile Install', description: 'Employees clock in under this work type on the job site.', rate: 18, unit: 'sf', type_key: 'tile' },
+            { id: 'wt-demo-3', project_id: id, name: 'Plumbing - Rough-in', description: 'Employees clock in under this work type on the job site.', rate: 450, unit: 'ea', type_key: 'plumbing' },
+          ],
+        }
+      })
       const built = apiToBuilder(
         detail.project,
         detail.phases,
@@ -402,101 +420,80 @@ export function ProjectsPage() {
       0
     )
 
-    const addNewProjectCard = (
-      <button
-        type="button"
-        onClick={() => setNewProjectOpen(true)}
-        className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-200 dark:border-border-dark bg-transparent min-h-[140px] h-full w-full hover:border-primary/50 hover:bg-gray-100/50 dark:hover:bg-dark-4/30 transition-colors cursor-pointer group"
-      >
-        <span className="flex items-center justify-center w-12 h-12 rounded-full bg-white dark:bg-dark-3 border border-gray-200 dark:border-border-dark shadow-sm group-hover:bg-accent group-hover:border-accent group-hover:shadow transition-all duration-200">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500 dark:text-white-dim group-hover:text-white transition-colors duration-200">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </span>
-        <span className="text-sm font-medium text-gray-600 dark:text-white-dim group-hover:text-gray-900 dark:group-hover:text-landing-white transition-colors">
-          Start a new project
-        </span>
-      </button>
-    )
+    const activeCount = displayedProjects.filter((p) => (p.status ?? 'active').toLowerCase() === 'active').length
 
     return (
       <div className="min-h-full">
-        <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
+        <div className="w-full max-w-[1600px] mx-auto projects-list-page">
           {/* Header */}
-          <h1 className="dashboard-title mb-6">Projects</h1>
-
-          {/* Filter tabs + Search + New project */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div className="flex items-center gap-4">
-              {(['all', 'active', 'planning', 'on_hold', 'completed'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setFilter(tab)}
-                  className={`text-sm font-medium transition-colors ${
-                    filter === tab
-                      ? 'rounded-full px-4 py-2 bg-gray-800 text-white dark:bg-gray-700 dark:text-white'
-                      : 'text-gray-600 dark:text-white-dim hover:text-gray-900 dark:hover:text-landing-white'
-                  }`}
-                >
-                  {tab === 'all' ? 'All' : tab === 'on_hold' ? 'On Hold' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
+          <div className="projects-list-header">
+            <div>
+              <h1 className="projects-list-title">Projects</h1>
+              <p className="projects-list-sub">
+                {displayedProjects.length} project{displayedProjects.length !== 1 ? 's' : ''} · {activeCount} active
+              </p>
             </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto sm:flex-initial">
-              <div className="relative flex-1 sm:w-64 sm:flex-none">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted dark:text-white-faint pointer-events-none">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.35-4.35" />
-                  </svg>
-                </span>
+            <div className="projects-list-actions">
+              <div className="projects-list-search-wrap">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+                </svg>
                 <input
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search projects..."
-                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 text-gray-900 dark:text-landing-white placeholder:text-muted dark:placeholder:text-white-faint focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="projects-list-search"
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => setListView(listView === 'grid' ? 'table' : 'grid')}
-                className="shrink-0 p-2.5 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 text-gray-600 dark:text-white-dim hover:bg-gray-100 dark:hover:bg-dark-4 hover:text-gray-900 dark:hover:text-landing-white transition-colors"
-                title={listView === 'grid' ? 'Switch to table view' : 'Switch to grid view'}
-                aria-label={listView === 'grid' ? 'Switch to table view' : 'Switch to grid view'}
-              >
-                {listView === 'grid' ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 6h13" />
-                    <path d="M8 12h13" />
-                    <path d="M8 18h13" />
-                    <path d="M3 6h.01" />
-                    <path d="M3 12h.01" />
-                    <path d="M3 18h.01" />
+              <div className="projects-list-view-toggle">
+                <button
+                  type="button"
+                  onClick={() => setListView('grid')}
+                  className={`projects-list-view-btn ${listView === 'grid' ? 'active' : ''}`}
+                  aria-label="Grid view"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
                   </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect width="7" height="7" x="3" y="3" rx="1" />
-                    <rect width="7" height="7" x="14" y="3" rx="1" />
-                    <rect width="7" height="7" x="14" y="14" rx="1" />
-                    <rect width="7" height="7" x="3" y="14" rx="1" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setListView('table')}
+                  className={`projects-list-view-btn ${listView === 'table' ? 'active' : ''}`}
+                  aria-label="List view"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
                   </svg>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewProjectOpen(true)}
-                className="btn shrink-0"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
+                </button>
+              </div>
+              <button type="button" onClick={() => setNewProjectOpen(true)} className="projects-list-new-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
                 New project
               </button>
             </div>
+          </div>
+
+          {/* Filter tabs */}
+          <div className="projects-list-filters">
+            {(['all', 'active', 'planning', 'on_hold', 'completed'] as const).map((tab) => {
+              const count = tab === 'all' ? displayedProjects.length : displayedProjects.filter((p) => (p.status ?? '').toLowerCase().replace(' ', '_') === tab).length
+              const label = tab === 'all' ? 'All' : tab === 'on_hold' ? 'On Hold' : tab.charAt(0).toUpperCase() + tab.slice(1)
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setFilter(tab)}
+                  className={`projects-list-filter-btn ${filter === tab ? 'active' : ''}`}
+                >
+                  {label}
+                  <span className="projects-list-filter-count">{count}</span>
+                </button>
+              )
+            })}
           </div>
 
           {loading ? (
@@ -509,79 +506,66 @@ export function ProjectsPage() {
                   : 'Real projects you create will appear here.'}
               </p>
             ) : (
-              <div className="space-y-4">
-                <div className="rounded-xl overflow-hidden bg-transparent border-b border-x border-border dark:border-border-dark">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-border dark:border-border-dark bg-gray-100 dark:bg-dark-4">
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim">Project</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim">ID</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim">Status</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim">Assignee</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim text-right">Value</th>
-                        <th className="w-10 px-4 py-3.5" aria-hidden="true" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {displayedProjects.map((p) => {
-                      const card = MOCK_PROJECT_CARD_DATA[p.id]
-                      return (
-                        <tr
-                          key={p.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => navigate(`/projects/${p.id}`)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
-                          className="group border-b border-border dark:border-border-dark bg-white dark:bg-dark-3 hover:bg-gray-50 dark:hover:bg-dark-4/70 transition-colors cursor-pointer border-l-2 border-l-transparent hover:border-l-primary dark:hover:border-l-primary"
-                        >
-                          <td className="px-5 py-3.5">
-                            <span className="font-semibold text-gray-900 dark:text-landing-white group-hover:text-primary dark:group-hover:text-primary">
-                              {p.name}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-sm text-gray-500 dark:text-white-dim">{card?.projectId ?? p.id?.slice(0, 8) ?? '—'}</td>
-                          <td className="px-5 py-3.5">
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              p.status === 'active' ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200' :
-                              p.status === 'planning' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' :
-                              p.status === 'on_hold' ? 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200' :
-                              p.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' :
-                              'bg-gray-100 text-gray-700 dark:bg-gray-600 dark:text-gray-200'
-                            }`}>
-                              <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" aria-hidden="true" />
-                              {p.status === 'on_hold' ? 'On Hold' : (p.status ?? '').charAt(0).toUpperCase() + (p.status ?? '').slice(1)}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-white-dim">{card?.assignedTo?.name ?? p.assigned_to_name ?? '—'}</td>
-                          <td className="px-5 py-3.5 text-sm font-semibold text-gray-900 dark:text-landing-white text-right tabular-nums">
-                            {(card?.value ?? p.estimated_value) != null ? `$${Number(card?.value ?? p.estimated_value).toLocaleString()}` : '—'}
-                          </td>
-                          <td className="px-4 py-3.5 text-gray-400 dark:text-white-faint group-hover:text-primary dark:group-hover:text-primary transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M9 18l6-6-6-6" />
-                            </svg>
-                          </td>
-                        </tr>
-                      )
-                      })}
-                      <tr className="bg-transparent border-t border-border dark:border-border-dark">
-                        <td className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-dim tabular-nums" colSpan={1}>
-                          {displayedProjects.length} PROJECTS
-                        </td>
-                        <td className="px-5 py-3" colSpan={2} />
-                        <td className="px-5 py-3" colSpan={1} />
-                        <td className="px-5 py-3 text-sm font-semibold text-gray-900 dark:text-landing-white text-right tabular-nums">
-                          {totalValue > 0 ? `$${totalValue.toLocaleString()}` : '—'}
-                        </td>
-                        <td className="w-10 px-4 py-3" />
-                      </tr>
-                    </tbody>
-                  </table>
+              <div className="projects-list-table">
+                <div className="projects-list-table-head" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px' }}>
+                  <span>Project</span><span>Status</span><span>Phase</span><span>Budget</span><span>Days Left</span><span>PM</span>
                 </div>
+                {displayedProjects.map((p, i) => {
+                  const card = MOCK_PROJECT_CARD_DATA[p.id]
+                  const phases = card?.phaseProgress ?? []
+                  const currentPhase = phases.find((ph, idx) => !ph.completed) ?? phases[phases.length - 1]
+                  const phaseName = currentPhase?.name ?? '—'
+                  const completedCount = phases.filter((ph) => ph.completed).length
+                  const budgetVal = card?.value ?? p.estimated_value ?? 0
+                  const pct = phases.length ? Math.min(100, Math.round((completedCount / phases.length) * 100)) : 0
+                  const healthBar = card?.isComplete ? '#3b82f6' : pct >= 70 ? '#16a34a' : pct >= 40 ? '#f59e0b' : '#6b7280'
+                  const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
+                    (p.status ?? '') === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } :
+                    (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
+                    (p.status ?? '') === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } :
+                    { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' }
+                  return (
+                    <div
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => navigate(`/projects/${p.id}`)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
+                      className="projects-list-table-row"
+                      style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: healthBar }}
+                    >
+                      <div>
+                        <div className="font-semibold text-[14px] text-gray-900 dark:text-landing-white">{p.name}</div>
+                        <div className="text-xs text-muted dark:text-white-dim">
+                          {p.address_line_1 || p.city || '—'} · <span className="font-mono text-[11px]">{card?.projectId ?? p.id?.slice(0, 8) ?? '—'}</span>
+                        </div>
+                      </div>
+                      <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
+                        {p.status === 'on_hold' ? 'On Hold' : (p.status ?? 'Active').charAt(0).toUpperCase() + (p.status ?? 'active').slice(1)}
+                      </span>
+                      <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{phaseName}</span>
+                      <div>
+                        <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${Number(budgetVal).toLocaleString()}</div>
+                        <div className="text-[10px] text-muted dark:text-white-dim">{phases.length ? `${pct}%` : '—'}</div>
+                      </div>
+                      <span className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">—</span>
+                      <div className="projects-card-pm">
+                        {card?.assignedTo && (
+                          <>
+                            <div className="projects-card-avatar" style={{ background: '#16a34a' }}>{card.assignedTo.initials}</div>
+                            <span className="text-xs font-medium text-gray-700 dark:text-white-dim">{card.assignedTo.name.split(' ')[0]}</span>
+                          </>
+                        )}
+                        {!card?.assignedTo && (p.assigned_to_name ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.assigned_to_name}</span> : <span className="text-xs text-muted">—</span>)}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )
           ) : (
-            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="projects-list-grid">
               {mockFiltered.map((p) => (
                 <ProjectCard
                   key={p.id}
@@ -600,9 +584,18 @@ export function ProjectsPage() {
                     : 'Real projects you create will appear here.'}
                 </p>
               )}
-              <div className="min-h-0 h-full">
-                {addNewProjectCard}
-              </div>
+              <button
+                type="button"
+                onClick={() => setNewProjectOpen(true)}
+                className="projects-new-card"
+              >
+                <div className="projects-new-card-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </div>
+                <span className="projects-new-card-text">Start a new project</span>
+              </button>
             </div>
           )}
           {newProjectOpen && (
@@ -650,7 +643,6 @@ export function ProjectsPage() {
   const timelineEnd = phases.length
     ? phases.reduce((max, p) => (p.end_date > max ? p.end_date : max), phases[0].end_date)
     : project?.expected_end_date
-  // Timeline KPI: MM/DD/YYYY via central date lib (formatDateRange uses formatDate)
   const timelineLabel =
     timelineStart && timelineEnd
       ? `${formatDate(timelineStart)} – ${formatDate(timelineEnd)}`
@@ -660,163 +652,345 @@ export function ProjectsPage() {
           ? formatDate(timelineEnd)
           : '—'
 
+  const totalDays = timelineStart && timelineEnd ? dayjs(timelineEnd).diff(dayjs(timelineStart), 'day') + 1 : null
+  const daysLeft = totalDays != null && timelineEnd ? Math.max(0, dayjs(timelineEnd).diff(dayjs(), 'day')) : null
+  const timelinePct = totalDays != null && totalDays > 0 && daysLeft != null
+    ? Math.round(((totalDays - daysLeft) / totalDays) * 100)
+    : 0
+  const budgetPct = budgetSummary.predicted_total > 0
+    ? Math.round((budgetSummary.actual_total / budgetSummary.predicted_total) * 100)
+    : 0
+  const healthScore = Math.min(100, Math.max(0,
+    (budgetSummary.profitability >= 0 ? 40 : 20) +
+    (daysLeft == null || daysLeft > 7 ? 35 : daysLeft > 0 ? 20 : 0) +
+    (timelinePct <= 90 ? 25 : 15)
+  ))
+
   const tabs = [
     { id: 'overview' as const, label: 'Overview', icon: 'grid' },
-    { id: 'schedule' as const, label: 'Schedule', icon: 'calendar' },
+    { id: 'worktypes' as const, label: 'Work Types & Pay', icon: 'briefcase' },
+    { id: 'crew' as const, label: 'Crew', icon: 'people' },
     { id: 'budget' as const, label: 'Budget', icon: 'dollar' },
+    { id: 'schedule' as const, label: 'Schedule', icon: 'calendar' },
     { id: 'media' as const, label: 'Job Walk Media', icon: 'image' },
     { id: 'takeoff' as const, label: 'Takeoff', icon: 'document' },
     { id: 'bidsheet' as const, label: 'Bid Sheet', icon: 'checklist' },
   ]
 
   const statusKey = (project?.status ?? 'active').toLowerCase().replace(' ', '_')
-  const statusPillClass =
-    statusKey === 'active'
-      ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200'
-      : statusKey === 'planning'
-        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
-        : statusKey === 'on_hold'
-          ? 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200'
-          : statusKey === 'completed'
-            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
-            : 'bg-gray-100 text-gray-700 dark:bg-gray-600 dark:text-gray-200'
+  const statusPillStyle = statusKey === 'active' ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } : statusKey === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } : statusKey === 'on_hold' ? { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' } : statusKey === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } : { bg: '#f8fafc', text: '#64748b', dot: '#94a3b8' }
+  const addressDisplay = [project?.address_line_1, project?.city].filter(Boolean).join(', ') || '—'
+  const BUDGET_ITEM_COLORS: Record<string, string> = { Labor: '#6366f1', Materials: '#0ea5e9', Subcontractors: '#8b5cf6' }
+  const MOCK_ACTIVITY = [
+    { user: 'MK', name: 'Mike T.', color: '#6366f1', action: 'Added job walk photo', time: '2h ago', tag: 'Media' },
+    { user: 'SC', name: 'Sarah C.', color: '#16a34a', action: 'Logged 6.5hrs – Tile Install', time: '4h ago', tag: 'Time' },
+    { user: 'JL', name: 'Jordan Lee', color: '#16a34a', action: 'Updated budget – Materials', time: 'Yesterday', tag: 'Budget' },
+    { user: 'AB', name: 'ABC Electrical', color: '#6366f1', action: 'Bid awarded – $4,200', time: 'Mar 4', tag: 'Bid' },
+    { user: 'QU', name: 'Quality Plumbing', color: '#0ea5e9', action: 'Inspection scheduled', time: 'Mar 3', tag: 'Schedule' },
+  ]
+  const TAG_COLORS: Record<string, { bg: string; text: string }> = { Media: { bg: '#eff6ff', text: '#1d4ed8' }, Time: { bg: '#f0fdf4', text: '#15803d' }, Budget: { bg: '#fefce8', text: '#a16207' }, Bid: { bg: '#fdf4ff', text: '#7e22ce' }, Schedule: { bg: '#fff7ed', text: '#c2410c' } }
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 min-w-0">
-          <Link to="/projects" className="text-muted dark:text-white-dim hover:text-gray-900 dark:hover:text-landing-white shrink-0">
-            ← Projects
+    <div className="project-overview-page w-full max-w-[1600px] mx-auto">
+      {/* Hero */}
+      <div className="project-overview-hero">
+        <div className="project-overview-breadcrumb-wrap">
+          <Link to="/projects" className="project-overview-breadcrumb">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+            Projects
           </Link>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-landing-white truncate">{project?.name}</h1>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+          <span className="text-[13px] font-medium text-[var(--text-secondary)]">{project?.name} – {addressDisplay}</span>
         </div>
-      </div>
+        <div className="project-overview-title-row">
+          <div>
+            <div className="project-overview-badges">
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1.5" style={{ background: statusPillStyle.bg, color: statusPillStyle.text }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusPillStyle.dot }} />
+                {project?.status === 'on_hold' ? 'On Hold' : (project?.status ?? 'Active').charAt(0).toUpperCase() + (project?.status ?? 'active').slice(1).replace('_', ' ')}
+              </span>
+              <span className="text-[11px] text-[var(--text-muted)] font-mono">{projectIdDisplay}</span>
+            </div>
+            <h1 className="project-overview-title">
+              {project?.name} <span className="project-overview-title-muted">– {addressDisplay}</span>
+            </h1>
+          </div>
+          <div className="project-overview-hero-actions">
+            <button type="button" className="project-overview-hero-btn">Edit</button>
+            <button type="button" className="project-overview-hero-btn">Share</button>
+            <button type="button" className="project-overview-hero-btn project-overview-hero-btn-primary">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+              Add Update
+            </button>
+          </div>
+        </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPillClass}`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-          {project?.status === 'on_hold' ? 'On Hold' : (project?.status ?? 'Active').charAt(0).toUpperCase() + (project?.status ?? 'active').slice(1)}
-        </span>
-        <span className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 dark:bg-dark-4 text-gray-600 dark:text-white-dim">
-          {projectIdDisplay}
-        </span>
-        <button type="button" className="rounded-md px-2.5 py-1 text-sm text-muted dark:text-white-dim hover:bg-gray-100 dark:hover:bg-dark-4 border border-border dark:border-border-dark">
-          Edit
-        </button>
-        <button type="button" className="rounded-md px-2.5 py-1 text-sm text-muted dark:text-white-dim hover:bg-gray-100 dark:hover:bg-dark-4 border border-border dark:border-border-dark">
-          Share
-        </button>
-      </div>
+        {/* KPI strip */}
+        <div className="project-overview-kpi-strip">
+          <div className="project-overview-kpi-cell" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <HealthRing score={healthScore} />
+            <div>
+              <div className="project-overview-kpi-label">Project Health</div>
+              <div className="text-xs text-[var(--text-secondary)]">Based on budget,<br />schedule & activity</div>
+            </div>
+          </div>
+          <div className="project-overview-kpi-cell">
+            <div className="project-overview-kpi-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+              Client
+            </div>
+            <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.assigned_to_name || '—'}</div>
+          </div>
+          <div className="project-overview-kpi-cell">
+            <div className="project-overview-kpi-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+              Timeline
+            </div>
+            <div className="text-[14px] font-semibold text-[var(--text-primary)]">{timelineLabel}</div>
+            <div className="mt-1.5">
+              <div className="flex justify-between mb-0.5 text-[11px]">
+                <span className="text-[var(--text-muted)]">{timelinePct}% elapsed</span>
+                <span className="font-semibold" style={{ color: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-muted)' }}>{daysLeft != null ? `${daysLeft}d left` : '—'}</span>
+              </div>
+              <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                <div className="h-full rounded-sm transition-[width]" style={{ width: `${timelinePct}%`, background: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-primary)' }} />
+              </div>
+            </div>
+          </div>
+          <div className="project-overview-kpi-cell">
+            <div className="project-overview-kpi-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+              Budget vs Actual
+            </div>
+            <div className="text-[14px] font-bold font-mono text-[var(--text-primary)]">${budgetSummary.actual_total.toLocaleString()} <span className="text-xs font-normal font-sans text-[var(--text-muted)]">/ ${budgetSummary.predicted_total.toLocaleString()}</span></div>
+            <div className="mt-1.5">
+              <div className="flex justify-between mb-0.5 text-[11px]">
+                <span className="text-[var(--text-muted)]">{budgetPct}% used</span>
+                <span className="font-semibold text-[var(--green,#16a34a)]">+${budgetSummary.profitability.toLocaleString()}</span>
+              </div>
+              <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                <div className="h-full rounded-sm transition-[width]" style={{ width: `${Math.min(100, budgetPct)}%`, background: budgetPct > 95 ? 'var(--red)' : budgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)' }} />
+              </div>
+            </div>
+          </div>
+          <div className="project-overview-kpi-cell">
+            <div className="project-overview-kpi-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+              Profitability
+            </div>
+            <div className="text-xl font-bold font-mono" style={{ color: budgetSummary.profitability >= 0 ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+              {budgetSummary.profitability >= 0 ? '+' : ''}${budgetSummary.profitability.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">under budget</div>
+          </div>
+        </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-        <div className="rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-3 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-faint mb-0.5">Client</p>
-          <p className="text-sm font-medium text-gray-900 dark:text-landing-white truncate">{project?.assigned_to_name || '—'}</p>
-        </div>
-        <div className="rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-3 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-faint mb-0.5">Profitability</p>
-          <p className={`text-sm font-medium ${budgetSummary.profitability >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-            {budgetSummary.profitability >= 0 ? '+' : ''}${budgetSummary.profitability.toLocaleString()}
-          </p>
-        </div>
-        <div className="rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-3 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-white-faint mb-0.5">Timeline</p>
-          <p className="text-sm font-medium text-gray-900 dark:text-landing-white truncate">{timelineLabel}</p>
-        </div>
-      </div>
-
-      <nav className="border-b border-border dark:border-border-dark mb-6" aria-label="Project sections">
-        <div className="flex gap-1 overflow-x-auto">
+        {/* Tabs */}
+        <nav className="project-overview-tabs" aria-label="Project sections">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                activeTab === tab.id
-                  ? 'border-accent text-accent dark:border-accent dark:text-accent'
-                  : 'border-transparent text-muted dark:text-white-dim hover:text-gray-900 dark:hover:text-landing-white hover:border-gray-300 dark:hover:border-border-dark'
-              }`}
-            >
-              {tab.icon === 'grid' && (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" />
-                </svg>
-              )}
-              {tab.icon === 'calendar' && (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect width="18" height="18" x="3" y="4" rx="2" ry="2" /><line x1="16" x2="16" y1="2" y2="6" /><line x1="8" x2="8" y1="2" y2="6" /><line x1="3" x2="21" y1="10" y2="10" />
-                </svg>
-              )}
-              {tab.icon === 'dollar' && (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
-              )}
-              {tab.icon === 'image' && (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                </svg>
-              )}
-              {tab.icon === 'document' && (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" x2="8" y1="13" y2="13" /><line x1="16" x2="8" y1="17" y2="17" /><line x1="10" x2="8" y1="9" y2="9" />
-                </svg>
-              )}
-              {tab.icon === 'checklist' && (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                </svg>
-              )}
+            <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''}`}>
               {tab.label}
             </button>
           ))}
-        </div>
-      </nav>
+        </nav>
+      </div>
 
       {activeTab === 'overview' && project && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="space-y-6">
-            <ProjectBreakdown project={project} phases={phases} milestones={milestones} />
-          </div>
-          <div className="space-y-6">
-            <div className="rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-4 shadow-card">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-3">Team</h2>
-              {project.assigned_to_name && (
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-8 h-8 rounded-full bg-primary/20 dark:bg-primary/30 flex items-center justify-center text-sm font-medium text-primary">
-                    {(project.assigned_to_name || ' ').slice(0, 2).toUpperCase()}
-                  </span>
-                  <span className="text-sm text-gray-700 dark:text-white-dim">{project.assigned_to_name}</span>
-                  <span className="text-xs text-muted dark:text-white-faint">Assigned</span>
-                </div>
-              )}
-              {subcontractors.length > 0 ? (
-                <ul className="space-y-2">
-                  {subcontractors.slice(0, 6).map((s) => (
-                    <li key={s.id} className="flex items-center gap-2 text-sm">
-                      <span className="w-7 h-7 rounded-full bg-gray-200 dark:bg-dark-4 flex items-center justify-center text-xs font-medium text-gray-600 dark:text-white-dim">
-                        {s.name.slice(0, 2).toUpperCase()}
-                      </span>
-                      <span className="text-gray-900 dark:text-landing-white">{s.name}</span>
-                      <span className="text-muted dark:text-white-faint">· {s.trade}</span>
-                    </li>
-                  ))}
-                  {subcontractors.length > 6 && (
-                    <li className="text-xs text-muted dark:text-white-faint">+{subcontractors.length - 6} more</li>
-                  )}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted dark:text-white-dim">No subcontractors yet.</p>
-              )}
+        <div className="project-overview-body">
+          {/* Col 1 – Project Breakdown + Milestones */}
+          <div className="flex flex-col gap-[18px]">
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Project Breakdown</div>
+              {project.scope && <div className="project-overview-card-subtitle">{project.scope}</div>}
+              <div className="flex flex-col gap-0">
+                {phases.length > 0 ? phases.map((ph, i) => {
+                  const today = dayjs().format('YYYY-MM-DD')
+                  const status = today > ph.end_date ? 'complete' : today >= ph.start_date && today <= ph.end_date ? 'in-progress' : 'upcoming'
+                  const cfg = { complete: { bg: '#f0fdf4', bar: '#16a34a', text: '#15803d', label: 'Complete' }, 'in-progress': { bg: '#eff6ff', bar: '#3b82f6', text: '#1d4ed8', label: 'In progress' }, upcoming: { bg: 'var(--bg-base)', bar: 'var(--border)', text: 'var(--text-muted)', label: 'Upcoming' } }[status]
+                  const pct = status === 'complete' ? 100 : status === 'in-progress' ? 50 : 0
+                  return (
+                    <div key={ph.id} className="project-overview-phase-row">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-center gap-2">
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.bar }} />
+                          <span className="project-overview-phase-name">{ph.name}</span>
+                        </div>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.text }}>{cfg.label}</span>
+                      </div>
+                      <div className="flex justify-between items-center gap-3">
+                        <div className="project-overview-phase-bar-wrap">
+                          <div className="h-full rounded-sm transition-[width] duration-300" style={{ width: `${pct}%`, background: cfg.bar }} />
+                        </div>
+                        <span className="text-[11px] text-[var(--text-muted)] font-mono whitespace-nowrap">{dayjs(ph.start_date).format('MM/DD')} – {dayjs(ph.end_date).format('MM/DD')}</span>
+                      </div>
+                    </div>
+                  )
+                }) : <p className="text-sm text-[var(--text-muted)]">No phases yet.</p>}
+              </div>
             </div>
-            <BudgetChart summary={budgetSummary} />
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Key Milestones</div>
+              <div className="flex flex-col gap-0">
+                {milestones.length > 0 ? milestones.map((m, i) => (
+                  <div key={m.id} className="project-overview-milestone-row">
+                    <div className="project-overview-milestone-icon" style={{ background: m.completed ? '#f0fdf4' : '#fff7ed' }}>
+                      {m.completed ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-[var(--text-primary)]">{m.title}</div>
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)] font-mono">{formatDate(m.due_date)}</div>
+                  </div>
+                )) : <p className="text-sm text-[var(--text-muted)]">No milestones yet.</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Col 2 – Budget + Team */}
+          <div className="flex flex-col gap-[18px]">
+            <div className="project-overview-card">
+              <div className="flex justify-between items-start mb-0">
+                <div className="project-overview-card-title">Budget vs Actual</div>
+                <span className="project-overview-card-action">Full breakdown →</span>
+              </div>
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <div className="text-[22px] font-bold font-mono text-[var(--text-primary)]">${budgetSummary.actual_total.toLocaleString()}</div>
+                  <div className="text-xs text-[var(--text-muted)]">of ${budgetSummary.predicted_total.toLocaleString()} budget</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold font-mono text-[var(--green,#16a34a)]">+${budgetSummary.profitability.toLocaleString()}</div>
+                  <div className="text-xs text-[var(--text-muted)]">under budget</div>
+                </div>
+              </div>
+              {(budget?.items ?? []).map((item) => {
+                const pct = item.predicted > 0 ? Math.round((item.actual / item.predicted) * 100) : 0
+                const over = item.actual > item.predicted
+                const color = BUDGET_ITEM_COLORS[item.label] ?? '#6366f1'
+                const maxVal = Math.max(item.predicted, item.actual)
+                const budgetWidth = maxVal > 0 ? (item.predicted / maxVal) * 100 : 0
+                const actualWidth = maxVal > 0 ? Math.min(100, (item.actual / maxVal) * 100) : 0
+                return (
+                  <div key={item.id} className="mb-3.5 last:mb-0">
+                    <div className="flex justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+                        <span className="text-[13px] font-medium text-[var(--text-secondary)]">{item.label}</span>
+                      </div>
+                      <div className="flex gap-3 items-center">
+                        <span className="text-xs text-[var(--text-muted)]">${item.predicted.toLocaleString()}</span>
+                        <span className="text-[13px] font-semibold font-mono" style={{ color: over ? 'var(--red)' : 'var(--text-primary)' }}>${item.actual.toLocaleString()}</span>
+                        <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-md" style={{ background: over ? '#fef2f2' : '#f0fdf4', color: over ? 'var(--red)' : 'var(--green,#16a34a)' }}>{over ? '-' : '+'}${Math.abs(item.actual - item.predicted).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-md overflow-hidden bg-[var(--bg-base)] relative">
+                      <div className="absolute left-0 top-0 h-full rounded-md bg-[var(--border)]" style={{ width: `${budgetWidth}%` }} />
+                      <div className="absolute left-0 top-0 h-full rounded-md opacity-90" style={{ width: `${actualWidth}%`, background: over ? 'var(--red)' : color }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Team</div>
+              <div className="flex flex-col gap-0">
+                {project.assigned_to_name && (
+                  <div className="flex items-center gap-3 py-2.5 border-b border-[var(--border)]">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--green,#16a34a)] text-white text-[11px] font-bold flex items-center justify-center shrink-0">{project.assigned_to_name.slice(0, 2).toUpperCase()}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-[var(--text-primary)]">{project.assigned_to_name}</div>
+                      <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Assigned</div>
+                    </div>
+                    <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
+                  </div>
+                )}
+                {subcontractors.map((s, i) => (
+                  <div key={s.id} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][i % 3] }}>{s.name.slice(0, 2).toUpperCase()}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-[var(--text-primary)]">{s.name}</div>
+                      <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{s.trade}</div>
+                    </div>
+                    <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
+                  </div>
+                ))}
+                {!project.assigned_to_name && subcontractors.length === 0 && <p className="text-sm text-[var(--text-muted)]">No team members yet.</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Col 3 – Activity + Quick Actions */}
+          <div className="flex flex-col gap-[18px]">
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Live Activity</div>
+              <div className="project-overview-card-subtitle">Recent updates across this project</div>
+              <div className="flex flex-col gap-0 relative">
+                <div className="project-overview-activity-line" />
+                {MOCK_ACTIVITY.map((a, i) => {
+                  const tc = TAG_COLORS[a.tag] ?? { bg: 'var(--bg-base)', text: 'var(--text-secondary)' }
+                  return (
+                    <div key={i} className="project-overview-activity-item">
+                      <div className="project-overview-activity-avatar" style={{ background: a.color }}>{a.user}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-xs font-semibold text-[var(--text-primary)]">{a.name} </span>
+                            <span className="text-xs text-[var(--text-secondary)]">{a.action}</span>
+                          </div>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0" style={{ background: tc.bg, color: tc.text }}>{a.tag}</span>
+                        </div>
+                        <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{a.time}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <button type="button" className="project-overview-view-all">View all activity</button>
+            </div>
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Quick Actions</div>
+              <div className="project-overview-quick-actions">
+                {[
+                  { label: 'Log Time', icon: '⏱', color: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' },
+                  { label: 'Add Photo', icon: '📷', color: '#f0fdf4', border: '#bbf7d0', text: '#15803d' },
+                  { label: 'Flag Issue', icon: '🚩', color: '#fff7ed', border: '#fed7aa', text: '#c2410c' },
+                  { label: 'Add Note', icon: '📝', color: '#fdf4ff', border: '#e9d5ff', text: '#7e22ce' },
+                ].map((action) => (
+                  <button key={action.label} type="button" className="project-overview-quick-btn" style={{ background: action.color, borderColor: action.border }} onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }} onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}>
+                    <div className="text-lg mb-1">{action.icon}</div>
+                    <div className="text-xs font-semibold" style={{ color: action.text }}>{action.label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
+      {activeTab === 'worktypes' && project && (
+        <section className="w-full min-w-0 px-8 py-6">
+          <WorkTypesTab
+            projectId={project.id}
+            projectName={project.name}
+            workTypes={workTypes}
+            onWorkTypesChange={setWorkTypes}
+            readOnly={false}
+          />
+        </section>
+      )}
+
+      {activeTab === 'crew' && project && (
+        <section className="w-full min-w-0 px-8 py-6">
+          <ProjectCrewTab
+            projectId={project.id}
+            projectName={project.name}
+            readOnly={false}
+          />
+        </section>
+      )}
+
       {activeTab === 'schedule' && (
-        <section className="w-full min-w-0">
+        <section className="w-full min-w-0 px-8 py-6">
           <ScheduleBuilder
             projectName={builderMeta.projectName}
             startDate={builderMeta.startDate}
@@ -918,7 +1092,7 @@ export function ProjectsPage() {
       )}
 
       {activeTab === 'budget' && (
-        <section className="w-full min-w-0">
+        <section className="w-full min-w-0 px-8 py-6">
           <BudgetTab
             items={budget?.items ?? []}
             schedulePhases={builderPhases}
@@ -932,7 +1106,7 @@ export function ProjectsPage() {
       )}
 
       {activeTab === 'media' && project && (
-        <section className="w-full min-w-0">
+        <section className="w-full min-w-0 px-8 py-6">
           <JobWalkGallery
             projectId={project.id}
             projectName={project.name}
@@ -951,13 +1125,23 @@ export function ProjectsPage() {
       )}
 
       {activeTab === 'takeoff' && project && (
-        <section>
+        <section className="w-full min-w-0 px-8 py-6">
           <LaunchTakeoffWidget
             projectId={project.id}
             onUpload={async (file) => {
               if (isDemo) return { material_list: { categories: [], summary: '' } }
+              if (isMockProjectId(project.id)) {
+                const result = await api.runTakeoff(file, project.name)
+                const newTakeoff = {
+                  id: result.id,
+                  material_list: result.materialList as MaterialList,
+                  created_at: result.createdAt ?? new Date().toISOString(),
+                }
+                setTakeoffs((prev) => [newTakeoff, ...prev])
+                return { material_list: result.materialList as MaterialList }
+              }
               const result = await api.projects.launchTakeoff(project.id, file)
-              return { material_list: result.material_list }
+              return { material_list: result.material_list as MaterialList }
             }}
             existingTakeoffs={takeoffs}
           />
@@ -965,7 +1149,7 @@ export function ProjectsPage() {
       )}
 
       {activeTab === 'bidsheet' && project && (
-        <section className="w-full min-w-0">
+        <section className="w-full min-w-0 px-8 py-6">
           <BidSheetFlow
             projectId={project.id}
             project={{

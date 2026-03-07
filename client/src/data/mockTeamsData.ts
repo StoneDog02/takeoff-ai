@@ -141,6 +141,9 @@ export const mockTeamsApi = {
       return mockEmployees[0]
     },
     async delete(): Promise<void> {},
+    async invite(_id: string): Promise<{ ok: boolean; expires_at: string; invite_link?: string | null }> {
+      return { ok: true, expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), invite_link: null }
+    },
   },
 
   jobAssignments: {

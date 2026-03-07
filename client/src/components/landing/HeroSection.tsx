@@ -57,6 +57,12 @@ export function HeroSection() {
           >
             Start Free Trial →
           </Link>
+          <Link
+            to="/sign-in"
+            className="inline-flex items-center gap-2 bg-transparent text-landing-white py-4 px-8 rounded-lg font-sora font-medium text-[15px] border border-border-dark no-underline transition-all duration-250 hover:border-white-faint hover:bg-white-faint hover:-translate-y-0.5 backdrop-blur-sm"
+          >
+            Sign In
+          </Link>
           <a
             href="#features"
             className="inline-flex items-center gap-2 bg-transparent text-landing-white py-4 px-8 rounded-lg font-sora font-medium text-[15px] border border-border-dark no-underline transition-all duration-250 hover:border-white-faint hover:bg-white-faint hover:-translate-y-0.5 backdrop-blur-sm"

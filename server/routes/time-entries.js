@@ -15,8 +15,9 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, from, to } = req.query
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     let q = supabase.from('time_entries').select('*').order('clock_in', { ascending: false })
-    if (employee_id) q = q.eq('employee_id', employee_id)
+    if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     if (job_id) q = q.eq('job_id', job_id)
     if (from) q = q.gte('clock_in', from)
     if (to) q = q.lte('clock_in', to)
@@ -37,14 +38,15 @@ router.post('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, clock_in, clock_out, source } = req.body || {}
-    if (!employee_id || !job_id) return res.status(400).json({ error: 'employee_id and job_id required' })
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
+    if (!effectiveEmployeeId || !job_id) return res.status(400).json({ error: 'employee_id and job_id required' })
     const clockIn = clock_in || new Date().toISOString()
     const clockOut = clock_out || null
     const hours = clockOut ? computeHours(clockIn, clockOut) : null
     const { data, error } = await supabase
       .from('time_entries')
       .insert({
-        employee_id,
+        employee_id: effectiveEmployeeId,
         job_id,
         clock_in: clockIn,
         clock_out: clockOut,
@@ -72,6 +74,9 @@ router.patch('/:id/clock-out', async (req, res, next) => {
       .eq('id', req.params.id)
       .single()
     if (fetchErr || !entry) return res.status(404).json({ error: 'Time entry not found' })
+    if (req.employee && entry.employee_id !== req.employee.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     const hours = computeHours(entry.clock_in, clockOut)
     const updates = {
       clock_out: clockOut,

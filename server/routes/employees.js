@@ -1,5 +1,6 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { INVITE_EXPIRY_DAYS, generateToken } = require('./invites')
 
 const router = express.Router()
 
@@ -7,6 +8,9 @@ router.get('/', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    if (req.employee) {
+      return res.json([req.employee])
+    }
     const { status, job_id } = req.query
     let q = supabase
       .from('employees')
@@ -36,12 +40,12 @@ router.get('/:id', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
-    const { data: employee, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('user_id', req.user?.id)
-      .single()
+    if (req.employee && req.params.id !== req.employee.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    let q = supabase.from('employees').select('*').eq('id', req.params.id)
+    if (!req.employee) q = q.eq('user_id', req.user?.id)
+    const { data: employee, error } = await q.single()
     if (error || !employee) return res.status(404).json({ error: 'Employee not found' })
     res.json(employee)
   } catch (err) {
@@ -51,6 +55,7 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot create other employees' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { name, role, email, phone, status, current_compensation } = req.body || {}
@@ -78,6 +83,20 @@ router.put('/:id', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    if (req.employee) {
+      if (req.params.id !== req.employee.id) return res.status(403).json({ error: 'Forbidden' })
+      const { phone } = req.body || {}
+      const updates = { updated_at: new Date().toISOString() }
+      if (phone !== undefined) updates.phone = phone
+      const { data, error } = await supabase
+        .from('employees')
+        .update(updates)
+        .eq('id', req.params.id)
+        .select()
+        .single()
+      if (error) throw error
+      return res.json(data)
+    }
     const { name, role, email, phone, status, current_compensation } = req.body || {}
     const updates = {}
     if (name !== undefined) updates.name = name
@@ -104,6 +123,7 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot delete employees' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { error } = await supabase
@@ -113,6 +133,40 @@ router.delete('/:id', async (req, res, next) => {
       .eq('user_id', req.user?.id)
     if (error) throw error
     res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** POST /api/employees/:id/invite - Contractor only. Create invite and return link (email optional later). */
+router.post('/:id/invite', async (req, res, next) => {
+  try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot send invites' })
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { data: employee, error: empErr } = await supabase
+      .from('employees')
+      .select('id, email, auth_user_id')
+      .eq('id', req.params.id)
+      .eq('user_id', req.user?.id)
+      .single()
+    if (empErr || !employee) return res.status(404).json({ error: 'Employee not found' })
+    if (employee.auth_user_id) return res.status(400).json({ error: 'Employee already has portal access' })
+    const token = generateToken()
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRY_DAYS)
+    const { error: insertErr } = await supabase
+      .from('employee_invites')
+      .insert({
+        employee_id: employee.id,
+        email: employee.email,
+        token,
+        expires_at: expiresAt.toISOString(),
+      })
+    if (insertErr) throw insertErr
+    const appOrigin = process.env.APP_ORIGIN || process.env.VITE_APP_ORIGIN || ''
+    const inviteLink = appOrigin ? `${appOrigin.replace(/\/$/, '')}/accept-invite?token=${token}` : null
+    res.status(201).json({ ok: true, expires_at: expiresAt.toISOString(), invite_link: inviteLink })
   } catch (err) {
     next(err)
   }

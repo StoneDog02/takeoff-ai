@@ -4,7 +4,11 @@ import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs, formatDateTime } from '@/lib/date'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
 
-export function ManHoursTab() {
+interface ManHoursTabProps {
+  onSelectEmployee?: (emp: Employee) => void
+}
+
+export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [jobs, setJobs] = useState<{ id: string; name: string }[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -122,14 +126,24 @@ export function ManHoursTab() {
         <div className="teams-detail-panel teams-table-wrap">
           {selectedEmployee ? (
             <>
-              <div className="teams-detail-header">
+              <div className="teams-detail-header" style={{ flexWrap: 'wrap', gap: 12 }}>
                 <TeamsAvatar initials={getInitials(selectedEmployee.name)} size="md" />
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="teams-roster-name">{selectedEmployee.name}</div>
                   <div className="teams-cell-muted">
                     {(weekHoursByEmployee[selectedEmployee.id] ?? 0).toFixed(1)} hrs this week · YTD —
                   </div>
                 </div>
+                {onSelectEmployee && (
+                  <button
+                    type="button"
+                    className="teams-btn teams-btn-ghost"
+                    style={{ marginLeft: 'auto', fontSize: 11, padding: '7px 14px' }}
+                    onClick={() => onSelectEmployee(selectedEmployee)}
+                  >
+                    Full Profile →
+                  </button>
+                )}
               </div>
               <table>
                 <thead>

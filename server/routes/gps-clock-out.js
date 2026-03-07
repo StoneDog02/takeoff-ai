@@ -8,9 +8,10 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id, employee_id } = req.query
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     let q = supabase.from('gps_clock_out_log').select('*').order('exited_at', { ascending: false })
     if (job_id) q = q.eq('job_id', job_id)
-    if (employee_id) q = q.eq('employee_id', employee_id)
+    if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     const { data, error } = await q
     if (error) throw error
     res.json(data || [])
@@ -24,13 +25,18 @@ router.post('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, time_entry_id, job_id, exited_at, lat, lng, geofence_id } = req.body || {}
-    if (!employee_id || !time_entry_id || !job_id)
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
+    if (!effectiveEmployeeId || !time_entry_id || !job_id)
       return res.status(400).json({ error: 'employee_id, time_entry_id, job_id required' })
+    if (req.employee) {
+      const { data: entry } = await supabase.from('time_entries').select('employee_id').eq('id', time_entry_id).single()
+      if (!entry || entry.employee_id !== req.employee.id) return res.status(403).json({ error: 'Forbidden' })
+    }
     const exitedAt = exited_at || new Date().toISOString()
     const { data: log, error: insertErr } = await supabase
       .from('gps_clock_out_log')
       .insert({
-        employee_id,
+        employee_id: effectiveEmployeeId,
         time_entry_id,
         job_id,
         exited_at: exitedAt,

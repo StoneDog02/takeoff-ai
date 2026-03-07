@@ -8,8 +8,9 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id } = req.query
+    const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     let q = supabase.from('pay_raises').select('*').order('effective_date', { ascending: false })
-    if (employee_id) q = q.eq('employee_id', employee_id)
+    if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     const { data, error } = await q
     if (error) throw error
     res.json(data || [])
@@ -20,6 +21,7 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot create pay raises' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, effective_date, amount_type, amount, previous_rate, new_rate, notes } = req.body || {}
@@ -47,6 +49,7 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot update pay raises' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { effective_date, amount_type, amount, previous_rate, new_rate, notes } = req.body || {}
@@ -73,6 +76,7 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot delete pay raises' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { error } = await supabase.from('pay_raises').delete().eq('id', req.params.id)

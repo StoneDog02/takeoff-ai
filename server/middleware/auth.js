@@ -32,6 +32,22 @@ async function requireAuth(req, res, next) {
     }
     req.supabase = supabase
     req.user = user
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+    req.profile = profile || null
+    if (profile?.role === 'employee') {
+      const { data: employee } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('auth_user_id', user.id)
+        .maybeSingle()
+      req.employee = employee || null
+    } else {
+      req.employee = null
+    }
     next()
   } catch (err) {
     return res.status(401).json({ error: 'Unauthorized' })
