@@ -49,6 +49,7 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
   const initialStep = isEdit ? getFirstIncompleteStepIndex(project) : 0
   const [step, setStep] = useState(initialStep)
   const [data, setData] = useState<WizardProjectState>({ ...project })
+  const [pendingBuildPlanFiles, setPendingBuildPlanFiles] = useState<File[]>([])
   const [launched, setLaunched] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -255,6 +256,10 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
             completed: false,
           })
         }
+        for (const file of pendingBuildPlanFiles) {
+          await api.projects.uploadBuildPlan(newId, file).catch(() => {})
+        }
+        setPendingBuildPlanFiles([])
         const workTypesForProject: ProjectWorkType[] = []
         for (const w of (data.workTypes ?? []).filter((x) => x.name?.trim())) {
           const created = await api.projects.createWorkType(newId, {
@@ -453,7 +458,15 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
               )}
             </div>
           )}
-          {step === 0 && <StepClient data={data} onChange={setField} projectId={existingProjectId} />}
+          {step === 0 && (
+            <StepClient
+              data={data}
+              onChange={setField}
+              projectId={existingProjectId}
+              pendingBuildPlanFiles={pendingBuildPlanFiles}
+              onPendingBuildPlansChange={setPendingBuildPlanFiles}
+            />
+          )}
           {step === 1 && <StepPhases data={data} onChange={setField} />}
           {step === 2 && <StepBudget data={data} onChange={setField} />}
           {step === 3 && <StepTeam data={data} onChange={setField} />}

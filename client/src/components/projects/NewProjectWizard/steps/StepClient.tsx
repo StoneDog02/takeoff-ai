@@ -12,9 +12,12 @@ export interface StepClientProps {
   onChange: OnChange
   /** When editing an existing project, pass its id so build plans can be listed/uploaded. */
   projectId?: string
+  /** When creating a project, files added here are uploaded after the project is created. */
+  pendingBuildPlanFiles?: File[]
+  onPendingBuildPlansChange?: (files: File[]) => void
 }
 
-export function StepClient({ data, onChange, projectId }: StepClientProps) {
+export function StepClient({ data, onChange, projectId, pendingBuildPlanFiles = [], onPendingBuildPlansChange }: StepClientProps) {
   const [buildPlans, setBuildPlans] = useState<ProjectBuildPlan[]>([])
   const [buildPlansLoading, setBuildPlansLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -35,25 +38,27 @@ export function StepClient({ data, onChange, projectId }: StepClientProps) {
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !projectId) return
-    if (!isValidProjectId) {
-      setUploadError('Project is not loaded. Close this dialog and open the project again from the project page.')
-      return
+    if (!file) return
+    e.target.value = ''
+    if (projectId) {
+      if (!isValidProjectId) {
+        setUploadError('Project is not loaded. Close this dialog and open the project again from the project page.')
+        return
+      }
+      setUploadError(null)
+      setUploading(true)
+      api.projects
+        .uploadBuildPlan(projectId.trim(), file)
+        .then((plan) => setBuildPlans((prev) => [plan, ...prev]))
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : 'Upload failed'
+          const isNotFound = /not found|404/i.test(msg) || msg.includes('Project not found')
+          setUploadError(isNotFound ? 'Upload failed — the project could not be found. Try closing this dialog, refreshing the page, and opening Edit again.' : msg)
+        })
+        .finally(() => setUploading(false))
+    } else {
+      onPendingBuildPlansChange?.([...pendingBuildPlanFiles, file])
     }
-    setUploadError(null)
-    setUploading(true)
-    api.projects
-      .uploadBuildPlan(projectId.trim(), file)
-      .then((plan) => setBuildPlans((prev) => [plan, ...prev]))
-      .catch((err) => {
-        const msg = err instanceof Error ? err.message : 'Upload failed'
-        const isNotFound = /not found|404/i.test(msg) || msg.includes('Project not found')
-        setUploadError(isNotFound ? 'Upload failed — the project could not be found. Try closing this dialog, refreshing the page, and opening Edit again.' : msg)
-      })
-      .finally(() => {
-        setUploading(false)
-        e.target.value = ''
-      })
   }
 
   const handleRemove = (planId: string) => {
@@ -192,19 +197,17 @@ export function StepClient({ data, onChange, projectId }: StepClientProps) {
         >
           Build plans (optional)
         </div>
-        {projectId ? (
-          <>
-            <p style={{ fontSize: 12, color: 'var(--muted, #64748b)', marginBottom: 8 }}>
+        <p style={{ fontSize: 12, color: 'var(--muted, #64748b)', marginBottom: 8 }}>
               Upload PDFs or images for quick reference. They’ll appear on the project overview.
-            </p>
-            <input
+        </p>
+        <input
               ref={fileInputRef}
               type="file"
               accept=".pdf,image/*"
               style={{ display: 'none' }}
               onChange={handleUpload}
-            />
-            <button
+        />
+        <button
               type="button"
               disabled={uploading}
               onClick={() => fileInputRef.current?.click()}
@@ -218,13 +221,14 @@ export function StepClient({ data, onChange, projectId }: StepClientProps) {
                 color: 'var(--muted, #64748b)',
                 cursor: uploading ? 'wait' : 'pointer',
               }}
-            >
-              {uploading ? 'Uploading…' : '+ Upload build plan'}
-            </button>
-            {uploadError && (
-              <p style={{ fontSize: 12, color: WIZARD_RED, marginTop: 8 }}>{uploadError}</p>
-            )}
-            {buildPlansLoading ? (
+        >
+          {uploading ? 'Uploading…' : '+ Upload build plan'}
+        </button>
+        {uploadError && (
+          <p style={{ fontSize: 12, color: WIZARD_RED, marginTop: 8 }}>{uploadError}</p>
+        )}
+        {projectId ? (
+          buildPlansLoading ? (
               <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Loading…</p>
             ) : buildPlans.length > 0 ? (
               <ul style={{ marginTop: 10, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -276,13 +280,44 @@ export function StepClient({ data, onChange, projectId }: StepClientProps) {
                   </li>
                 ))}
               </ul>
-            ) : null}
-          </>
-        ) : (
-          <p style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>
-            Save the project first, then open Edit to add build plans here. You can also add them from the project overview.
-          </p>
-        )}
+            ) : null
+        ) : pendingBuildPlanFiles.length > 0 ? (
+          <ul style={{ marginTop: 10, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {pendingBuildPlanFiles.map((file, i) => (
+              <li
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 10px',
+                  background: 'var(--bg-base, #f8fafc)',
+                  borderRadius: 8,
+                  border: '1px solid var(--border, #e2e8f0)',
+                }}
+              >
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text, #0f172a)' }}>
+                  {file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onPendingBuildPlansChange?.(pendingBuildPlanFiles.filter((_, j) => j !== i))}
+                  aria-label="Remove"
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </div>
   )

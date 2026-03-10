@@ -23,11 +23,16 @@ function getSupabaseForRequest(req) {
 async function requireAuth(req, res, next) {
   const supabase = getSupabaseForRequest(req)
   if (!supabase) {
+    const hasUrl = !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL)
+    const hasKey = !!(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)
+    const hasToken = !!req.headers.authorization?.replace(/^Bearer\s+/i, '').trim()
+    console.warn('[auth] 401: supabase client not ready', { hasUrl, hasKey, hasToken })
     return res.status(401).json({ error: 'Unauthorized' })
   }
   try {
     const { data: { user }, error } = await supabase.auth.getUser()
     if (error || !user) {
+      console.warn('[auth] 401: getUser failed', error?.message || 'no user')
       return res.status(401).json({ error: 'Unauthorized' })
     }
     req.supabase = supabase
@@ -50,6 +55,7 @@ async function requireAuth(req, res, next) {
     }
     next()
   } catch (err) {
+    console.warn('[auth] 401: exception', err?.message || err)
     return res.status(401).json({ error: 'Unauthorized' })
   }
 }
