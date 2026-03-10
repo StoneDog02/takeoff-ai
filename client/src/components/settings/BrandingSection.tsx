@@ -1,25 +1,75 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { SectionHeader, Card, CardHeader, CardBody, Field, FieldRow, Input, Select, Btn, SaveRow } from './SettingsPrimitives'
+import { settingsApi } from '@/api/settings'
 
-const TEMPLATE_OPTIONS = ['Standard', 'Modern', 'Minimal', 'Classic']
+const TEMPLATE_OPTIONS = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'detailed', label: 'Detailed' },
+]
 
 export function BrandingSection() {
   const [color, setColor] = useState('#b91c1c')
-  const [template, setTemplate] = useState('Standard')
+  const [template, setTemplate] = useState('standard')
   const [logo, setLogo] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    let cancelled = false
+    settingsApi.getSettings().then((res) => {
+      if (cancelled) return
+      const b = res.branding
+      if (b) {
+        setColor(b.primaryColor || '#b91c1c')
+        setTemplate(b.invoiceTemplateStyle === 'minimal' || b.invoiceTemplateStyle === 'detailed' ? b.invoiceTemplateStyle : 'standard')
+        if (b.logoUrl) setLogo(b.logoUrl)
+      }
+    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (ev) => setLogo(ev.target?.result as string)
-      reader.readAsDataURL(file)
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => setLogo(ev.target?.result as string)
+    reader.readAsDataURL(file)
+    setSaving(true)
+    setError(null)
+    try {
+      const { url } = await settingsApi.uploadLogo(file, 'branding')
+      if (url) {
+        setLogo(url)
+        await settingsApi.updateBranding({ logoUrl: url, primaryColor: color, invoiceTemplateStyle: template })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setSaving(false)
     }
   }
 
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const logoUrl = logo && (logo.startsWith('http') || logo.startsWith('/')) ? logo : undefined
+      await settingsApi.updateBranding({ logoUrl: logoUrl ?? null, primaryColor: color, invoiceTemplateStyle: template })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader title="Branding" desc="Logo and primary color appear on invoices and proposals." />
       <Card>
         <CardHeader title="Visual identity" />
@@ -73,7 +123,7 @@ export function BrandingSection() {
                 <Field label="Invoice Template">
                   <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
                     {TEMPLATE_OPTIONS.map((t) => (
-                      <option key={t}>{t}</option>
+                      <option key={t.value} value={t.value}>{t.label}</option>
                     ))}
                   </Select>
                 </Field>
@@ -117,7 +167,7 @@ export function BrandingSection() {
       <Card style={{ marginBottom: 0 }}>
         <CardBody>
           <SaveRow>
-            <Btn>Save branding</Btn>
+            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save branding'}</Btn>
           </SaveRow>
         </CardBody>
       </Card>

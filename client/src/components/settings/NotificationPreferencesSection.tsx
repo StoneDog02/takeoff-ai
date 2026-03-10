@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { NotificationPreferences } from '@/types/global'
+import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, Btn, Toggle } from './SettingsPrimitives'
 
 const defaultPrefs: NotificationPreferences = {
@@ -22,13 +23,49 @@ const CHANNELS: (keyof NotificationPreferences['newBids'])[] = ['email', 'sms', 
 
 export function NotificationPreferencesSection() {
   const [prefs, setPrefs] = useState<NotificationPreferences>(defaultPrefs)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    settingsApi.getSettings().then((res) => {
+      if (cancelled) return
+      const p = res.notification_preferences?.prefs as Record<string, Record<string, boolean>> | undefined
+      if (p && typeof p === 'object') {
+        setPrefs({
+          newBids: { ...defaultPrefs.newBids, ...p.newBids },
+          invoiceStatus: { ...defaultPrefs.invoiceStatus, ...p.invoiceStatus },
+          clockInOut: { ...defaultPrefs.clockInOut, ...p.clockInOut },
+          gpsClockOut: { ...defaultPrefs.gpsClockOut, ...p.gpsClockOut },
+          budgetThreshold: { ...defaultPrefs.budgetThreshold, ...p.budgetThreshold },
+        })
+      }
+    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
 
   const toggle = (id: keyof NotificationPreferences, ch: 'email' | 'sms' | 'push') => {
     setPrefs((p) => ({ ...p, [id]: { ...p[id], [ch]: !p[id][ch] } }))
   }
 
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await settingsApi.updateNotificationPreferences(prefs)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader
         title="Notification Preferences"
         desc="Choose how you want to be notified for each type of event."
@@ -73,7 +110,7 @@ export function NotificationPreferencesSection() {
           ))}
         </div>
         <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f0ed', display: 'flex', justifyContent: 'flex-end' }}>
-          <Btn>Save preferences</Btn>
+          <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save preferences'}</Btn>
         </div>
       </Card>
     </>

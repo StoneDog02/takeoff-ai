@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BarChart2, CreditCard, PenTool, Map } from 'lucide-react'
 import type { Integration } from '@/types/global'
+import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, CardBody, Label, Input, Btn } from './SettingsPrimitives'
 
 const INTEGRATIONS: (Omit<Integration, 'connected' | 'config'> & { category: string; desc: string; Icon: typeof BarChart2; apiKey?: boolean })[] = [
@@ -11,16 +12,44 @@ const INTEGRATIONS: (Omit<Integration, 'connected' | 'config'> & { category: str
 ]
 
 export function IntegrationsSection() {
-  const [states, setStates] = useState<Record<string, boolean>>({
-    quickbooks: false,
-    stripe: false,
-    docusign: true,
-    'google-maps': false,
-  })
+  const [states, setStates] = useState<Record<string, boolean>>({})
   const [keys, setKeys] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    settingsApi.getSettings().then((res) => {
+      if (cancelled) return
+      const map: Record<string, boolean> = {}
+      for (const item of INTEGRATIONS) map[item.id] = false
+      for (const conn of res.integrations || []) {
+        if (conn.integration_id in map) map[conn.integration_id] = conn.connected
+      }
+      setStates(map)
+    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const setConnected = async (integrationId: string, connected: boolean, config?: Record<string, unknown>) => {
+    setUpdating(integrationId)
+    setError(null)
+    try {
+      await settingsApi.updateIntegration(integrationId, { connected, config })
+      setStates((s) => ({ ...s, [integrationId]: connected }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed')
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
 
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader title="Integrations" desc="Connect accounting, payments, e-sign, and maps." />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {INTEGRATIONS.map((item) => (
@@ -62,11 +91,16 @@ export function IntegrationsSection() {
                 </div>
               )}
               {states[item.id] ? (
-                <Btn variant="ghost" onClick={() => setStates((s) => ({ ...s, [item.id]: false }))}>
-                  Disconnect
+                <Btn variant="ghost" onClick={() => setConnected(item.id, false)} disabled={!!updating}>
+                  {updating === item.id ? 'Updating…' : 'Disconnect'}
                 </Btn>
               ) : (
-                <Btn onClick={() => setStates((s) => ({ ...s, [item.id]: true }))}>Connect</Btn>
+                <Btn
+                  onClick={() => setConnected(item.id, true, item.apiKey && keys[item.id] ? { apiKey: keys[item.id] } : undefined)}
+                  disabled={!!updating}
+                >
+                  {updating === item.id ? 'Connecting…' : 'Connect'}
+                </Btn>
               )}
             </CardBody>
           </Card>

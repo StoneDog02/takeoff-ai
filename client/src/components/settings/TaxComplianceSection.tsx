@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { dayjs } from '@/lib/date'
+import type { TaxRate } from '@/types/global'
+import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, CardHeader, CardBody, Field, Input, Btn, SaveRow } from './SettingsPrimitives'
 
 function isExpiringWithin30Days(dateStr: string | undefined): boolean {
@@ -12,8 +14,48 @@ function isExpiringWithin30Days(dateStr: string | undefined): boolean {
 export function TaxComplianceSection() {
   const [rates, setRates] = useState<{ id: string; name: string; rate: string }[]>([{ id: '1', name: 'State', rate: '6.5' }])
   const [license, setLicense] = useState('')
-  const [insuranceExpiry, setInsuranceExpiry] = useState('2025-06-15')
-  const showInsuranceAlert = isExpiringWithin30Days(insuranceExpiry)
+  const [insuranceExpiry, setInsuranceExpiry] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const showInsuranceAlert = isExpiringWithin30Days(insuranceExpiry || undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    settingsApi.getSettings().then((res) => {
+      if (cancelled) return
+      const t = res.tax_compliance
+      if (t) {
+        if (Array.isArray(t.default_tax_rates) && t.default_tax_rates.length > 0) {
+          setRates(t.default_tax_rates.map((r: TaxRate) => ({
+            id: r.id || crypto.randomUUID(),
+            name: r.label || '',
+            rate: String(r.rate ?? ''),
+          })))
+        }
+        setLicense(t.contractor_license_number || '')
+        setInsuranceExpiry(t.insurance_expiry_date || '')
+      }
+    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const default_tax_rates = rates.map((r) => ({ id: r.id, label: r.name, rate: parseFloat(r.rate) || 0 }))
+      await settingsApi.updateTaxCompliance({
+        default_tax_rates,
+        contractor_license_number: license || null,
+        insurance_expiry_date: insuranceExpiry || null,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const addRate = () => setRates((r) => [...r, { id: crypto.randomUUID(), name: '', rate: '' }])
   const removeRate = (i: number) => setRates((r) => r.filter((_, idx) => idx !== i))
@@ -21,8 +63,11 @@ export function TaxComplianceSection() {
     setRates((r) => r.map((x, idx) => (idx === i ? { ...x, [field]: value } : x)))
   }
 
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader
         title="Tax & Compliance"
         desc="Default tax rates, contractor license, and insurance expiry. You will be alerted when insurance expires within 30 days."
@@ -85,7 +130,7 @@ export function TaxComplianceSection() {
       <Card style={{ marginBottom: 0 }}>
         <CardBody>
           <SaveRow>
-            <Btn>Save compliance info</Btn>
+            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save compliance info'}</Btn>
           </SaveRow>
         </CardBody>
       </Card>

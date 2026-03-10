@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { CompanyProfile, CompanyAddress } from '@/types/global'
+import { settingsApi } from '@/api/settings'
 import {
   SectionHeader,
   Card,
@@ -21,24 +22,60 @@ const defaultAddress: CompanyAddress = {
 }
 
 const defaultProfile: CompanyProfile = {
-  name: 'Acme Construction Co.',
-  address: { ...defaultAddress, line1: '123 Main St', line2: 'Suite 100', city: '', state: '', zip: '' },
-  phone: '(555) 123-4567',
-  email: 'billing@company.com',
+  name: '',
+  address: { ...defaultAddress },
+  phone: '',
+  email: '',
 }
 
 export function CompanyProfileSection() {
   const [profile, setProfile] = useState<CompanyProfile>(defaultProfile)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    let cancelled = false
+    settingsApi.getSettings().then((res) => {
+      if (cancelled) return
+      const c = res.company
+      if (c) {
+        setProfile({
+          name: c.name ?? '',
+          logoUrl: c.logoUrl ?? undefined,
+          licenseNumber: c.licenseNumber ?? undefined,
+          address: c.address ?? { ...defaultAddress },
+          phone: c.phone ?? '',
+          email: c.email ?? '',
+          website: c.website ?? undefined,
+        })
+        if (c.logoUrl) setLogoPreview(c.logoUrl)
+      }
+    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (ev) => setLogoPreview(ev.target?.result as string)
-      reader.readAsDataURL(file)
-      setProfile((p) => ({ ...p, logoUrl: URL.createObjectURL(file) }))
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => setLogoPreview(ev.target?.result as string)
+    reader.readAsDataURL(file)
+    setSaving(true)
+    setError(null)
+    try {
+      const { url } = await settingsApi.uploadLogo(file, 'company')
+      if (url) {
+        const next = { ...profile, logoUrl: url }
+        setProfile(next)
+        await settingsApi.updateCompany(next)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -50,8 +87,23 @@ export function CompanyProfileSection() {
     setProfile((p) => ({ ...p, address: { ...p.address, [key]: value } }))
   }
 
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await settingsApi.updateCompany(profile)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader
         title="Company Profile"
         desc="This information appears on estimates, invoices, and proposals."
@@ -172,7 +224,7 @@ export function CompanyProfileSection() {
             </Field>
           </FieldRow>
           <SaveRow>
-            <Btn>Save profile</Btn>
+            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</Btn>
           </SaveRow>
         </CardBody>
       </Card>

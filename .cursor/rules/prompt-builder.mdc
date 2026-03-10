@@ -1,0 +1,169 @@
+---
+description: Rules for correctly modifying build-prompts.js. Apply whenever editing, refactoring, or adding functions to server/claude/build-prompts.js. Prevents tier pollution, prompt ordering errors, and plan type routing mistakes.
+globs: server/claude/build-prompts.js
+alwaysApply: false
+---
+
+# Prompt Builder Rules — build-prompts.js
+
+## Overview
+`build-prompts.js` is the single source of all prompt assembly logic. Every string that gets sent to the Claude API passes through here. Getting this wrong silently degrades takeoff accuracy.
+
+---
+
+## Exported Functions — What Each One Does
+
+| Function | Used By | Purpose |
+|----------|---------|---------|
+| `buildSystemPrompt()` | Standalone takeoff route | Default prompt, no knowledge base |
+| `buildCustomProjectSystemPrompt(planType)` | Project launch-takeoff route | Full tier hierarchy prompt |
+| `buildKeynoteRegisterPrompt()` | `runTakeoffCivil()` Pass 1 | Extracts keynote register from first page |
+| `buildSheetTakeoffPrompt(keynoteRegister, pageNum, totalPages, useCustomProject)` | `runTakeoffCivil()` Pass 2 | Per-sheet takeoff with register injected |
+
+Do **not** merge these functions. Each serves a distinct flow.
+
+---
+
+## `buildCustomProjectSystemPrompt(planType)` — Mandatory Assembly Order
+
+This function MUST assemble the prompt in this exact order. Changing the order degrades accuracy.
+
+```javascript
+function buildCustomProjectSystemPrompt(planType = 'auto') {
+  let prompt = '';
+
+  // 1. TIER 1 — Always first, always present (TIER1_FILES constant)
+  prompt += assembleTierBlock('TIER 1 — BURT OVERRIDES (supersede all rules below)', TIER1_FILES);
+
+  // 2. Project instructions
+  prompt += '\n\n' + readFile('instructions.txt');
+
+  // 3. TIER 2 — Process methodology (TIER2_CONTEXT constant)
+  prompt += assembleTierBlock('TIER 2 — PROCESS INSTRUCTIONS', TIER2_CONTEXT);
+
+  // 4. TIER 3 + shared — files listed for this planType in plan-type-docs.js
+  const docList = getPlanTypeDocs(planType); // reads from plan-type-docs.js DOC_MAP
+  prompt += assembleTierBlock(`TIER 3 — ${planType.toUpperCase()} REFERENCE RULES`, docList);
+
+  // 5. Output format block — Always last
+  prompt += buildOutputFormatBlock();
+
+  return prompt;
+}
+```
+
+> **Implementation note:** The actual codebase uses fixed file-name arrays (`TIER1_FILES`, `TIER2_CONTEXT`) and a `plan-type-docs.js` doc map for tier 3, pulling content from `knowledge-cache.js` by filename. It does **not** scan tier subfolders dynamically. The `buildTierBlock` pattern described in earlier design docs was the intended architecture — the current implementation achieves the same result via explicit file lists. When adding new reference files, add them to the appropriate constant or `DOC_MAP` entry, not just to the folder.
+
+---
+
+## File List Constants — Where Doc Lists Live
+
+| Constant / Source | What it controls |
+|------------------|-----------------|
+| `TIER1_FILES` (in `build-prompts.js`) | Always-injected Burt Override files |
+| `TIER2_CONTEXT` (in `build-prompts.js`) | Always-injected process methodology files |
+| `DOC_MAP` (in `plan-type-docs.js`) | Per-plan-type file lists for tier 3 + shared |
+
+**To add a new reference document:**
+1. Place the file in the correct `knowledge/tier*/` subfolder
+2. Add its filename to the appropriate constant or `DOC_MAP` entry in `plan-type-docs.js`
+3. Warm the cache — new files are picked up at server restart automatically if `knowledge-cache.js` reads the full knowledge tree
+
+---
+
+## `buildOutputFormatBlock()` — Always Last in Prompt
+
+This block closes every custom project prompt. It MUST be the final content Claude sees before the user message.
+
+```javascript
+function buildOutputFormatBlock() {
+  return `
+
+${'='.repeat(60)}
+OUTPUT FORMAT REQUIREMENTS
+${'='.repeat(60)}
+
+Return ONLY valid JSON matching the material takeoff schema.
+Do not include any text outside the JSON object.
+Do not include markdown code fences.
+The response must begin with { and end with }.
+
+Confidence levels: "high" = measurable from plans, "medium" = estimated with reasonable basis, "low" = assumed or missing data.
+Flag any item where quantity cannot be determined from provided plans.
+`;
+}
+```
+
+---
+
+## Two New Functions Required for Civil Pass System
+
+### `buildKeynoteRegisterPrompt()`
+- Used in Pass 1 of the civil flow (page 1 only)
+- Instructs Claude to return ONLY a JSON keynote register
+- Must include: sheet names, scale per sheet, keynote-to-material mapping
+- Must NOT request quantities — Pass 1 is register extraction only
+
+```javascript
+function buildKeynoteRegisterPrompt() {
+  return `
+You are analyzing the first page of a civil engineering plan set.
+Extract and return ONLY a JSON keynote register with this structure:
+
+{
+  "project_name": "string",
+  "sheets": [
+    { "sheet_number": "C-101", "title": "string", "scale": "1\" = 20'" }
+  ],
+  "keynote_legend": [
+    { "keynote": "1", "material": "string", "spec": "string" }
+  ],
+  "notes": "string"
+}
+
+Return ONLY the JSON. No other text.
+`;
+}
+```
+
+### `buildSheetTakeoffPrompt(keynoteRegister, pageNum, totalPages, useCustomProject)`
+- Used in Pass 2 of the civil flow (one call per sheet)
+- Injects the keynote register from Pass 1 as context
+- Instructs Claude to take off THIS SHEET ONLY
+- Must include warning: "Do not count items from other sheets"
+- If `useCustomProject` is true, prepend the full tier hierarchy
+
+---
+
+## What NOT to Put in build-prompts.js
+
+- No file I/O other than reading knowledge base files via cache
+- No Anthropic API calls — those belong in `takeoff.js`
+- No business logic (saving results, project lookups)
+- No hardcoded quantities or material prices
+- No inline knowledge content — always read from files
+
+---
+
+## Pollution Prevention Checklist
+
+Before committing any change to `build-prompts.js`, verify:
+
+- [ ] No `.py`, `.js`, `.ts`, `.json` files are being injected into prompts
+- [ ] `tier1-overrides` is still the first block in custom project prompts
+- [ ] `buildOutputFormatBlock()` is still the last block
+- [ ] `buildSystemPrompt()` does NOT read from the knowledge base
+- [ ] `buildCustomProjectSystemPrompt()` does NOT call `buildSystemPrompt()`
+- [ ] No file is read twice (cache hit should prevent this)
+- [ ] `planType` defaults to `'auto'` → `tier3-residential` when unrecognized
+
+---
+
+## Adding a New Plan Type
+
+1. Create `knowledge/tier3-{newtype}/` and populate with reference files
+2. Add a `DOC_MAP.{newtype}` entry in `plan-type-docs.js` listing the files to inject
+3. Add entry to plan type selector in `LaunchTakeoffWidget.tsx`
+4. Add entry to `planType` handling in `server/routes/projects.js`
+5. Decide if it needs a custom takeoff flow in `takeoff.js` (like civil does)
+6. Update `takeoff-architecture.mdc` Plan Type Values table

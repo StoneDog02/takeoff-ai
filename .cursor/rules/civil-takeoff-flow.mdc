@@ -1,0 +1,238 @@
+---
+description: Civil takeoff 3-pass flow, keynote aggregation logic, and page-by-page discipline rules. Apply whenever editing runTakeoffCivil(), aggregateCivilSheets(), or any function in takeoff.js that handles civil plan sets. Also apply when writing any new civil-related prompt builder functions.
+globs: server/claude/takeoff.js, server/claude/build-prompts.js
+alwaysApply: false
+---
+
+# Civil Takeoff Flow — 3-Pass Architecture
+
+## Why Civil Plans Are Different
+
+Civil plan sets (grading, utilities, roadway, drainage) have a drafting convention that breaks standard chunking:
+
+- **Keynote numbers reset per sheet** — keynote "3" on sheet C-101 is a different material than keynote "3" on sheet C-102
+- **Cross-sheet context is required** — a pipe run started on C-101 may continue on C-102
+- **Scales vary per sheet** — a single PDF may have 1"=20' on one sheet and 1"=40' on another
+- **Multi-sheet aggregation must be by material category**, never by keynote number
+
+Chunking civil plans the same way as residential (5 pages per API call) produces wildly incorrect quantities. The 3-pass flow solves this.
+
+---
+
+## 3-Pass Flow — Implementation
+
+### Entry Point
+
+```javascript
+export async function runTakeoff(fileBuffer, mimeType, options = {}) {
+  const { useCustomProject = false, planType = 'auto' } = options;
+
+  // Branch to civil flow only when explicitly civil AND it's a PDF
+  if (planType === 'civil' && mimeType === 'application/pdf') {
+    return await runTakeoffCivil(fileBuffer, options);
+  }
+
+  return await runTakeoffDefault(fileBuffer, mimeType, options);
+}
+```
+
+### Pass 1 — Keynote Register Extraction
+
+```javascript
+async function runTakeoffCivil(fileBuffer, options) {
+  const { useCustomProject = false } = options;
+
+  // Extract only page 1 for the register
+  const page1Buffer = await extractPdfPage(fileBuffer, 1); // uses pdf-lib
+
+  const registerResponse = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2000,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: page1Buffer.toString('base64') } },
+        { type: 'text', text: buildKeynoteRegisterPrompt() }
+      ]
+    }]
+  });
+
+  const keynoteRegister = parseJsonResponse(registerResponse);
+  const totalPages = await getPdfPageCount(fileBuffer); // uses pdf-lib
+
+  // Pass 2 — per-sheet takeoffs
+  return await runCivilSheetPass(fileBuffer, keynoteRegister, totalPages, useCustomProject);
+}
+```
+
+### Pass 2 — Per-Sheet Takeoffs
+
+```javascript
+async function runCivilSheetPass(fileBuffer, keynoteRegister, totalPages, useCustomProject) {
+  const sheetResults = [];
+
+  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+    const pageBuffer = await extractPdfPage(fileBuffer, pageNum);
+    const prompt = buildSheetTakeoffPrompt(keynoteRegister, pageNum, totalPages, useCustomProject);
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pageBuffer.toString('base64') } },
+          { type: 'text', text: prompt }
+        ]
+      }]
+    });
+
+    const sheetData = parseJsonResponse(response);
+    sheetData._sourceSheet = `Page ${pageNum}`;
+    sheetResults.push(sheetData);
+  }
+
+  // Pass 3 — aggregate
+  return aggregateCivilSheets(sheetResults);
+}
+```
+
+### Pass 3 — Aggregation
+
+```javascript
+function aggregateCivilSheets(sheetResults) {
+  const itemMap = {};
+
+  for (const sheet of sheetResults) {
+    for (const category of (sheet.material_takeoff ?? [])) {
+      for (const item of (category.items ?? [sheet.material_takeoff].flat())) {
+        // ✅ CORRECT: key by category + description
+        const key = `${item.category}||${item.description}`.toLowerCase().trim();
+
+        // ❌ NEVER key by keynote number — keynotes reset per sheet
+        // const key = item.keynote_number  // WRONG — DO NOT DO THIS
+
+        if (itemMap[key]) {
+          itemMap[key].quantity += (item.quantity ?? 0);
+          itemMap[key].drawing_refs = [...new Set([
+            ...(itemMap[key].drawing_refs ?? []),
+            ...(item.drawing_refs ?? [sheet._sourceSheet])
+          ])];
+          // Merge assumptions, deduplicate
+          itemMap[key].assumptions = [...new Set([
+            ...(itemMap[key].assumptions ?? []),
+            ...(item.assumptions ?? [])
+          ])];
+          // Downgrade confidence if any sheet had lower confidence
+          if (item.confidence === 'low') itemMap[key].confidence = 'low';
+          else if (item.confidence === 'medium' && itemMap[key].confidence !== 'low') {
+            itemMap[key].confidence = 'medium';
+          }
+        } else {
+          itemMap[key] = {
+            ...item,
+            drawing_refs: item.drawing_refs ?? [sheet._sourceSheet],
+            sourceSheets: [sheet._sourceSheet]
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    project_summary: sheetResults[0]?.project_summary ?? {},
+    material_takeoff: Object.values(itemMap),
+    total_categories: new Set(Object.values(itemMap).map(i => i.category)).size,
+    missing_information: sheetResults.flatMap(s => s.missing_information ?? []),
+    confidence_score: deriveOverallConfidence(Object.values(itemMap))
+  };
+}
+```
+
+---
+
+## Keynote Cross-Reference Protocol — CRITICAL
+
+This is the most common source of civil takeoff errors. Follow this exactly.
+
+### The Problem
+Civil drafters reuse keynote numbers across sheets. Sheet C-101 keynote "4" = "6" PVC SDR-35 sewer. Sheet C-102 keynote "4" = "fire hydrant assembly". If you aggregate by keynote number, you get wrong counts.
+
+### The Rule
+**Build a per-sheet Keynote Master Register in Pass 1. Aggregate by `category + description` in Pass 3. Never aggregate by keynote number.**
+
+### Per-Sheet Register Format (Pass 1 output)
+```json
+{
+  "sheets": [
+    { "sheet_number": "C-101", "title": "Utility Plan", "scale": "1\" = 20'" },
+    { "sheet_number": "C-102", "title": "Grading Plan", "scale": "1\" = 20'" }
+  ],
+  "keynote_legend": [
+    { "sheet": "C-101", "keynote": "1", "material": "8\" PVC C900 water main", "spec": "AWWA C900" },
+    { "sheet": "C-101", "keynote": "4", "material": "6\" PVC SDR-35 sewer", "spec": "ASTM D3034" },
+    { "sheet": "C-102", "keynote": "4", "material": "Fire hydrant assembly", "spec": "AWWA C502" }
+  ]
+}
+```
+
+Note: keynote "4" appears twice with different materials. This is expected and correct.
+
+### Pass 2 Prompt Must Contain
+
+1. The full keynote register for the current sheet
+2. Explicit instruction: "Count items on THIS PAGE ONLY. Do not count items visible on other sheets."
+3. Scale for this specific sheet (from register)
+4. Warning: "Keynote numbers are not unique across sheets. Use the material description, not the keynote number, to identify items."
+
+---
+
+## PDF Page Extraction with pdf-lib
+
+```javascript
+import { PDFDocument } from 'pdf-lib';
+
+async function extractPdfPage(fileBuffer, pageNum) {
+  const srcDoc = await PDFDocument.load(fileBuffer);
+  const newDoc = await PDFDocument.create();
+  const [copiedPage] = await newDoc.copyPages(srcDoc, [pageNum - 1]); // 0-indexed
+  newDoc.addPage(copiedPage);
+  return Buffer.from(await newDoc.save());
+}
+
+async function getPdfPageCount(fileBuffer) {
+  const doc = await PDFDocument.load(fileBuffer);
+  return doc.getPageCount();
+}
+```
+
+**Install:** `npm install pdf-lib` in `/server`
+
+---
+
+## Civil-Specific Confidence Flags
+
+When writing civil prompts or processing civil results, apply these confidence rules:
+
+| Item Type | Default Confidence | Flag If... |
+|-----------|------------------|-----------|
+| Pipe lengths (straight runs) | medium | Scale not confirmed from dimension string |
+| Pipe lengths (curved) | low | No string/planimeter method described |
+| Manhole / structure counts | high | Clearly keynoted with unique symbol |
+| Hydrant counts | medium | Verify keynote is unique per sheet — common error source |
+| Earthwork cut/fill volumes | low | Always — requires surface model or grid method |
+| Erosion control (LF/SF) | medium | Can be estimated from grading limits |
+| Pavement areas | medium | Verify using dimension strings, not scale alone |
+
+### Fire Hydrant Count — Known Issue
+Wolf Pack Place project had a discrepancy (AI count: 4, contractor count: 2). Root cause: keynote number reset across sheets. **Always verify hydrant counts against a sheet-by-sheet recount using the keynote register, not a cross-sheet total.**
+
+---
+
+## Rules for New Civil Features
+
+1. **Never add a "fast path" that skips Pass 1** — the keynote register is mandatory for any multi-sheet civil set
+2. **Never aggregate civil results by page number or keynote number** — only by `category||description` key
+3. **Rate limiting:** If the plan set has >15 pages, add a 500ms delay between Pass 2 API calls to avoid rate limits
+4. **Error recovery:** If a single sheet's Pass 2 call fails, log the error, add a `missing_information` flag for that sheet, and continue — don't abort the whole takeoff
+5. **Single-sheet civil plans:** The current implementation runs the full 3-pass flow even for single-page civil PDFs. This is safe but slightly inefficient. Consider adding an optimization: if `totalPages === 1`, skip Pass 2 loop and call `runTakeoffDefault()` instead — but do not add this without also updating the test suite.

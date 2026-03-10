@@ -4,6 +4,9 @@
  */
 
 // ----- Projects (Agent 1 / existing) -----
+/** Plan type for takeoff: which reference doc set is used (plan-type-docs). */
+export type ProjectPlanType = 'residential' | 'commercial' | 'civil' | 'auto'
+
 export interface Project {
   id: string
   name: string
@@ -21,6 +24,7 @@ export interface Project {
   expected_end_date?: string
   estimated_value?: number
   assigned_to_name?: string
+  plan_type?: ProjectPlanType
 }
 
 export interface Phase {

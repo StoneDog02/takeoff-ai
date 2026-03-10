@@ -42,6 +42,7 @@ export function wizardStateFromProject(
   }))
   const team = [...rosterTeam, ...externalTeam]
 
+  const planType = project.plan_type === 'commercial' || project.plan_type === 'civil' ? project.plan_type : 'residential'
   return {
     name: project.name ?? '',
     address: project.address_line_1 ?? '',
@@ -53,6 +54,7 @@ export function wizardStateFromProject(
     clientName: project.assigned_to_name ?? undefined,
     budget: budgetItems.reduce((s, i) => s + (i.predicted ?? 0), 0),
     description: project.scope ?? undefined,
+    planType,
     phases: phases.map((p, i) => ({
       id: p.id,
       name: p.name ?? '',

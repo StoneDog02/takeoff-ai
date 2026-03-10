@@ -37,6 +37,35 @@ router.get('/', async (req, res, next) => {
   }
 })
 
+/** GET /api/employees/invites — list pending/accepted invites for current user's employees (for Settings) */
+router.get('/invites', async (req, res, next) => {
+  try {
+    if (req.employee) return res.json([])
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { data: employees } = await supabase.from('employees').select('id').eq('user_id', req.user?.id)
+    const empIds = (employees || []).map((e) => e.id)
+    if (empIds.length === 0) return res.json([])
+    const { data: invites, error } = await supabase
+      .from('employee_invites')
+      .select('id, employee_id, email, expires_at, used_at, created_at')
+      .in('employee_id', empIds)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    const now = new Date().toISOString()
+    const list = (invites || []).map((inv) => ({
+      id: inv.id,
+      employee_id: inv.employee_id,
+      email: inv.email,
+      status: inv.used_at ? 'accepted' : (new Date(inv.expires_at) < new Date(now) ? 'expired' : 'pending'),
+      invitedAt: inv.created_at?.split('T')[0] || null,
+    }))
+    res.json(list)
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/:id', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase

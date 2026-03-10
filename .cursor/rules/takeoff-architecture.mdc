@@ -1,0 +1,166 @@
+---
+description: Full system architecture map for takeoff-ai. Apply whenever touching any file in server/claude/, server/routes/, client/src/api/, or client/src/components/projects/. This rule is the source of truth for how the system is structured — read it before making any architectural change.
+globs: server/claude/**, server/routes/**, client/src/api/**, client/src/components/projects/**
+alwaysApply: false
+---
+
+# takeoff-ai: System Architecture Reference
+
+## Purpose
+takeoff-ai is a construction material takeoff SaaS that sends construction plan images/PDFs to Claude (claude-sonnet-4-6) via the Anthropic API and returns structured JSON material lists. It supports two distinct takeoff flows and three plan-type disciplines.
+
+---
+
+## Directory Map
+
+```
+takeoff-ai/
+├── client/src/
+│   ├── api/client.ts              — runTakeoff(), launchTakeoff(), getTakeoffs()
+│   ├── components/projects/
+│   │   └── LaunchTakeoffWidget.tsx — Plan type selector + file upload UI
+│   ├── routes/TakeoffPage.tsx      — Standalone /takeoff route
+│   └── types/global.ts             — TakeoffItem, MaterialList interfaces
+│
+├── server/
+│   ├── claude/
+│   │   ├── takeoff.js              — runTakeoff(), runTakeoffDefault(), runTakeoffCivil()
+│   │   ├── build-prompts.js        — ALL prompt assembly logic lives here
+│   │   ├── knowledge-cache.js      — Startup cache for knowledge base files
+│   │   ├── material-list-schema.js — JSON output schema definition
+│   │   └── material-takeoff-project/
+│   │       ├── instructions.txt    — Project-level agent instructions
+│   │       └── knowledge/          — Tiered knowledge base (see tier structure below)
+│   │
+│   ├── routes/
+│   │   ├── takeoff.js              — POST /api/takeoff (standalone flow)
+│   │   └── projects.js             — POST /api/projects/:id/launch-takeoff
+│   │
+│   └── index.js                    — Server entry; warms knowledge cache at startup
+│
+└── supabase/migrations/
+```
+
+---
+
+## Two Takeoff Flows — NEVER conflate them
+
+### Flow A: Standalone Takeoff
+- **Route:** `POST /api/takeoff`
+- **Uses:** Default system prompt only (`buildSystemPrompt()`)
+- **No:** knowledge base, custom instructions, plan type routing
+- **Saves to:** Nothing (returns result directly)
+
+### Flow B: Project Launch Takeoff ← primary product flow
+- **Route:** `POST /api/projects/:id/launch-takeoff`
+- **Uses:** `buildCustomProjectSystemPrompt(planType)` — full tier hierarchy
+- **Requires:** `useCustomProject: true`, `planType` in request body
+- **Saves to:** `project_takeoffs` table → feeds Bid Sheet flow
+- **Civil plans:** branches to `runTakeoffCivil()` automatically when `planType === 'civil'`
+
+---
+
+## Knowledge Base Tier Structure — DO NOT FLATTEN
+
+The knowledge base at `server/claude/material-takeoff-project/knowledge/` MUST maintain this exact folder structure. **Never move files between tiers. Never inject files alphabetically.**
+
+```
+knowledge/
+├── tier1-overrides/       ← HIGHEST PRIORITY — Burt Overrides supersede everything
+│   └── Burt_Takeoff_Instruction_Updates.pdf
+│
+├── tier2-process/         ← HOW to do a takeoff (methodology)
+│   ├── AI_Bluebeam_Prompt.md
+│   ├── Civil_Takeoff_Claude_Prompts.md
+│   └── [process PDFs]
+│
+├── tier3-residential/     ← Residential rules (inject when planType='residential')
+│   └── [residential rulebooks, construction manual, etc.]
+│
+├── tier3-civil/           ← Civil rules (inject when planType='civil')
+│   └── [civil drawing guide, utility rulebook, etc.]
+│
+├── tier3-commercial/      ← Commercial rules (inject when planType='commercial')
+│   └── [structural steel, CMU, commercial assemblies]
+│
+└── shared/                ← Cross-discipline reference files (see injection note below)
+    ├── Engineers_Measuring_Tool_Knowledge_Guide.pdf
+    ├── Master_Building_Code_Reference_Guide.pdf
+    └── 3d-modeling-construction-plans.pdf
+```
+
+> **Shared injection note:** Files in `shared/` are NOT automatically injected for every plan type. They are included only when listed in the relevant plan type's doc list in `plan-type-docs.js` (e.g. `DOC_MAP.auto` includes the Engineers guide and 3d-modeling file). To add a shared file to a plan type, add it to the appropriate entry in `plan-type-docs.js` — do not assume it will be picked up automatically.
+
+### Injection Order in System Prompt (MUST be this sequence):
+1. `tier1-overrides` — always first, always injected (TIER1_FILES constant)
+2. `instructions.txt` — project agent instructions
+3. `tier2-process` — always injected (TIER2_CONTEXT constant)
+4. `shared` — injected only for plan types that include them in `plan-type-docs.js`
+5. `tier3-{planType}` — only the files listed for the matching plan type in `plan-type-docs.js`
+
+---
+
+## Five Architectural Problems & Their Fixes
+
+These were identified defects. Do not revert them.
+
+| # | Problem | Fix |
+|---|---------|-----|
+| 1 | Files injected alphabetically — Burt Overrides buried | Tier hierarchy in `buildCustomProjectSystemPrompt()` |
+| 2 | All docs injected regardless of plan type | `planType` param routes to correct doc list in `plan-type-docs.js` |
+| 3 | `plan_processor.py` + `README.md` polluting system prompt | Deleted from knowledge root |
+| 4 | 5-page chunking loses civil cross-sheet context | Civil 3-pass flow in `runTakeoffCivil()` |
+| 5 | Knowledge re-extracted on every API call | `knowledge-cache.js` warmed at startup in `index.js` |
+
+---
+
+## Plan Type Values
+
+| Value | Knowledge Folder | Takeoff Flow |
+|-------|-----------------|-------------|
+| `'residential'` | Files listed in `DOC_MAP.residential` in `plan-type-docs.js` | `runTakeoffDefault()` |
+| `'civil'` | Files listed in `DOC_MAP.civil` in `plan-type-docs.js` | `runTakeoffCivil()` (3-pass) |
+| `'commercial'` | Files listed in `DOC_MAP.commercial` in `plan-type-docs.js` | `runTakeoffDefault()` |
+| `'auto'` | Files listed in `DOC_MAP.auto` in `plan-type-docs.js` (NOT full tier3-residential) | `runTakeoffDefault()` |
+
+> **Important:** `auto` does NOT fall back to the full `tier3-residential/` folder. It uses its own curated doc list in `plan-type-docs.js`. When adding a new shared reference for auto mode, add it to `DOC_MAP.auto`, not to `tier3-residential/`.
+
+---
+
+## JSON Output Schema — NEVER change without updating material-list-schema.js
+
+```json
+{
+  "project_summary": { "type": "string", "total_sqft": "number", "notes": "string" },
+  "material_takeoff": [
+    {
+      "category": "string",
+      "subcategory": "string",
+      "description": "string",
+      "quantity": "number",
+      "unit": "string",
+      "waste_factor": "string",
+      "purchase_notes": "string",
+      "drawing_refs": ["string"],
+      "assumptions": ["string"],
+      "confidence": "high|medium|low",
+      "flags": ["string"]
+    }
+  ],
+  "total_categories": "number",
+  "missing_information": ["string"],
+  "confidence_score": "string"
+}
+```
+
+---
+
+## Critical Rules
+
+1. **Never add files to knowledge root** (`knowledge/`) — only to subfolders
+2. **Never delete tier folders** — even if empty
+3. **`plan_processor.py` and `README.md` must not exist** in the knowledge directory
+4. **`buildCustomProjectSystemPrompt()` is the only function** that reads the knowledge base — no other function should read knowledge files
+5. **`knowledge-cache.js` must be warmed once at server startup** in `index.js`, not lazily
+6. **Civil flow always uses 3-pass** — never chunk civil PDFs the same way as residential
+7. **The Bid Sheet flow depends on project_takeoffs** — do not change the save schema without migration

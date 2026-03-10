@@ -72,6 +72,9 @@ export interface WizardMilestone {
   type: 'phase' | 'custom'
 }
 
+/** Plan type for takeoff (dropdown in wizard). */
+export type WizardPlanType = 'residential' | 'commercial' | 'civil'
+
 /** In-memory project shape used by the setup wizard (before API persist) */
 export interface WizardProjectState {
   name: string
@@ -87,6 +90,7 @@ export interface WizardProjectState {
   clientPhone?: string
   budget: number
   description?: string
+  planType: WizardPlanType
   phases: WizardPhase[]
   tasks: WizardTask[]
   milestones: WizardMilestone[]
@@ -103,6 +107,7 @@ export const EMPTY_WIZARD_PROJECT: WizardProjectState = {
   endDate: '',
   client: '',
   budget: 0,
+  planType: 'residential',
   phases: [],
   tasks: [],
   milestones: [],

@@ -1,6 +1,7 @@
 const express = require('express')
 const multer = require('multer')
 const { runTakeoff } = require('../claude/takeoff')
+const { TRADE_MAP, TRADE_ORDER } = require('../claude/trade-definitions')
 const { supabase: defaultSupabase } = require('../db/supabase')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
@@ -76,7 +77,7 @@ router.get('/', async (req, res, next) => {
     if (!supabase) return res.json([])
     const { data, error } = await supabase
       .from('projects')
-      .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name')
+      .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, plan_type')
       .eq('user_id', req.user?.id)
       .order('updated_at', { ascending: false })
     if (error) throw error
@@ -103,6 +104,7 @@ router.post('/', async (req, res, next) => {
       expected_end_date,
       estimated_value,
       assigned_to_name,
+      plan_type,
     } = req.body || {}
     const insert = {
       user_id: req.user?.id,
@@ -119,6 +121,7 @@ router.post('/', async (req, res, next) => {
     if (expected_end_date !== undefined) insert.expected_end_date = expected_end_date || null
     if (estimated_value !== undefined) insert.estimated_value = estimated_value != null ? Number(estimated_value) : null
     if (assigned_to_name !== undefined) insert.assigned_to_name = assigned_to_name || null
+    if (plan_type !== undefined) insert.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : 'residential'
     const { data, error } = await supabase
       .from('projects')
       .insert(insert)
@@ -129,6 +132,11 @@ router.post('/', async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+/** Trade options for takeoff scope (single or multi-select). */
+router.get('/trades', (req, res) => {
+  res.json(TRADE_ORDER.map((key) => ({ key, label: TRADE_MAP[key].label, csiDivision: TRADE_MAP[key].csi })))
 })
 
 router.get('/:id', loadProject, async (req, res) => {
@@ -147,6 +155,7 @@ router.put('/:id', loadProject, async (req, res, next) => {
       expected_end_date,
       estimated_value,
       assigned_to_name,
+      plan_type,
     } = req.body || {}
     const updates = {}
     if (name !== undefined) updates.name = name
@@ -157,6 +166,7 @@ router.put('/:id', loadProject, async (req, res, next) => {
     if (expected_end_date !== undefined) updates.expected_end_date = expected_end_date || null
     if (estimated_value !== undefined) updates.estimated_value = estimated_value != null ? Number(estimated_value) : null
     if (assigned_to_name !== undefined) updates.assigned_to_name = assigned_to_name || null
+    if (plan_type !== undefined) updates.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : req.project.plan_type
     updates.updated_at = new Date().toISOString()
     const { data, error } = await supabase
       .from('projects')
@@ -751,6 +761,8 @@ function enrichMaterialList(materialList) {
       notes: item.notes,
       trade_tag: item.trade_tag || 'TBD',
       cost_estimate: item.cost_estimate ?? null,
+      subcategory: item.subcategory ?? '',
+      drawing_refs: item.drawing_refs ?? undefined,
     })),
   }))
   return { ...materialList, categories }
@@ -769,8 +781,24 @@ router.post('/:id/launch-takeoff', loadProject, (req, res, next) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
     const supabase = req.supabase || defaultSupabase
     const projectId = req.params.id
+    // Client can send planType in body (e.g. from Takeoff tab selector); else use project's saved plan_type
+    const allowed = ['residential', 'commercial', 'civil', 'auto']
+    const bodyPlanType = req.body?.planType || req.body?.plan_type
+    const planType = allowed.includes(bodyPlanType)
+      ? bodyPlanType
+      : (allowed.includes(req.project?.plan_type) ? req.project.plan_type : 'auto')
+    let tradeFilter = req.body?.tradeFilter ?? null
+    if (typeof tradeFilter === 'string' && tradeFilter.trim().startsWith('[')) {
+      try {
+        tradeFilter = JSON.parse(tradeFilter)
+      } catch (_) {
+        tradeFilter = tradeFilter.trim() || null
+      }
+    }
     const { materialList } = await runTakeoff(req.file.buffer, req.file.mimetype, {
       useCustomProject: true,
+      planType,
+      tradeFilter,
     })
     const enriched = enrichMaterialList(materialList)
 

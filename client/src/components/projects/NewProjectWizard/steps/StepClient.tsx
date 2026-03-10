@@ -3,7 +3,7 @@ import { api } from '@/api/client'
 import type { ProjectBuildPlan } from '@/types/global'
 import { Input } from '../primitives'
 import { WIZARD_RED } from '../constants'
-import type { WizardProjectState } from '../types'
+import type { WizardProjectState, WizardPlanType } from '../types'
 
 type OnChange = (key: keyof WizardProjectState, value: unknown) => void
 
@@ -89,6 +89,48 @@ export function StepClient({ data, onChange, projectId, pendingBuildPlanFiles = 
         onChange={(v) => onChange('name', v)}
         placeholder="e.g. Kitchen Remodel – 123 Main St"
       />
+      <div>
+        <div
+          style={{
+            fontSize: '11px',
+            color: 'var(--muted, #64748b)',
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.4px',
+            marginBottom: '5px',
+          }}
+        >
+          Plan type
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted, #64748b)', marginBottom: 6 }}>
+          Used for takeoff: which reference rulebooks are applied (residential vs commercial vs civil).
+        </p>
+        <select
+          value={data.planType ?? 'residential'}
+          onChange={(e) => onChange('planType', e.target.value as WizardPlanType)}
+          style={{
+            width: '100%',
+            padding: '9px 12px',
+            border: '1.5px solid var(--border, #e2e8f0)',
+            borderRadius: 9,
+            fontSize: 13,
+            fontFamily: 'inherit',
+            outline: 'none',
+            color: 'var(--text, #0f172a)',
+            background: 'var(--bg-input, #fff)',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = WIZARD_RED
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border, #e2e8f0)'
+          }}
+        >
+          <option value="residential">Residential</option>
+          <option value="commercial">Commercial</option>
+          <option value="civil">Civil</option>
+        </select>
+      </div>
       <div style={{ display: 'flex', gap: '12px' }}>
         <Input
           label="Client Name"

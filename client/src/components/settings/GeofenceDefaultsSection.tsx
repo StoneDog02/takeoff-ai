@@ -1,18 +1,50 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { GeofenceDefaults } from '@/types/global'
+import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, CardHeader, CardBody, Field, FieldRow, Input, Btn, SaveRow } from './SettingsPrimitives'
 
 const defaults: GeofenceDefaults = {
-  defaultRadiusMeters: 150,
+  defaultRadiusMeters: 100,
   clockOutToleranceMinutes: 5,
 }
 
 export function GeofenceDefaultsSection() {
   const [radius, setRadius] = useState(defaults.defaultRadiusMeters)
   const [tolerance, setTolerance] = useState(defaults.clockOutToleranceMinutes)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    settingsApi.getSettings().then((res) => {
+      if (cancelled) return
+      const g = res.geofence_defaults
+      if (g) {
+        setRadius(g.default_radius_meters ?? defaults.defaultRadiusMeters)
+        setTolerance(g.clock_out_tolerance_minutes ?? defaults.clockOutToleranceMinutes)
+      }
+    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await settingsApi.updateGeofenceDefaults({ default_radius_meters: radius, clock_out_tolerance_minutes: tolerance })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
 
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader
         title="Jobsite & Geofence Defaults"
         desc="Used for new jobsites unless overridden per job. GPS auto clock-out triggers after being outside the boundary for the tolerance period."
@@ -48,7 +80,7 @@ export function GeofenceDefaultsSection() {
             </Field>
           </FieldRow>
           <SaveRow>
-            <Btn>Save defaults</Btn>
+            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save defaults'}</Btn>
           </SaveRow>
         </CardBody>
       </Card>

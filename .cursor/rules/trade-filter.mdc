@@ -1,0 +1,139 @@
+---
+description: Trade scope filter feature rules for takeoff-ai. Apply whenever editing trade-definitions.js, the trade selector UI in LaunchTakeoffWidget.tsx, or any code that reads/passes the tradeFilter param in build-prompts.js or the projects route. Prevents trade filter from breaking Burt Overrides, full-takeoff default behavior, or the multi-trade merge logic.
+globs: server/claude/trade-definitions.js, server/claude/build-prompts.js, server/routes/projects.js, client/src/components/projects/LaunchTakeoffWidget.tsx
+alwaysApply: false
+---
+
+# Trade Filter Feature — Rules & Architecture
+
+## What This Feature Does
+
+Allows a contractor or subcontractor to scope a takeoff to their specific trade(s) before the plan is processed. Instead of returning every material in a full set, Claude extracts only the categories relevant to the selected trade.
+
+This is implemented as a **prompt-side filter (Option B)** — Claude is told upfront what to extract, not post-filtered after the fact. This produces better accuracy for the selected trade because context is focused.
+
+---
+
+## File Map
+
+| File | Role |
+|------|------|
+| `server/claude/trade-definitions.js` | TRADE_MAP, TRADE_ORDER, getTradeFilter() |
+| `server/claude/build-prompts.js` | buildTradeFilterBlock(), updated buildCustomProjectSystemPrompt() |
+| `server/routes/projects.js` | Reads tradeFilter from request body, passes to runTakeoff() |
+| `client/src/components/projects/LaunchTakeoffWidget.tsx` | Single/multi trade selector UI |
+
+---
+
+## V1 Trades (do not add MEP without a plan)
+
+| Key | Label | CSI |
+|-----|-------|-----|
+| `concrete` | Concrete / Foundations | Division 03 |
+| `framing` | Rough Framing / Carpentry | Division 06 |
+| `roofing` | Roofing | Division 07 |
+| `drywall` | Drywall / Finishes | Division 09 |
+| `painting` | Painting | Division 09 |
+| `doors_windows` | Doors / Windows / Millwork | Division 08 |
+| `earthwork` | Earthwork / Grading / Site | Divisions 31–32 |
+| `masonry` | Masonry / CMU | Division 04 |
+
+**MEP trades (plumbing, electrical, HVAC) are intentionally excluded from v1.** Most residential permit sets do not include fully drawn MEP sheets. Adding them without adequate plan data produces low-confidence results that could harm contractors making purchasing decisions. Do not add MEP trades until a confidence caveat UI and plan completeness check are in place.
+
+---
+
+## getTradeFilter() — Behavior Contract
+
+```javascript
+getTradeFilter(null)          // → null  (full takeoff, no filter)
+getTradeFilter('all')         // → null  (full takeoff, no filter)
+getTradeFilter('framing')     // → TRADE_MAP.framing
+getTradeFilter(['framing', 'roofing'])  // → merged definition
+getTradeFilter([])            // → null  (treat empty as full takeoff)
+getTradeFilter(['all'])       // → null  (treat as full takeoff)
+```
+
+**Never** return a partial or malformed object from `getTradeFilter()`. If the key is unrecognized, return `null` (full takeoff) — do not throw.
+
+---
+
+## buildTradeFilterBlock() — Position in Prompt
+
+The trade filter block MUST be inserted **after tier 3, before the output format block**. This is mandatory — placing it before tier 3 would allow tier 3 rules to overwrite the scope instruction. Placing it after the output format block means Claude may not see it before forming its response structure.
+
+```
+TIER 1 (Burt Overrides)
+  ↓
+instructions.txt
+  ↓
+TIER 2 (Process)
+  ↓
+TIER 3 (Discipline docs)
+  ↓
+TRADE FILTER BLOCK   ← here, and only here
+  ↓
+OUTPUT FORMAT BLOCK  ← always last
+```
+
+When `tradeFilter` is `null`, `buildTradeFilterBlock()` returns `''` — the prompt is identical to a standard full takeoff. **No behavior change for existing users.**
+
+---
+
+## Burt Override Rules Still Apply Within Trade Scope
+
+Trade filtering does not disable any Burt Override Rule. The rules apply to all items within the selected trade:
+
+| Trade | Applicable Burt Rules |
+|-------|----------------------|
+| concrete | Rule 1 (rebar sticks), Rule 6 (suspended slab / B-deck) |
+| framing | Rule 1 (rebar if any), Rule 2 (plates + PT detection), Rule 4 (roof OSB), Rule 5 (subfloor T&G) |
+| roofing | (none directly, but Rule 4 OSB is framing scope) |
+| drywall | Rule 7 (MDF trim) |
+| doors_windows | Rule 3 (door classification), Rule 8 (shelving + bath accessories) |
+| earthwork | Keynote Cross-Reference Protocol from civil-takeoff-flow.mdc |
+| masonry | Rule 1 (rebar sticks in CMU cells) |
+
+Do not modify trade prompts in TRADE_MAP in a way that contradicts these rules.
+
+---
+
+## Multi-Trade Merge Rules
+
+When multiple trades are selected, `getTradeFilter()` merges them:
+- `label`: joined with " + "
+- `categories`: union of all category arrays (deduplicated)
+- `prompt`: each trade's prompt concatenated with a header separator
+
+**Never merge by keynote number or subcategory** — same rule as civil aggregation. If the same material appears in two trade prompts (e.g. rebar appears in both concrete and masonry), Claude will deduplicate by `category + description` in the output.
+
+---
+
+## UI Behavior Rules
+
+- **Default state**: single-select, "All Trades (Full Takeoff)" selected → `tradeFilter: null`
+- **Single mode**: one trade selected → string key sent to API
+- **Multi mode**: multiple trades selected → array of string keys sent to API
+- **"All Trades" in multi mode**: if "All Trades" is checked, deselect all others and send `null`
+- **Empty selection in multi mode**: treat as "All Trades" → send `null`
+- The UI must always show a summary of what is scoped when a non-null filter is active
+- Do not allow "All Trades" to be combined with specific trades — it's either all or specific
+
+---
+
+## Adding a New Trade (Future)
+
+1. Add entry to `TRADE_MAP` in `trade-definitions.js`
+2. Add key to `TRADE_ORDER` array
+3. API `GET /projects/trades` will expose it automatically; no widget change needed
+4. Update this rule's V1 Trades table
+5. If MEP: add confidence caveat UI before enabling
+
+---
+
+## What NOT to Do
+
+- Do not filter output after the API call returns — the filter must be in the prompt (Option B)
+- Do not disable Burt Override Rules for trade-scoped calls
+- Do not add MEP trades without a plan completeness check
+- Do not pass `tradeFilter` to `buildSystemPrompt()` (standalone flow) — trade filter only applies to `buildCustomProjectSystemPrompt()` (project launch flow)
+- Do not change `TRADE_ORDER` without ensuring the API and widget still align (widget fetches from GET /trades)

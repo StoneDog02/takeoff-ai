@@ -26,6 +26,7 @@ const conversationsRoutes = require('./routes/conversations')
 const contractorsRoutes = require('./routes/contractors')
 const meRoutes = require('./routes/me')
 const adminRoutes = require('./routes/admin')
+const settingsRoutes = require('./routes/settings')
 const { router: invitesRouter } = require('./routes/invites')
 const { requireAdmin } = require('./middleware/admin')
 
@@ -61,6 +62,7 @@ app.use('/api/schedule', requireAuth, scheduleRoutes)
 app.use('/api/dashboard', requireAuth, dashboardRoutes)
 app.use('/api/conversations', requireAuth, conversationsRoutes)
 app.use('/api/contractors', requireAuth, contractorsRoutes)
+app.use('/api/settings', requireAuth, settingsRoutes)
 
 app.use((err, req, res, next) => {
   console.error(err)
@@ -77,10 +79,19 @@ app.get('*', (req, res, next) => {
   })
 })
 
-if (projectsRoutes.ensureBuildPlansBucket) {
-  projectsRoutes.ensureBuildPlansBucket().catch((err) => console.warn('Ensure build plans bucket:', err?.message))
+const { warmKnowledgeCache } = require('./claude/knowledge-cache')
+
+async function start() {
+  await warmKnowledgeCache()
+  if (projectsRoutes.ensureBuildPlansBucket) {
+    projectsRoutes.ensureBuildPlansBucket().catch((err) => console.warn('Ensure build plans bucket:', err?.message))
+  }
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`)
+  })
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`)
+start().catch((err) => {
+  console.error('Server failed to start:', err)
+  process.exit(1)
 })

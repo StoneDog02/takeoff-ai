@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import type { MaterialList, TakeoffItem } from '@/types/global'
 import { dayjs } from '@/lib/date'
+import { api } from '@/api/client'
 
 const PROGRESS_MESSAGES = [
   'Uploading plan…',
@@ -14,9 +15,16 @@ const PROGRESS_INTERVAL_MS = 800
 const PROGRESS_STEP = 4
 const SIDEBAR_PAGE_SIZE = 10
 
+export type TakeoffPlanType = 'residential' | 'commercial' | 'civil' | 'auto'
+
+/** Single trade key, or array of keys; null = all trades. */
+export type TakeoffTradeFilter = null | string | string[]
+
 interface LaunchTakeoffWidgetProps {
   projectId: string
-  onUpload: (file: File) => Promise<{ material_list: MaterialList }>
+  /** Plan type from project (set in project creation). Used for takeoff reference docs and skills. */
+  planType: TakeoffPlanType
+  onUpload: (file: File, planType: TakeoffPlanType, tradeFilter?: TakeoffTradeFilter) => Promise<{ material_list: MaterialList }>
   existingTakeoffs?: { id: string; material_list: MaterialList; created_at: string }[]
 }
 
@@ -180,10 +188,37 @@ function TakeoffTable({ items }: { items: TakeoffItem[] }) {
 
 export function LaunchTakeoffWidget({
   projectId: _projectId,
+  planType,
   onUpload,
   existingTakeoffs = [],
 }: LaunchTakeoffWidgetProps) {
   const [file, setFile] = useState<File | null>(null)
+  const [tradeOptions, setTradeOptions] = useState<{ key: string; label: string }[]>([])
+  const [tradeFilter, setTradeFilter] = useState<TakeoffTradeFilter>(null)
+  const [tradeDropdownOpen, setTradeDropdownOpen] = useState(false)
+  const tradeDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tradeDropdownRef.current && !tradeDropdownRef.current.contains(e.target as Node)) {
+        setTradeDropdownOpen(false)
+      }
+    }
+    if (tradeDropdownOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [tradeDropdownOpen])
+
+  const tradeTriggerLabel =
+    tradeFilter === null
+      ? 'All Trades (Full Takeoff)'
+      : Array.isArray(tradeFilter)
+        ? tradeFilter.length === 0
+          ? 'All Trades (Full Takeoff)'
+          : tradeFilter.length === 1
+            ? tradeOptions.find((t) => t.key === tradeFilter[0])?.label ?? tradeFilter[0]
+            : `${tradeFilter.length} trades selected`
+        : tradeOptions.find((t) => t.key === tradeFilter)?.label ?? String(tradeFilter)
+
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState(PROGRESS_MESSAGES[0])
@@ -194,6 +229,10 @@ export function LaunchTakeoffWidget({
   const inputRef = useRef<HTMLInputElement>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const messageIndexRef = useRef(0)
+
+  useEffect(() => {
+    api.projects.getTrades().then((list) => setTradeOptions(list)).catch(() => setTradeOptions([]))
+  }, [])
 
   const latestTakeoff = lastResult
     ? { material_list: lastResult, created_at: dayjs().toISOString() }
@@ -251,7 +290,7 @@ export function LaunchTakeoffWidget({
     setError(null)
     setProcessing(true)
     try {
-      const { material_list } = await onUpload(file)
+      const { material_list } = await onUpload(file, planType, tradeFilter)
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
         progressIntervalRef.current = null
@@ -289,6 +328,82 @@ export function LaunchTakeoffWidget({
         </button>
       </div>
       <form id="launch-takeoff-form" onSubmit={handleSubmit} className="mb-4">
+        <div className="mb-4" ref={tradeDropdownRef}>
+          <p className="text-xs font-semibold text-muted dark:text-white-dim uppercase tracking-wider mb-2">Trade scope</p>
+          <p className="text-sm text-muted dark:text-white-dim mb-2">
+            Optionally limit the takeoff to one or more trades. Default: all trades.
+          </p>
+          <div className="relative w-full max-w-sm">
+            <button
+              type="button"
+              onClick={() => setTradeDropdownOpen((o) => !o)}
+              className="w-full flex items-center justify-between gap-2 rounded-md border border-border dark:border-border-dark bg-white dark:bg-dark-4 text-gray-900 dark:text-landing-white px-3 py-2 text-sm text-left hover:border-accent/50 transition-colors"
+            >
+              <span className="truncate">{tradeTriggerLabel}</span>
+              <svg
+                className={`w-4 h-4 flex-shrink-0 text-muted dark:text-white-dim transition-transform ${tradeDropdownOpen ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {tradeDropdownOpen && (
+              <div className="absolute z-10 mt-1 w-full rounded-md border border-border dark:border-border-dark bg-white dark:bg-dark-4 shadow-lg max-h-64 overflow-y-auto">
+                <label className="flex items-center gap-2 cursor-pointer px-3 py-2 hover:bg-muted/30 dark:hover:bg-dark-3 border-b border-border dark:border-border-dark">
+                  <input
+                    type="checkbox"
+                    checked={tradeFilter === null}
+                    onChange={() => {
+                      setTradeFilter(null)
+                      setTradeDropdownOpen(false)
+                    }}
+                    className="rounded border-border dark:border-border-dark"
+                  />
+                  <span className="text-sm font-medium text-gray-700 dark:text-landing-white">All Trades (Full Takeoff)</span>
+                </label>
+                {tradeOptions.map((t) => {
+                  const selected = Array.isArray(tradeFilter) ? tradeFilter.includes(t.key) : tradeFilter === t.key
+                  return (
+                    <label
+                      key={t.key}
+                      className="flex items-center gap-2 cursor-pointer px-3 py-2 hover:bg-muted/30 dark:hover:bg-dark-3"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => {
+                          setTradeFilter((prev) => {
+                            const arr = Array.isArray(prev) ? [...prev] : prev ? [prev] : []
+                            const idx = arr.indexOf(t.key)
+                            if (idx >= 0) {
+                              const next = arr.filter((_, i) => i !== idx)
+                              return next.length === 0 ? null : next.length === 1 ? next[0] : next
+                            }
+                            return [...arr, t.key]
+                          })
+                        }}
+                        className="rounded border-border dark:border-border-dark"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-landing-white">{t.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        {(tradeFilter !== null && (Array.isArray(tradeFilter) ? tradeFilter.length > 0 : true)) && (
+          <div className="mb-4 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-sm text-blue-800 dark:text-blue-200">
+            <strong>Scoped to:</strong>{' '}
+            {Array.isArray(tradeFilter)
+              ? tradeFilter
+                  .map((k) => tradeOptions.find((t) => t.key === k)?.label ?? k)
+                  .join(', ')
+              : tradeOptions.find((t) => t.key === tradeFilter)?.label ?? tradeFilter}
+          </div>
+        )}
         <div
           onClick={() => inputRef.current?.click()}
           className="border-2 border-dashed border-border dark:border-border-dark rounded-lg p-6 text-center cursor-pointer hover:border-accent/50 transition-colors"

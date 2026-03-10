@@ -45,6 +45,20 @@ Build plan material list takeoff app for GCs: upload plans, get an organized mat
 
 Then open [http://localhost:5173](http://localhost:5173).
 
+## Authorization and roles
+
+App roles are stored in `public.profiles` (one row per auth user, created on signup with default role `project_manager`).
+
+- **admin** – Full access: contractor portal plus **Admin** (user list, stats). Only users with `role = 'admin'` get `isAdmin` and can open `/admin`.
+- **project_manager** – Full contractor portal: create/launch projects, add employees, estimates, payroll, teams, directory, etc. No access to `/admin` or `/api/admin`.
+- **employee** – Employee portal only (clock, hours, jobs, profile). Invited users linked to an `employees` row get this role.
+
+**Backend:** Only `/api/admin` requires admin; all other API routes (`/api/projects`, `/api/employees`, `/api/estimates`, etc.) use `requireAuth` only, so project managers have the same API access as admins for projects, teams, and estimates.
+
+**Data:** Projects, employees, estimates, and related data are scoped by **user_id** (the auth user who created them). So each contractor account (admin or project manager) sees only their own projects and team. If you need multiple users (e.g. one admin and one PM) to share the same projects and employees, the schema would need a company/organization layer; today it is one workspace per auth user.
+
+**Set roles:** Run the SQL in `scripts/set-profile-roles.sql` once in the Supabase SQL Editor (Dashboard → SQL Editor) to set `stoney.harward@gmail.com` as admin and `gritconstruction2023@gmail.com` as project_manager. Adjust the emails in that script if needed.
+
 ## Deploy to Netlify
 
 The frontend deploys from this repo: connect the repo to [Netlify](https://netlify.com), and each push will build and publish the client to a generic Netlify URL.

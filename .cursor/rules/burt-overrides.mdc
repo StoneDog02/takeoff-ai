@@ -1,0 +1,222 @@
+---
+description: The 8 Burt Override rules that govern material takeoff output for residential projects. Apply whenever writing or modifying prompt logic, output parsing, JSON schema handling, or any code that processes or formats takeoff line items. These rules were derived from comparing AI takeoff output against the Burton Lumber Quote #1336139 and supersede any conflicting rule in the standard construction manual or rulebook.
+globs: server/claude/**, server/routes/takeoff.js, server/routes/projects.js
+alwaysApply: false
+---
+
+# Burt Override Rules — 8 Mandatory Takeoff Rules
+
+## Rule Hierarchy
+**Burt Overrides > Construction Manual > Takeoff Rulebook > Assumptions Checklist**
+
+These 8 rules were derived from a real discrepancy analysis between AI-generated takeoff output and a verified contractor lumber quote (Burton Lumber Quote #1336139) for the Burt Residence (1165 E 3100 N, North Logan, UT). They exist because the standard AI rules produce systematically wrong quantities in specific categories. Do not override or soften these rules.
+
+---
+
+## Rule 1 — Rebar: Single-Stick Output, No Waste Factor
+
+**The rule:** Output rebar as individual 20-ft sticks. Do not apply any waste factor to rebar.
+
+**Why:** Rebar is cut to length on site from 20-ft sticks. Applying a waste factor overstates the order quantity and exposes the estimator to liability. The contractor, not the estimator, is responsible for cut waste.
+
+**Implementation:**
+- Rebar line items must use unit: `"EA (20-ft sticks)"`
+- `waste_factor` field must be `"0% — Per Burt Override Rule 1: no waste factor on rebar"`
+- Calculate: `ceil(total_linear_feet / 20)` sticks
+- Do NOT round up per-bar — round up the total only
+
+**Prompt language to include:**
+```
+Report all rebar as individual 20-ft sticks (EA). 
+Apply zero waste factor. 
+Formula: total LF ÷ 20, round up to nearest whole stick.
+```
+
+---
+
+## Rule 2 — Wall Framing: Plates + Treated Bottom Plate Detection
+
+**The rule:** Every wall framing line item must include:
+1. Top plate (double) — 2x top plates at 2× wall linear footage
+2. Bottom plate (single) — 1× wall linear footage
+3. Treated bottom plate flag — any wall sitting on concrete (basement walls, garage walls, slab-on-grade) requires PT (pressure treated) lumber for the bottom plate
+
+**Why:** Standard AI takeoffs often omit plates entirely, or fail to flag PT requirements, resulting in the contractor having to re-order.
+
+**Implementation:**
+- Always generate three sub-line-items per wall group: studs, double top plate, bottom plate
+- Bottom plate: scan plan notes, wall sections, and foundation plan for "PT", "pressure treated", "on concrete", "on slab" indicators
+- If wall sits on concrete → `description` must include "(PT — pressure treated)"
+- `assumptions` must state which walls were flagged as PT and why
+
+**Prompt language to include:**
+```
+For every wall, output three line items: studs, double top plate, bottom plate.
+Flag bottom plate as PT (pressure treated) for any wall on concrete or slab.
+Scan all wall sections and foundation plan for PT indicators.
+```
+
+---
+
+## Rule 3 — Interior Doors: Classify ALL Types
+
+**The rule:** Classify every interior door by type. Do not lump all interior doors into a single "interior door" count.
+
+**Required classification codes:**
+
+| Code | Type |
+|------|------|
+| SW | Single swing (standard hinged) |
+| PD | Pocket door |
+| DB | Double bi-fold |
+| BF | Single bi-fold |
+| BD | Barn door / sliding |
+| BP | Bypass sliding |
+| FR | French door (interior) |
+| OH | Overhead / garage door |
+
+**Implementation:**
+- Scan every room on every floor plan sheet
+- Count each door mark from the door schedule; if no schedule, infer from plan symbols
+- Output one line item per type per size (e.g., "SW 2-8 × 6-8", "PD 2-0 × 6-8")
+- `drawing_refs` must list every sheet where that door type appears
+
+**Prompt language to include:**
+```
+Classify every interior door by type: SW, PD, DB, BF, BD, BP, FR, OH.
+Scan every room on every floor plan sheet.
+Output one line item per door type per size.
+```
+
+---
+
+## Rule 4 — Roof OSB: Exact Count, No Waste Multiplier
+
+**The rule:** Report roof OSB as an exact sheet count. Do NOT apply the standard 12% waste factor.
+
+**Why:** Roofing contractors order OSB by exact sheet count plus their own waste allowance. AI-applied waste factors double-count the waste and cause overordering.
+
+**Implementation:**
+- Unit: `"EA (4×8 sheets)"`
+- `waste_factor`: `"0% — Per Burt Override Rule 4: exact count only, no waste multiplier"`
+- Calculate net roof area, divide by 32 SF/sheet, round up to nearest whole sheet
+- `purchase_notes`: "Contractor to add their own waste factor per project conditions"
+
+---
+
+## Rule 5 — Subfloor T&G: Exact Count, No Waste Multiplier
+
+**The rule:** Report subfloor tongue-and-groove OSB/plywood as an exact sheet count. Do NOT apply the standard 12% waste factor.
+
+**Same rationale as Rule 4.**
+
+**Implementation:**
+- Unit: `"EA (4×8 sheets)"`
+- `waste_factor`: `"0% — Per Burt Override Rule 5: exact count only, no waste multiplier"`
+- Calculate net floor area, divide by 32 SF/sheet, round up
+- `purchase_notes`: "Contractor to add their own waste factor per project conditions"
+
+---
+
+## Rule 6 — Suspended Slab / B-Deck: Always Extract from Structural Sheets
+
+**The rule:** For any project with a suspended concrete slab or metal deck (B-deck), always extract:
+- Length × Width dimensions
+- Total square footage
+- Deck gauge (if specified)
+
+**Where to look:** Sheets labeled S1, S2, SD1, SD2, or any sheet with "Structural" in the title. Also check general notes on architectural floor plans for "suspended slab" or "metal deck" callouts.
+
+**Implementation:**
+- If B-deck or suspended slab is present, generate a dedicated line item even if the structural sheets don't provide full detail
+- If gauge is unspecified: `assumptions` must state "Gauge not specified on plans — confirm with structural engineer before ordering"
+- If dimensions are partial: flag as `confidence: "low"` and add to `missing_information`
+
+**Prompt language to include:**
+```
+Check all structural sheets (S1, SD1, S2) for suspended slab or metal deck (B-deck).
+Extract LxW, total SF, and gauge.
+If present but unspecified, flag for structural engineer confirmation.
+```
+
+---
+
+## Rule 7 — MDF Trim: Estimate from Door/Window Count + Base LF
+
+**The rule:** When MDF trim is not explicitly scheduled, estimate it using these standard defaults:
+
+| Location | Formula |
+|----------|---------|
+| Door casing (per door) | 21 LF per door opening (both sides) |
+| Window casing (per window) | 14 LF per window opening (both sides) |
+| Base molding | 1.15× total linear footage of interior walls |
+| Crown molding (if called out) | 1.10× total linear footage of rooms with crown |
+
+**Implementation:**
+- If a trim schedule exists: use schedule values
+- If no schedule: apply defaults above and flag with `assumptions`
+- Unit: `"LF"` 
+- `waste_factor`: `"0% — Per Burt Override Rule 7: exact LF estimate, contractor adds waste"`
+- `assumptions` must state: "MDF trim estimated from door/window count and wall LF per Burt Override Rule 7 defaults — verify against finish schedule if available"
+
+---
+
+## Rule 8 — Shelving & Bath Accessories: Count from Floor Plan
+
+**The rule:** Count shelving and bath accessories directly from the floor plan. Do not estimate or extrapolate.
+
+**Shelving — count from floor plan:**
+- WIC (walk-in closet): 1 shelving unit per WIC
+- Reach-in closet: 1 shelf set per reach-in closet
+- Pantry / linen: 1 shelf set per pantry or linen closet
+- If shelving type is unspecified: flag as "shelving type TBD — verify with owner"
+
+**Bath accessories — count from floor plan:**
+- Count each full bath and half bath
+- Standard full bath kit = towel bar + toilet paper holder + robe hook
+- Standard half bath kit = toilet paper holder
+- If accessory schedule exists: use schedule
+
+**Implementation:**
+- `waste_factor`: `"0% — Per Burt Override Rule 8: exact count"`
+- `drawing_refs` must reference the floor plan sheet(s) where closets/baths were counted
+
+---
+
+## Waste Factor Summary — Retained vs. Removed
+
+| Category | Override Rule | Waste Factor |
+|----------|--------------|-------------|
+| Rebar | Rule 1 | **0%** |
+| Roof OSB | Rule 4 | **0%** |
+| Subfloor T&G | Rule 5 | **0%** |
+| MDF trim | Rule 7 | **0%** |
+| Shelving & bath accessories | Rule 8 | **0%** |
+| Wall OSB (sheathing) | (no override) | **12%** retained |
+| Drywall | (no override) | **12%** retained |
+| Concrete | (no override) | **7%** retained |
+| Insulation | (no override) | **7%** retained |
+| Shingles / roofing felt | (no override) | **12%** retained |
+| Siding | (no override) | **10%** retained |
+
+---
+
+## Implementation Checklist
+
+When writing or modifying any prompt or output handler for residential takeoffs, verify:
+
+- [ ] Rebar line items use 20-ft sticks with 0% waste
+- [ ] Every wall group has three line items (studs + double top plate + bottom plate)
+- [ ] Walls on concrete have PT flagged on the bottom plate line item
+- [ ] Interior doors are classified by SW/PD/DB/BF/BD/BP/FR/OH, not lumped
+- [ ] Roof OSB uses exact sheet count with 0% waste and contractor-adds-waste note
+- [ ] Subfloor T&G uses exact sheet count with 0% waste and contractor-adds-waste note
+- [ ] Structural sheets were checked for suspended slab / B-deck
+- [ ] MDF trim uses schedule if available, defaults if not, 0% waste
+- [ ] Shelving and bath accessories counted from floor plan, 0% waste
+- [ ] Wall OSB, drywall, concrete, insulation, shingles, siding still have their respective waste factors
+
+---
+
+## Source Reference
+These rules are fully documented in `knowledge/tier1-overrides/Burt_Takeoff_Instruction_Updates.pdf`. That file is the authoritative source — this `.mdc` file is a coding-time enforcement layer to prevent Cursor from writing code that silently violates these rules.

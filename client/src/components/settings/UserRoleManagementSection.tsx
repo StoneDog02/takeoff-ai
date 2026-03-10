@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { UserRole, InvitedMember } from '@/types/global'
-import { dayjs, toISODate } from '@/lib/date'
+import { teamsApi } from '@/api/teamsClient'
 import {
   SectionHeader,
   Card,
@@ -23,26 +23,69 @@ const ROLES_DATA: { role: UserRole; label: string; color: string; perms: string[
 export function UserRoleManagementSection() {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<UserRole>('employee')
-  const [members, setMembers] = useState<InvitedMember[]>([
-    { id: '1', email: 'jane@example.com', role: 'project_manager', status: 'accepted', invitedAt: '2025-01-15' },
-    { id: '2', email: 'mike@example.com', role: 'field_supervisor', status: 'pending', invitedAt: '2025-02-20' },
-  ])
+  const [members, setMembers] = useState<InvitedMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const [inviting, setInviting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleInvite = () => {
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([teamsApi.employees.list(), teamsApi.employees.listInvites()])
+      .then(([employees, invites]) => {
+        if (cancelled) return
+        const inviteByEmpId = new Map(invites.map((i) => [i.employee_id, i]))
+        const list: InvitedMember[] = employees.map((emp) => {
+          const inv = inviteByEmpId.get(emp.id)
+          const status = emp.auth_user_id ? ('accepted' as const) : (inv?.status === 'pending' || inv?.status === 'expired' ? inv.status : 'pending')
+          return {
+            id: emp.id,
+            email: emp.email || inv?.email || '',
+            role: (emp.role as UserRole) || 'employee',
+            status,
+            invitedAt: inv?.invitedAt ?? '',
+          }
+        })
+        setMembers(list)
+      })
+      .catch((e) => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleInvite = async () => {
     if (!email.trim()) return
-    setMembers((m) => [
-      ...m,
-      { id: crypto.randomUUID(), email: email.trim(), role, status: 'pending', invitedAt: toISODate(dayjs()) },
-    ])
-    setEmail('')
+    setInviting(true)
+    setError(null)
+    try {
+      const created = await teamsApi.employees.create({ name: email.trim(), email: email.trim(), role })
+      await teamsApi.employees.invite(created.id)
+      setMembers((m) => [
+        ...m,
+        { id: created.id, email: email.trim(), role, status: 'pending', invitedAt: new Date().toISOString().slice(0, 10) },
+      ])
+      setEmail('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invite failed')
+    } finally {
+      setInviting(false)
+    }
   }
 
-  const removeMember = (id: string) => {
-    setMembers((m) => m.filter((x) => x.id !== id))
+  const removeMember = async (id: string) => {
+    setError(null)
+    try {
+      await teamsApi.employees.delete(id)
+      setMembers((m) => m.filter((x) => x.id !== id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Remove failed')
+    }
   }
+
+  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
 
   return (
     <>
+      {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader
         title="User & Role Management"
         desc="Invite team members and assign roles. Subcontractors have view-only access."
@@ -61,7 +104,7 @@ export function UserRoleManagementSection() {
                 ))}
               </Select>
             </Field>
-            <Btn type="button" style={{ whiteSpace: 'nowrap' }} onClick={handleInvite}>Send invite →</Btn>
+            <Btn type="button" style={{ whiteSpace: 'nowrap' }} onClick={handleInvite} disabled={inviting}>{inviting ? 'Sending…' : 'Send invite →'}</Btn>
           </div>
         </CardBody>
       </Card>
@@ -137,9 +180,7 @@ export function UserRoleManagementSection() {
               <span style={{ color: '#111' }}>{m.email}</span>
               <span style={{ color: '#6b7280' }}>{ROLES_DATA.find((r) => r.role === m.role)?.label ?? m.role}</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: m.status === 'accepted' ? '#15803d' : '#9ca3af' }}>{m.status}</span>
-              <Btn variant="ghost" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => removeMember(m.id)}>
-                Remove
-              </Btn>
+              <Btn variant="ghost" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => removeMember(m.id)}>Remove</Btn>
             </div>
           ))}
         </CardBody>

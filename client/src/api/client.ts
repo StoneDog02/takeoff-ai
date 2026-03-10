@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabaseClient'
 import type {
   Project,
+  ProjectPlanType,
   Phase,
   Milestone,
   ProjectTask,
@@ -211,6 +212,7 @@ export const api = {
       expected_end_date?: string
       estimated_value?: number
       assigned_to_name?: string
+      plan_type?: ProjectPlanType
     }): Promise<Project> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects`, {
@@ -220,7 +222,7 @@ export const api = {
       })
       return handleResponse<Project>(res)
     },
-    async update(id: string, body: Partial<Pick<Project, 'name' | 'status' | 'scope' | 'address_line_1' | 'address_line_2' | 'city' | 'state' | 'postal_code' | 'expected_start_date' | 'expected_end_date' | 'estimated_value' | 'assigned_to_name'>>): Promise<Project> {
+    async update(id: string, body: Partial<Pick<Project, 'name' | 'status' | 'scope' | 'address_line_1' | 'address_line_2' | 'city' | 'state' | 'postal_code' | 'expected_start_date' | 'expected_end_date' | 'estimated_value' | 'assigned_to_name' | 'plan_type'>>): Promise<Project> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${id}`, {
         method: 'PUT',
@@ -404,10 +406,24 @@ export const api = {
       })
       return handleResponse<{ items: BudgetLineItem[]; summary: BudgetSummary }>(res)
     },
-    async launchTakeoff(projectId: string, file: File): Promise<{ id: string; material_list: GlobalMaterialList; created_at?: string }> {
+    async getTrades(): Promise<{ key: string; label: string; csiDivision: string }[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/trades`, { headers })
+      return handleResponse<{ key: string; label: string; csiDivision: string }[]>(res)
+    },
+    async launchTakeoff(
+      projectId: string,
+      file: File,
+      planType?: string,
+      tradeFilter?: null | string | string[]
+    ): Promise<{ id: string; material_list: GlobalMaterialList; created_at?: string }> {
       const headers = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
+      if (planType) form.append('planType', planType)
+      if (tradeFilter != null && (Array.isArray(tradeFilter) ? tradeFilter.length > 0 : tradeFilter !== '')) {
+        form.append('tradeFilter', Array.isArray(tradeFilter) ? JSON.stringify(tradeFilter) : tradeFilter)
+      }
       const res = await fetch(`${API_BASE}/projects/${projectId}/launch-takeoff`, {
         method: 'POST',
         body: form,

@@ -86,6 +86,12 @@ export const teamsApi = {
       })
       return handleResponse<{ ok: boolean; expires_at: string; invite_link?: string | null; invite_email_sent?: boolean }>(res)
     },
+    /** List invite status for current user's employees (for Settings). */
+    async listInvites(): Promise<{ id: string; employee_id: string; email: string; status: 'pending' | 'accepted' | 'expired'; invitedAt: string | null }[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/employees/invites`, { headers })
+      return handleResponse(res)
+    },
   },
 
   jobAssignments: {
