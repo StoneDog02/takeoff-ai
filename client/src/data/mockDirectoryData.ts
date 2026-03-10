@@ -19,6 +19,8 @@ export interface DirectoryContractor {
   lastMsg: string
   lastTime: string
   unread: number
+  /** When set, Message button can start a real conversation (e.g. employee.auth_user_id) */
+  auth_user_id?: string
 }
 
 export interface ThreadMessage {

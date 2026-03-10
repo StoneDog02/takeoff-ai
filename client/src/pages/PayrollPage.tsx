@@ -4,7 +4,12 @@ import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { TeamsAvatar, getInitials } from '@/components/teams/TeamsAvatar'
-import { getPayrollContact, setPayrollContact, type PayrollContact } from '@/lib/payrollContact'
+
+interface PayrollContact {
+  name: string
+  email: string
+  phone?: string
+}
 
 type DateRangeKey = 'this-week' | 'last-week' | 'this-month' | 'last-month' | 'custom'
 type ViewMode = 'summary' | 'detailed'
@@ -132,7 +137,9 @@ export function PayrollPage() {
   const [loading, setLoading] = useState(true)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
   const [contactModalOpen, setContactModalOpen] = useState(false)
-  const [contactForm, setContactForm] = useState<PayrollContact>(() => getPayrollContact() ?? { name: '', email: '', phone: '' })
+  const [payrollContact, setPayrollContactState] = useState<PayrollContact | null>(null)
+  const [contactForm, setContactForm] = useState<PayrollContact>({ name: '', email: '', phone: '' })
+  const [contactLoading, setContactLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [expandedSummaryIds, setExpandedSummaryIds] = useState<Set<string>>(new Set())
@@ -167,6 +174,18 @@ export function PayrollPage() {
       .finally(() => setLoading(false))
   }, [range.from, range.to])
 
+  useEffect(() => {
+    setContactLoading(true)
+    teamsApi.payroll
+      .getContact()
+      .then((c) => {
+        setPayrollContactState(c)
+        if (c) setContactForm({ name: c.name, email: c.email, phone: c.phone ?? '' })
+      })
+      .catch(() => {})
+      .finally(() => setContactLoading(false))
+  }, [])
+
   const jobMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.name])), [jobs])
   const jobAddressMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.address ?? j.name])), [jobs])
   const payrollRows = useMemo(
@@ -177,7 +196,6 @@ export function PayrollPage() {
   const totalHours = payrollRows.reduce((s, r) => s + r.totalHours, 0)
   const totalGross = payrollRows.reduce((s, r) => s + r.grossPay, 0)
   const avgRate = totalHours > 0 ? totalGross / totalHours : 0
-  const payrollContact = getPayrollContact()
 
   const handleExportCSV = () => {
     const csv = buildCSV(payrollRows, range)
@@ -198,29 +216,51 @@ export function PayrollPage() {
     setApproveModalOpen(true)
   }
 
-  const confirmSend = () => {
+  const confirmSend = async () => {
+    if (!payrollContact?.email) return
     setSending(true)
+    try {
+      await teamsApi.payroll.recordRun({
+        period_from: range.from,
+        period_to: range.to,
+        recipient_email: payrollContact.email,
+        recipient_name: payrollContact.name || undefined,
+        employee_count: payrollRows.length,
+        total_hours: totalHours,
+        gross_pay: totalGross,
+      })
+    } catch {
+      // still open mailto if record fails
+    }
     const subject = encodeURIComponent(`Payroll report ${dayjs(range.from).format('MMM D')}–${dayjs(range.to).format('MMM D, YYYY')}`)
     const body = encodeURIComponent(
       `Please find the attached payroll summary for ${range.label}.\n\n` +
         `Employees: ${payrollRows.length}\nTotal Hours: ${totalHours.toFixed(2)}\nGross Payroll: $${totalGross.toFixed(2)}\n\n` +
         `(Export the CSV from the app and attach to this email, or use the numbers above.)`
     )
+    window.open(`mailto:${payrollContact.email}?subject=${subject}&body=${body}`, '_blank')
+    setSending(false)
+    setSent(true)
     setTimeout(() => {
-      setSending(false)
-      setSent(true)
-      window.open(`mailto:${payrollContact!.email}?subject=${subject}&body=${body}`, '_blank')
-      setTimeout(() => {
-        setApproveModalOpen(false)
-        setSent(false)
-      }, 1500)
-    }, 600)
+      setApproveModalOpen(false)
+      setSent(false)
+    }, 1500)
   }
 
-  const saveContact = () => {
-    if (contactForm.email.trim()) {
-      setPayrollContact({ ...contactForm, email: contactForm.email.trim(), name: contactForm.name.trim(), phone: contactForm.phone?.trim() })
+  const saveContact = async () => {
+    const email = contactForm.email.trim()
+    if (!email) return
+    const payload: PayrollContact = {
+      name: contactForm.name.trim(),
+      email,
+      phone: contactForm.phone?.trim() || undefined,
+    }
+    try {
+      await teamsApi.payroll.setContact(payload)
+      setPayrollContactState(payload)
       setContactModalOpen(false)
+    } catch {
+      // leave modal open on error
     }
   }
 
@@ -563,9 +603,20 @@ export function PayrollPage() {
         </div>
 
         <div className="payroll-contact-link-wrap">
-          <button type="button" className="payroll-contact-link" onClick={() => setContactModalOpen(true)}>
+          <button
+            type="button"
+            className="payroll-contact-link"
+            onClick={() => {
+              setContactForm(
+                payrollContact
+                  ? { name: payrollContact.name, email: payrollContact.email, phone: payrollContact.phone ?? '' }
+                  : { name: '', email: '', phone: '' }
+              )
+              setContactModalOpen(true)
+            }}
+          >
             <UserCircle size={16} />
-            {payrollContact?.email ? `Payroll contact: ${payrollContact.name || payrollContact.email}` : 'Set payroll contact'}
+            {contactLoading ? 'Loading…' : payrollContact?.email ? `Payroll contact: ${payrollContact.name || payrollContact.email}` : 'Set payroll contact'}
           </button>
         </div>
       </div>

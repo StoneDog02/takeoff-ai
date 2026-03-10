@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { estimatesApi } from '@/api/estimates'
-import type { Job, PipelineItem } from '@/types/global'
+import type { Job, JobExpense, PipelineItem } from '@/types/global'
 import { buildPipelineItems } from '@/lib/pipeline'
 import { PipelineTab } from '@/components/estimates/PipelineTab'
 import { EstimateBuilderModal, type NewEstimatePayload } from '@/components/estimates/EstimateBuilderModal'
@@ -23,6 +23,8 @@ export function EstimatesPage() {
   const [pipeline, setPipeline] = useState<PipelineItem[]>([])
   const [showBuilder, setShowBuilder] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [pipelineJobFilterId, setPipelineJobFilterId] = useState<string>('')
+  const [allExpenses, setAllExpenses] = useState<JobExpense[]>([])
 
   useEffect(() => {
     if (USE_MOCK_ESTIMATES) {
@@ -41,23 +43,26 @@ export function EstimatesPage() {
       estimatesApi.getJobs(),
       estimatesApi.getEstimates(),
       estimatesApi.getInvoices(),
+      estimatesApi.getJobExpenses(),
     ])
-      .then(([jobsList, estimates, invoices]) => {
+      .then(([jobsList, estimates, invoices, expensesList]) => {
         setJobs(jobsList)
         setPipeline(
           buildPipelineItems(estimates, invoices, jobsList)
         )
+        setAllExpenses(expensesList ?? [])
       })
       .catch(() => {
         setJobs([])
         setPipeline([])
+        setAllExpenses([])
       })
   }, [])
 
-  const expenses = USE_MOCK_ESTIMATES ? MOCK_JOB_EXPENSES : []
+  const expenses = USE_MOCK_ESTIMATES ? MOCK_JOB_EXPENSES : allExpenses
 
   const handleSaveEstimate = async (
-    estimateId: string,
+    _estimateId: string,
     payload?: NewEstimatePayload
   ) => {
     setShowBuilder(false)
@@ -165,27 +170,47 @@ export function EstimatesPage() {
           </div>
         </div>
 
-        <nav className="estimates-page__tabs estimates-page__tabs--bar mb-6" aria-label="Estimates sections">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`estimates-page__tab ${tab === t.id ? 'active' : ''}`}
-              onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? 'true' : undefined}
-            >
-              <span className="estimates-page__tab-icon" aria-hidden>
-                {t.id === 'pipeline' && (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
-                )}
-                {t.id === 'receipts' && (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
-                )}
-              </span>
-              {t.label}
-            </button>
-          ))}
-        </nav>
+        <div className="estimates-page__tabs-row">
+          <nav className="estimates-page__tabs estimates-page__tabs--bar" aria-label="Estimates sections">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`estimates-page__tab ${tab === t.id ? 'active' : ''}`}
+                onClick={() => setTab(t.id)}
+                aria-current={tab === t.id ? 'true' : undefined}
+              >
+                <span className="estimates-page__tab-icon" aria-hidden>
+                  {t.id === 'pipeline' && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                  )}
+                  {t.id === 'receipts' && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+                  )}
+                </span>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          {tab === 'pipeline' && (
+            <label className="estimates-pipeline-job-filter">
+              <span className="estimates-pipeline-job-filter-label">Job</span>
+              <select
+                className="estimates-pipeline-job-filter-select"
+                value={pipelineJobFilterId}
+                onChange={(e) => setPipelineJobFilterId(e.target.value)}
+                aria-label="Filter pipeline by job"
+              >
+                <option value="">All jobs</option>
+                {jobs.map((job) => (
+                  <option key={job.id} value={job.id}>
+                    {job.name.split('–')[0].trim()}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
 
         <div className="estimates-page__content flex flex-col min-h-0">
           <div className="estimates-page__content-inner flex flex-col min-h-0">
@@ -194,6 +219,7 @@ export function EstimatesPage() {
                 pipeline={pipeline}
                 setPipeline={setPipeline}
                 expenses={expenses}
+                jobFilterId={pipelineJobFilterId}
               />
             )}
             {tab === 'receipts' && (

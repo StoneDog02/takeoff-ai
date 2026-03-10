@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { PipelineItem, PipelineStage } from '@/types/global'
 import type { JobExpense } from '@/types/global'
 import { PipelineDetailPanel } from './PipelineDetailPanel'
@@ -16,10 +16,21 @@ interface PipelineTabProps {
   pipeline: PipelineItem[]
   setPipeline: (fn: (prev: PipelineItem[]) => PipelineItem[]) => void
   expenses: JobExpense[]
+  jobFilterId: string
 }
 
-export function PipelineTab({ pipeline, setPipeline, expenses }: PipelineTabProps) {
+export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId }: PipelineTabProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const filteredPipeline = useMemo(() => {
+    if (!jobFilterId) return pipeline
+    return pipeline.filter((i) => i.job_id === jobFilterId)
+  }, [pipeline, jobFilterId])
+
+  const filteredExpenses = useMemo(() => {
+    if (!jobFilterId) return expenses
+    return expenses.filter((r) => r.job_id === jobFilterId)
+  }, [expenses, jobFilterId])
 
   const advanceStage = (id: string, next: PipelineStage) => {
     setPipeline((prev) =>
@@ -39,18 +50,18 @@ export function PipelineTab({ pipeline, setPipeline, expenses }: PipelineTabProp
 
   const byStage = PIPELINE_STAGES.reduce(
     (acc, s) => {
-      acc[s.key] = pipeline.filter((i) => i.stage === s.key)
+      acc[s.key] = filteredPipeline.filter((i) => i.stage === s.key)
       return acc
     },
     {} as Record<PipelineStage, PipelineItem[]>
   )
 
-  const totalPipeline = pipeline.reduce((s, i) => s + i.amount, 0)
-  const totalInvoiced = pipeline
+  const totalPipeline = filteredPipeline.reduce((s, i) => s + i.amount, 0)
+  const totalInvoiced = filteredPipeline
     .filter((i) => ['invoiced', 'paid'].includes(i.stage))
     .reduce((s, i) => s + i.amount, 0)
-  const totalPaid = pipeline.filter((i) => i.stage === 'paid').reduce((s, i) => s + i.amount, 0)
-  const totalSpend = expenses.reduce((s, r) => s + Number(r.amount), 0)
+  const totalPaid = filteredPipeline.filter((i) => i.stage === 'paid').reduce((s, i) => s + i.amount, 0)
+  const totalSpend = filteredExpenses.reduce((s, r) => s + Number(r.amount), 0)
 
   const selectedItem = selectedId ? pipeline.find((i) => i.id === selectedId) : null
 
@@ -70,7 +81,7 @@ export function PipelineTab({ pipeline, setPipeline, expenses }: PipelineTabProp
           {
             label: 'Pipeline Value',
             val: formatCurrency(totalPipeline),
-            sub: `${pipeline.length} active documents`,
+            sub: `${filteredPipeline.length} active document${filteredPipeline.length === 1 ? '' : 's'}`,
             bar: 'var(--purple)',
           },
           {

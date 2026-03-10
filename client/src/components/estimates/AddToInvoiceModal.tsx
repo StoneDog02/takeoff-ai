@@ -322,7 +322,7 @@ function StepExpenses({
             {selectedIds.length} of {expenses.length} selected
           </span>
         </div>
-        {expenses.map((r, i) => {
+        {expenses.map((r) => {
           const checked = selectedIds.includes(r.id)
           const catLabel = CATEGORY_LABELS[r.category]
           return (

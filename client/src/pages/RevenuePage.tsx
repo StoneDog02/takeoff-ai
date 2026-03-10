@@ -1,54 +1,77 @@
-import { useState, useCallback } from 'react'
-import {
-  TREND_DATA,
-  LAST_YEAR,
-  JOBS,
-  EXPENDITURE,
-  CASHFLOW,
-  STATUS_CONFIG,
-} from '@/data/revenueSeedData'
+import { useState, useCallback, useEffect } from 'react'
+import { dayjs } from '@/lib/date'
+import { STATUS_CONFIG } from '@/data/revenueSeedData'
 import type { TrendPeriodKey } from '@/data/revenueSeedData'
 import { RevenueAreaChart } from '@/components/revenue/RevenueAreaChart'
 import { RevenueDonutChart } from '@/components/revenue/RevenueDonutChart'
 import { RevenueExport } from '@/components/revenue/RevenueExport'
+import { useRevenueLiveData } from '@/hooks/useRevenueLiveData'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
   '$' + Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0 })
-const fmtK = (n: number) => (n >= 1000 ? '$' + (n / 1000).toFixed(0) + 'k' : fmt(n))
 const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0)
 const marginColor = (p: number) => (p >= 30 ? '#10B981' : p >= 15 ? '#F59E0B' : '#EF4444')
 const marginBg = (p: number) => (p >= 30 ? '#ECFDF5' : p >= 15 ? '#FFFBEB' : '#FEF2F2')
 
+function getDefaultDates(period: TrendPeriodKey): { from: string; to: string } {
+  const now = dayjs()
+  if (period === 'This month') {
+    return {
+      from: now.startOf('month').format('MM/DD/YYYY'),
+      to: now.endOf('month').format('MM/DD/YYYY'),
+    }
+  }
+  if (period === 'Full year') {
+    return {
+      from: now.startOf('year').format('MM/DD/YYYY'),
+      to: now.endOf('year').format('MM/DD/YYYY'),
+    }
+  }
+  return {
+    from: now.startOf('year').format('MM/DD/YYYY'),
+    to: now.format('MM/DD/YYYY'),
+  }
+}
+
 export function RevenuePage() {
   const [period, setPeriod] = useState<TrendPeriodKey>('YTD')
-  const [jobFilter, setJobFilter] = useState('All jobs')
+  const [jobFilter, setJobFilter] = useState('')
   const [viewMode, setViewMode] = useState<'overview' | 'margin'>('overview')
   const [showComparison, setShowComparison] = useState(false)
-  const [fromDate, setFromDate] = useState('03/01/2026')
-  const [toDate, setToDate] = useState('03/06/2026')
+  const defaultDates = getDefaultDates('YTD')
+  const [fromDate, setFromDate] = useState(defaultDates.from)
+  const [toDate, setToDate] = useState(defaultDates.to)
 
-  const chartData = TREND_DATA[period] ?? TREND_DATA.YTD
-  const comparisonData = period === 'Full year' ? LAST_YEAR['Full year'] ?? null : null
+  const { jobs: JOBS, trendData: chartData, cashflow: CASHFLOW, expenditure: EXPENDITURE, lastYear, loading, error } = useRevenueLiveData({
+    jobFilter: jobFilter || 'All jobs',
+    period,
+    fromDate,
+    toDate,
+  })
 
+  useEffect(() => {
+    const { from, to } = getDefaultDates(period)
+    setFromDate(from)
+    setToDate(to)
+  }, [period])
+
+  const comparisonData = period === 'Full year' ? lastYear : null
   const lastPoint = chartData[chartData.length - 1]
-  const totalRev = lastPoint.revenue
-  const totalExp = lastPoint.expenses
-  const netProfit = lastPoint.profit
+  const totalRev = lastPoint?.revenue ?? 0
+  const totalExp = lastPoint?.expenses ?? 0
+  const netProfit = lastPoint?.profit ?? 0
   const marginPct = pct(netProfit, totalRev)
   const currentMonth =
     chartData.length > 1
-      ? chartData[chartData.length - 1].revenue - chartData[chartData.length - 2].revenue
-      : chartData[0].revenue
+      ? (chartData[chartData.length - 1]?.revenue ?? 0) - (chartData[chartData.length - 2]?.revenue ?? 0)
+      : chartData[0]?.revenue ?? 0
 
-  const totalCollected = CASHFLOW[0].amount
-  const totalInvoiced = CASHFLOW[1].amount
-  const totalInEstimate = CASHFLOW[2].amount
-  const cashflowMax = totalCollected + totalInvoiced + totalInEstimate
-
+  const cashflowMax = CASHFLOW[0].amount + CASHFLOW[1].amount + CASHFLOW[2].amount
   const activeJobsCount = JOBS.filter((j) => j.status === 'active').length
   const totalExpenditure = EXPENDITURE.reduce((s, d) => s + d.amount, 0)
   const largestCategory = [...EXPENDITURE].sort((a, b) => b.amount - a.amount)[0]
+  const jobFilterLabel = jobFilter ? (JOBS.find((j) => j.id === jobFilter)?.name ?? jobFilter) : 'All jobs'
 
   const downloadCSV = useCallback(() => {
     const rows: string[][] = [
@@ -85,7 +108,7 @@ export function RevenuePage() {
     a.download = `revenue-summary-${fromDate}-${toDate}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct])
+  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct, JOBS, EXPENDITURE])
 
   const downloadPDF = useCallback(async () => {
     const { jsPDF } = await import('jspdf')
@@ -120,11 +143,35 @@ export function RevenuePage() {
     doc.setFont('helvetica', 'normal')
     EXPENDITURE.forEach((d) => line(`${d.category}: ${fmt(d.amount)}`))
     doc.save(`revenue-summary-${fromDate}-${toDate}.pdf`)
-  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct])
+  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct, JOBS, EXPENDITURE])
+
+  if (loading) {
+    return (
+      <div className="dashboard-app revenue-page min-h-full">
+        <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 pt-6 pb-12">
+          <div className="revenue-overhaul-header">
+            <div>
+              <div className="revenue-overhaul-breadcrumb">Finance</div>
+              <h1 className="dashboard-title revenue-overhaul-title">Revenue</h1>
+            </div>
+          </div>
+          <div className="py-12 text-center text-[var(--text-muted)]">Loading revenue data…</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="dashboard-app revenue-page min-h-full">
-      <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
+        <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 pt-6 pb-12">
+        {error && (
+          <div
+            className="mb-4 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
         {/* ── HEADER ── */}
         <div className="revenue-overhaul-header">
           <div>
@@ -165,9 +212,11 @@ export function RevenuePage() {
               onChange={(e) => setJobFilter(e.target.value)}
               className="revenue-overhaul-select"
             >
-              <option>All jobs</option>
+              <option value="">All jobs</option>
               {JOBS.map((j) => (
-                <option key={j.id}>{j.name}</option>
+                <option key={j.id} value={j.id}>
+                  {j.name}
+                </option>
               ))}
             </select>
             <RevenueExport onExportCSV={downloadCSV} onExportPDF={downloadPDF} />
@@ -231,7 +280,7 @@ export function RevenuePage() {
             <div className="revenue-overhaul-kpi-bar revenue-overhaul-kpi-bar-purple" />
             <div className="revenue-overhaul-kpi-label">Current Month</div>
             <div className="revenue-overhaul-kpi-value">
-              {fmt(currentMonth > 0 ? currentMonth : chartData[0].revenue)}
+              {fmt(currentMonth > 0 ? currentMonth : (chartData[0]?.revenue ?? 0))}
             </div>
             <span className="revenue-overhaul-kpi-meta-small">this month</span>
           </div>
@@ -260,7 +309,7 @@ export function RevenuePage() {
               <div
                 key={i}
                 className="revenue-overhaul-cashflow-segment"
-                style={{ width: `${pct(c.amount, cashflowMax)}%`, background: c.color }}
+                style={{ width: `${cashflowMax > 0 ? pct(c.amount, cashflowMax) : 0}%`, background: c.color }}
               />
             ))}
           </div>
@@ -284,7 +333,7 @@ export function RevenuePage() {
             <div>
               <div className="revenue-overhaul-trend-title">Revenue & Profit Trend</div>
               <div className="revenue-overhaul-trend-sub">
-                {period} · {jobFilter}
+                {period} · {jobFilterLabel}
               </div>
             </div>
             <div className="revenue-overhaul-trend-controls">
@@ -354,7 +403,7 @@ export function RevenuePage() {
             </div>
           </div>
           <RevenueAreaChart
-            data={chartData}
+            data={chartData.length > 0 ? chartData : [{ label: '—', revenue: 0, expenses: 0, profit: 0 }]}
             showComparison={showComparison}
             comparisonData={comparisonData}
             viewMode={viewMode}
@@ -362,7 +411,7 @@ export function RevenuePage() {
         </div>
 
         {/* ── BOTTOM ROW ── */}
-        <div className="revenue-overhaul-bottom">
+        <div className="revenue-overhaul-bottom mb-10">
           {/* Revenue by Job */}
           <div className="revenue-overhaul-card revenue-overhaul-jobs-card">
             <div className="revenue-overhaul-card-head">

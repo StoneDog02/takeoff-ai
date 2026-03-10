@@ -147,8 +147,8 @@ export function EmployeeProfilePage() {
     setPassSaving(true)
     setPassError(null)
     try {
-      const { error } = await supabase?.auth.updateUser({ password: passwords.next })
-      if (error) throw error
+      const result = await supabase?.auth.updateUser({ password: passwords.next })
+      if (result?.error) throw result.error
       setPassSaved(true)
       setPasswords({ current: '', next: '', confirm: '' })
       setTimeout(() => setPassSaved(false), 2200)

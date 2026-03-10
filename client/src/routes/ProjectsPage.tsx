@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
-import type { Project, Phase, Milestone, ProjectTask, JobWalkMedia, Subcontractor, MaterialList, ProjectWorkType } from '@/types/global'
+import type { Project, Phase, Milestone, ProjectTask, JobWalkMedia, ProjectBuildPlan, Subcontractor, MaterialList, ProjectWorkType, ProjectActivityItem, JobAssignment, Employee } from '@/types/global'
+import { teamsApi } from '@/api/teamsClient'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { HealthRing } from '@/components/projects/HealthRing'
 import { JobWalkGallery } from '@/components/projects/JobWalkGallery'
@@ -12,16 +13,11 @@ import { BidSheetFlow } from '@/components/projects/BidSheetFlow'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
 import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
-import { ScheduleBuilder, apiToBuilder, weekToDate, getMockScheduleData } from '@/components/projects/ScheduleBuilder'
+import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeleteProjectModal'
+import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
 import type { BuilderPhase, BuilderMilestone } from '@/components/projects/ScheduleBuilder'
-import {
-  MOCK_PROJECTS,
-  DEMO_PROJECT_ID,
-  isMockProjectId,
-  getMockProjectDetail,
-  MOCK_PROJECT_CARD_DATA,
-} from '@/data/mockProjectsData'
 import { formatDate, dayjs } from '@/lib/date'
+import { SetupWizard, SetupBanner, EMPTY_WIZARD_PROJECT, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
 
 export interface NewProjectFormData {
   name: string
@@ -36,231 +32,6 @@ export interface NewProjectFormData {
   expected_end_date?: string
   estimated_value?: number
   assigned_to_name?: string
-}
-
-interface NewProjectModalProps {
-  onClose: () => void
-  onSubmit: (data: NewProjectFormData) => Promise<void>
-}
-
-const inputClass =
-  'w-full rounded-md px-3 py-2 border border-border dark:border-border-dark bg-white dark:bg-dark-4 text-gray-900 dark:text-landing-white placeholder:text-muted dark:placeholder:text-white-faint focus:ring-2 focus:ring-accent/30 focus:border-accent'
-const labelClass = 'block text-sm font-medium text-gray-700 dark:text-white-dim mb-1'
-
-function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
-  const [name, setName] = useState('')
-  const [scope, setScope] = useState('')
-  const [addressLine1, setAddressLine1] = useState('')
-  const [addressLine2, setAddressLine2] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [postalCode, setPostalCode] = useState('')
-  const [expectedStartDate, setExpectedStartDate] = useState('')
-  const [expectedEndDate, setExpectedEndDate] = useState('')
-  const [assignedToName, setAssignedToName] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) {
-      setError('Project name is required')
-      return
-    }
-    if (expectedStartDate && expectedEndDate && expectedEndDate < expectedStartDate) {
-      setError('End date must be on or after start date')
-      return
-    }
-    setError(null)
-    setSaving(true)
-    try {
-      await onSubmit({
-        name: name.trim(),
-        scope: scope.trim() || undefined,
-        address_line_1: addressLine1.trim() || undefined,
-        address_line_2: addressLine2.trim() || undefined,
-        city: city.trim() || undefined,
-        state: state.trim() || undefined,
-        postal_code: postalCode.trim() || undefined,
-        expected_start_date: expectedStartDate || undefined,
-        expected_end_date: expectedEndDate || undefined,
-        assigned_to_name: assignedToName.trim() || undefined,
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
-      <div
-        className="rounded-lg border border-border dark:border-border-dark bg-surface-elevated dark:bg-dark-3 p-6 shadow-lg max-w-xl w-full max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-4">New project</h2>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basics */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-landing-white mb-3">Basics</h3>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="project-name" className={labelClass}>Project name</label>
-                <input
-                  id="project-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Kitchen Remodel - 123 Main St"
-                  className={inputClass}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label htmlFor="project-scope" className={labelClass}>Scope (optional)</label>
-                <textarea
-                  id="project-scope"
-                  value={scope}
-                  onChange={(e) => setScope(e.target.value)}
-                  rows={3}
-                  placeholder="Brief description of the project scope…"
-                  className={`${inputClass} resize-y`}
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Location */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-landing-white mb-3">Location</h3>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="project-address1" className={labelClass}>Address line 1</label>
-                <input
-                  id="project-address1"
-                  type="text"
-                  value={addressLine1}
-                  onChange={(e) => setAddressLine1(e.target.value)}
-                  placeholder="Street address"
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label htmlFor="project-address2" className={labelClass}>Address line 2 (optional)</label>
-                <input
-                  id="project-address2"
-                  type="text"
-                  value={addressLine2}
-                  onChange={(e) => setAddressLine2(e.target.value)}
-                  placeholder="Suite, unit, etc."
-                  className={inputClass}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="project-city" className={labelClass}>City</label>
-                  <input
-                    id="project-city"
-                    type="text"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    placeholder="City"
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="project-state" className={labelClass}>State</label>
-                  <input
-                    id="project-state"
-                    type="text"
-                    value={state}
-                    onChange={(e) => setState(e.target.value)}
-                    placeholder="State"
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-              <div>
-                <label htmlFor="project-postal" className={labelClass}>ZIP / Postal code</label>
-                <input
-                  id="project-postal"
-                  type="text"
-                  value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
-                  placeholder="ZIP or postal code"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Schedule */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-landing-white mb-3">Schedule</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="project-start" className={labelClass}>Expected start date (optional)</label>
-                <input
-                  id="project-start"
-                  type="date"
-                  value={expectedStartDate}
-                  onChange={(e) => setExpectedStartDate(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label htmlFor="project-end" className={labelClass}>Expected end date (optional)</label>
-                <input
-                  id="project-end"
-                  type="date"
-                  value={expectedEndDate}
-                  onChange={(e) => setExpectedEndDate(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Assignment */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-landing-white mb-3">Assignment</h3>
-            <div>
-              <label htmlFor="project-assignee" className={labelClass}>Assigned to (optional)</label>
-              <input
-                id="project-assignee"
-                type="text"
-                value={assignedToName}
-                onChange={(e) => setAssignedToName(e.target.value)}
-                placeholder="e.g. Jordan Lee"
-                className={inputClass}
-              />
-            </div>
-          </section>
-
-          {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-md border border-border dark:border-border-dark text-muted dark:text-white-dim hover:bg-surface dark:hover:bg-dark-4"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              {saving ? 'Creating…' : 'Create project'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
 }
 
 const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet'] as const
@@ -279,7 +50,11 @@ export function ProjectsPage() {
   const [budget, setBudget] = useState<{ items: { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[]; summary: { predicted_total: number; actual_total: number; profitability: number } } | null>(null)
   const [takeoffs, setTakeoffs] = useState<{ id: string; material_list: { categories: { name: string; items: { description: string; quantity: number; unit: string; trade_tag?: string; cost_estimate?: number | null }[] }[] }; created_at: string }[]>([])
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([])
+  const [jobAssignments, setJobAssignments] = useState<JobAssignment[]>([])
+  const [rosterEmployees, setRosterEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
+  /** Prevents SetupBanner from flashing: only show after work types for this project have loaded (or failed). */
+  const [overviewSetupReady, setOverviewSetupReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [bulkSendOpen, setBulkSendOpen] = useState(false)
   const [bulkSendIds, setBulkSendIds] = useState<string[]>([])
@@ -288,16 +63,63 @@ export function ProjectsPage() {
   const [search, setSearch] = useState('')
   const [listView, setListView] = useState<'grid' | 'table'>('grid')
   const [scheduleImportOpen, setScheduleImportOpen] = useState(false)
+  const [setupWizardOpen, setSetupWizardOpen] = useState(false)
+  const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0)
+  const [deleteConfirmProject, setDeleteConfirmProject] = useState<Project | null>(null)
+  const [isDeletingProject, setIsDeletingProject] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [builderPhases, setBuilderPhases] = useState<BuilderPhase[]>([])
   const [builderMilestones, setBuilderMilestones] = useState<BuilderMilestone[]>([])
   const [builderMeta, setBuilderMeta] = useState({ projectName: '', startDate: '', gcOwner: '' })
   const [scheduleSaving, setScheduleSaving] = useState(false)
   const [workTypesByProject, setWorkTypesByProject] = useState<Record<string, ProjectWorkType[]>>({})
+  const [activity, setActivity] = useState<ProjectActivityItem[]>([])
+  const [buildPlans, setBuildPlans] = useState<ProjectBuildPlan[]>([])
+  const [heroMenuOpen, setHeroMenuOpen] = useState(false)
+  const heroMenuRef = useRef<HTMLDivElement>(null)
+  /** Work types from wizard onComplete; applied again when detail refetch finishes so banner never loses them. */
+  const pendingWizardWorkTypes = useRef<ProjectWorkType[] | undefined>(undefined)
   const tabFromUrl = searchParams.get('tab')
+
+  // Open New Project modal after the page has loaded and grid slide-in animation has finished (?new=1)
+  useEffect(() => {
+    if (!id && !loading && searchParams.get('new') === '1') {
+      const delay = 550
+      const t = setTimeout(() => {
+        setNewProjectOpen(true)
+        const next = new URLSearchParams(searchParams)
+        next.delete('new')
+        setSearchParams(next, { replace: true })
+      }, delay)
+      return () => clearTimeout(t)
+    }
+  }, [id, loading, searchParams, setSearchParams])
 
   const workTypes = id ? (workTypesByProject[id] ?? []) : []
   const setWorkTypes = (list: ProjectWorkType[]) => {
-    if (id) setWorkTypesByProject((prev) => ({ ...prev, [id]: list }))
+    if (!id) return
+    setWorkTypesByProject((prev) => ({ ...prev, [id]: list }))
+    ;(async () => {
+      try {
+        const existing = await api.projects.getWorkTypes(id)
+        for (const w of existing) await api.projects.deleteWorkType(id, w.id)
+        const synced: ProjectWorkType[] = []
+        for (const w of list) {
+          const created = await api.projects.createWorkType(id, {
+            name: w.name,
+            description: w.description,
+            rate: w.rate,
+            unit: w.unit,
+            type_key: w.type_key,
+            custom_color: w.type_key === 'custom' ? w.custom_color : undefined,
+          })
+          synced.push(created)
+        }
+        setWorkTypesByProject((prev) => ({ ...prev, [id]: synced }))
+      } catch (e) {
+        console.error('Failed to save work types', e)
+      }
+    })()
   }
   const [activeTabState, setActiveTabState] = useState<DetailTabId>('overview')
   const activeTab: DetailTabId = (tabFromUrl && DETAIL_TAB_IDS.includes(tabFromUrl as DetailTabId)) ? (tabFromUrl as DetailTabId) : activeTabState
@@ -305,6 +127,27 @@ export function ProjectsPage() {
     setActiveTabState(tab)
     setSearchParams({ tab }, { replace: true })
   }
+
+  useEffect(() => {
+    if (!heroMenuOpen) return
+    const onDocClick = (e: MouseEvent) => {
+      if (heroMenuRef.current && !heroMenuRef.current.contains(e.target as Node)) setHeroMenuOpen(false)
+    }
+    document.addEventListener('click', onDocClick, true)
+    return () => document.removeEventListener('click', onDocClick, true)
+  }, [heroMenuOpen])
+
+  // When navigating to a project (by id), always open on overview unless URL has an explicit tab
+  useEffect(() => {
+    if (!id) return
+    const tabParam = searchParams.get('tab')
+    if (!tabParam || !DETAIL_TAB_IDS.includes(tabParam as DetailTabId)) {
+      setActiveTabState('overview')
+      const next = new URLSearchParams(searchParams)
+      next.delete('tab')
+      if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+    }
+  }, [id])
 
   useEffect(() => {
     api.projects
@@ -318,44 +161,14 @@ export function ProjectsPage() {
     if (!id) return
     setLoading(true)
     setError(null)
+    setOverviewSetupReady(false)
+    setActivity([])
+    setBuildPlans([])
+    // Keep previous crew list until refetch completes so Crew tab doesn't flash "No employees" when adding/removing
+    setJobAssignments((prev) => (id && project?.id && id !== project.id ? [] : prev))
+    setRosterEmployees((prev) => (id && project?.id && id !== project.id ? [] : prev))
 
-    if (isMockProjectId(id)) {
-      const detail = getMockProjectDetail(id)
-      setProject(detail.project)
-      setPhases(detail.phases)
-      setMilestones(detail.milestones)
-      setTasks([])
-      setMedia(detail.media)
-      setBudget(detail.budget)
-      setTakeoffs(detail.takeoffs)
-      setSubcontractors(detail.subcontractors)
-      setWorkTypesByProject((prev) => {
-        if (prev[id]?.length) return prev
-        return {
-          ...prev,
-          [id]: [
-            { id: 'wt-demo-1', project_id: id, name: 'General Labor', description: 'Employees clock in under this work type on the job site.', rate: 85, unit: 'hr', type_key: 'labor' },
-            { id: 'wt-demo-2', project_id: id, name: 'Tile Install', description: 'Employees clock in under this work type on the job site.', rate: 18, unit: 'sf', type_key: 'tile' },
-            { id: 'wt-demo-3', project_id: id, name: 'Plumbing - Rough-in', description: 'Employees clock in under this work type on the job site.', rate: 450, unit: 'ea', type_key: 'plumbing' },
-          ],
-        }
-      })
-      const built = apiToBuilder(
-        detail.project,
-        detail.phases,
-        [],
-        detail.milestones,
-        dayjs().format('YYYY-MM-DD')
-      )
-      setBuilderMeta({ projectName: built.projectName, startDate: built.startDate, gcOwner: built.gcOwner })
-      const mockSchedule = getMockScheduleData()
-      setBuilderPhases(mockSchedule.phases)
-      setBuilderMilestones(mockSchedule.milestones)
-      setLoading(false)
-      return
-    }
-
-    const template = getMockProjectDetail(DEMO_PROJECT_ID)
+    const emptyBudget = { items: [] as { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[], summary: { predicted_total: 0, actual_total: 0, profitability: 0 } }
     Promise.all([
       api.projects.get(id),
       api.projects.getPhases(id),
@@ -368,16 +181,49 @@ export function ProjectsPage() {
     ])
       .then(([proj, ph, mil, taskList, med, bud, toffs, subs]) => {
         setProject(proj)
-        const phasesData = ph.length ? ph : template.phases.map((p) => ({ ...p, project_id: id }))
-        const milestonesData = mil.length ? mil : template.milestones.map((m) => ({ ...m, project_id: id }))
-        const tasksData = taskList || []
+        const phasesData = ph ?? []
+        const milestonesData = mil ?? []
+        const tasksData = taskList ?? []
         setPhases(phasesData)
         setMilestones(milestonesData)
         setTasks(tasksData)
-        setMedia(med.length ? med : template.media.map((m) => ({ ...m, project_id: id })))
-        setBudget(bud.items?.length ? bud : { ...template.budget, items: template.budget.items.map((b) => ({ ...b, project_id: id })) })
-        setTakeoffs(toffs.length ? toffs : template.takeoffs)
-        setSubcontractors(subs.length ? subs : template.subcontractors.map((s) => ({ ...s, project_id: id })))
+        setMedia(med?.length ? med : [])
+        setBudget(bud?.items?.length ? bud : { items: [], summary: bud?.summary ?? emptyBudget.summary })
+        setTakeoffs(toffs?.length ? toffs : [])
+        setSubcontractors(subs?.length ? subs : [])
+        if (id) {
+          if (pendingWizardWorkTypes.current !== undefined) {
+            setWorkTypesByProject((prev) => ({ ...prev, [id]: pendingWizardWorkTypes.current! }))
+            pendingWizardWorkTypes.current = undefined
+            setOverviewSetupReady(true)
+          } else {
+            api.projects
+              .getWorkTypes(id)
+              .then((wt) => {
+                const next = wt ?? []
+                setWorkTypesByProject((prev) => {
+                  const current = prev[id] ?? []
+                  if (next.length === 0 && current.length > 0) return prev
+                  return { ...prev, [id]: next }
+                })
+              })
+              .catch(() => {
+                setWorkTypesByProject((prev) => {
+                  const current = prev[id] ?? []
+                  if (current.length > 0) return prev
+                  return { ...prev, [id]: [] }
+                })
+              })
+              .finally(() => setOverviewSetupReady(true))
+          }
+          Promise.all([
+            teamsApi.jobAssignments.list({ job_id: id, active_only: true }).catch(() => []),
+            teamsApi.employees.list().catch(() => []),
+          ]).then(([assignments, employees]) => {
+            setJobAssignments(assignments ?? [])
+            setRosterEmployees(employees ?? [])
+          })
+        }
         const built = apiToBuilder(
           proj,
           phasesData,
@@ -388,20 +234,41 @@ export function ProjectsPage() {
         setBuilderMeta({ projectName: built.projectName, startDate: built.startDate, gcOwner: built.gcOwner })
         setBuilderPhases(built.phases)
         setBuilderMilestones(built.milestones)
+        api.projects.getActivity(id).then(setActivity).catch(() => setActivity([]))
+        api.projects.getBuildPlans(id).then(setBuildPlans).catch(() => setBuildPlans([]))
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [id])
+  }, [id, detailRefreshTrigger])
 
   const refreshMedia = () => {
-    if (id) api.projects.getMedia(id).then(setMedia)
+    if (id) {
+      api.projects.getMedia(id).then(setMedia)
+      api.projects.getActivity(id).then(setActivity)
+    }
   }
   const refreshSubcontractors = () => {
     if (id) api.projects.getSubcontractors(id).then(setSubcontractors)
   }
 
+  const handleDeleteProject = async () => {
+    if (!deleteConfirmProject) return
+    setDeleteError(null)
+    setIsDeletingProject(true)
+    try {
+      await api.projects.delete(deleteConfirmProject.id)
+      setProjects((prev) => prev.filter((p) => p.id !== deleteConfirmProject.id))
+      const wasViewingDeleted = id === deleteConfirmProject.id
+      setDeleteConfirmProject(null)
+      if (wasViewingDeleted) navigate('/projects')
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete project')
+    } finally {
+      setIsDeletingProject(false)
+    }
+  }
+
   const takeoffCategories = takeoffs[0]?.material_list?.categories ?? []
-  const isDemo = id === DEMO_PROJECT_ID
 
   if (id === undefined) {
     const filterMatch = (p: Project) => {
@@ -412,14 +279,7 @@ export function ProjectsPage() {
     const searchLower = search.trim().toLowerCase()
     const searchMatch = (p: Project) =>
       !searchLower || p.name.toLowerCase().includes(searchLower)
-    const mockFiltered = MOCK_PROJECTS.filter(filterMatch).filter(searchMatch)
-    const realFiltered = projects.filter(filterMatch).filter(searchMatch)
-    const displayedProjects = [...mockFiltered, ...realFiltered]
-    const totalValue = displayedProjects.reduce(
-      (sum, p) => sum + (MOCK_PROJECT_CARD_DATA[p.id]?.value ?? p.estimated_value ?? 0),
-      0
-    )
-
+    const displayedProjects = projects.filter(filterMatch).filter(searchMatch)
     const activeCount = displayedProjects.filter((p) => (p.status ?? 'active').toLowerCase() === 'active').length
 
     return (
@@ -499,7 +359,7 @@ export function ProjectsPage() {
           {loading ? (
             <p className="text-muted dark:text-white-dim">Loading…</p>
             ) : listView === 'table' ? (
-            mockFiltered.length === 0 && realFiltered.length === 0 ? (
+            displayedProjects.length === 0 ? (
               <p className="text-muted dark:text-white-dim py-8 text-center">
                 {search.trim() || filter !== 'all'
                   ? 'No projects match the current filters.'
@@ -507,18 +367,11 @@ export function ProjectsPage() {
               </p>
             ) : (
               <div className="projects-list-table">
-                <div className="projects-list-table-head" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px' }}>
-                  <span>Project</span><span>Status</span><span>Phase</span><span>Budget</span><span>Days Left</span><span>PM</span>
+                <div className="projects-list-table-head" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px' }}>
+                  <span>Project</span><span>Status</span><span>Phase</span><span>Budget</span><span>Days Left</span><span>PM</span><span></span>
                 </div>
-                {displayedProjects.map((p, i) => {
-                  const card = MOCK_PROJECT_CARD_DATA[p.id]
-                  const phases = card?.phaseProgress ?? []
-                  const currentPhase = phases.find((ph, idx) => !ph.completed) ?? phases[phases.length - 1]
-                  const phaseName = currentPhase?.name ?? '—'
-                  const completedCount = phases.filter((ph) => ph.completed).length
-                  const budgetVal = card?.value ?? p.estimated_value ?? 0
-                  const pct = phases.length ? Math.min(100, Math.round((completedCount / phases.length) * 100)) : 0
-                  const healthBar = card?.isComplete ? '#3b82f6' : pct >= 70 ? '#16a34a' : pct >= 40 ? '#f59e0b' : '#6b7280'
+                {displayedProjects.map((p) => {
+                  const budgetVal = Number(p.estimated_value) || 0
                   const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
                     (p.status ?? '') === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } :
                     (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
@@ -532,32 +385,42 @@ export function ProjectsPage() {
                       onClick={() => navigate(`/projects/${p.id}`)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
                       className="projects-list-table-row"
-                      style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: healthBar }}
+                      style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: '#6b7280' }}
                     >
                       <div>
                         <div className="font-semibold text-[14px] text-gray-900 dark:text-landing-white">{p.name}</div>
                         <div className="text-xs text-muted dark:text-white-dim">
-                          {p.address_line_1 || p.city || '—'} · <span className="font-mono text-[11px]">{card?.projectId ?? p.id?.slice(0, 8) ?? '—'}</span>
+                          {p.address_line_1 || p.city || '—'} · <span className="font-mono text-[11px]">{p.id?.slice(0, 8) ?? '—'}</span>
                         </div>
                       </div>
                       <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
                         {p.status === 'on_hold' ? 'On Hold' : (p.status ?? 'Active').charAt(0).toUpperCase() + (p.status ?? 'active').slice(1)}
                       </span>
-                      <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{phaseName}</span>
+                      <span className="text-sm text-gray-600 dark:text-white-dim font-medium">—</span>
                       <div>
-                        <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${Number(budgetVal).toLocaleString()}</div>
-                        <div className="text-[10px] text-muted dark:text-white-dim">{phases.length ? `${pct}%` : '—'}</div>
+                        <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${budgetVal.toLocaleString()}</div>
+                        <div className="text-[10px] text-muted dark:text-white-dim">—</div>
                       </div>
                       <span className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">—</span>
                       <div className="projects-card-pm">
-                        {card?.assignedTo && (
-                          <>
-                            <div className="projects-card-avatar" style={{ background: '#16a34a' }}>{card.assignedTo.initials}</div>
-                            <span className="text-xs font-medium text-gray-700 dark:text-white-dim">{card.assignedTo.name.split(' ')[0]}</span>
-                          </>
-                        )}
-                        {!card?.assignedTo && (p.assigned_to_name ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.assigned_to_name}</span> : <span className="text-xs text-muted">—</span>)}
+                        {p.assigned_to_name ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.assigned_to_name}</span> : <span className="text-xs text-muted">—</span>}
+                      </div>
+                      <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmProject(p)}
+                          className="p-2 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20"
+                          title="Delete project"
+                          aria-label="Delete project"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   )
@@ -566,22 +429,14 @@ export function ProjectsPage() {
             )
           ) : (
             <div className="projects-list-grid">
-              {mockFiltered.map((p) => (
-                <ProjectCard
-                  key={p.id}
-                  project={p}
-                  cardData={MOCK_PROJECT_CARD_DATA[p.id]}
-                  isDemo={p.id === DEMO_PROJECT_ID}
-                />
+              {displayedProjects.map((p) => (
+                <ProjectCard key={p.id} project={p} onDelete={(proj) => setDeleteConfirmProject(proj)} />
               ))}
-              {realFiltered.map((p) => (
-                <ProjectCard key={p.id} project={p} />
-              ))}
-              {mockFiltered.length === 0 && realFiltered.length === 0 && (
+              {displayedProjects.length === 0 && (
                 <p className="text-muted dark:text-white-dim col-span-full py-8 text-center">
                   {search.trim() || filter !== 'all'
                     ? 'No projects match the current filters.'
-                    : 'Real projects you create will appear here.'}
+                    : 'Create a project to get started.'}
                 </p>
               )}
               <button
@@ -599,14 +454,24 @@ export function ProjectsPage() {
             </div>
           )}
           {newProjectOpen && (
-            <NewProjectModal
+            <SetupWizard
+              project={EMPTY_WIZARD_PROJECT}
               onClose={() => setNewProjectOpen(false)}
-              onSubmit={async (data) => {
-                const p = await api.projects.create(data)
+              onComplete={(createdProject, extras) => {
                 setNewProjectOpen(false)
-                setProjects((prev) => [p, ...prev])
-                navigate(`/projects/${p.id}`)
+                setProjects((prev) => [createdProject, ...prev])
+                if (extras?.workTypes?.length) setWorkTypesByProject((prev) => ({ ...prev, [createdProject.id]: extras.workTypes! }))
+                navigate(`/projects/${createdProject.id}`)
               }}
+            />
+          )}
+          {deleteConfirmProject && (
+            <ConfirmDeleteProjectModal
+              project={deleteConfirmProject}
+              onClose={() => { setDeleteConfirmProject(null); setDeleteError(null) }}
+              onConfirm={handleDeleteProject}
+              isDeleting={isDeletingProject}
+              error={deleteError}
             />
           )}
         </div>
@@ -622,7 +487,7 @@ export function ProjectsPage() {
     )
   }
 
-  if ((error || !project) && id !== DEMO_PROJECT_ID) {
+  if (error || !project) {
     return (
       <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
         <div className="rounded-md bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 p-4">
@@ -635,8 +500,9 @@ export function ProjectsPage() {
     )
   }
 
-  const projectIdDisplay = (project?.id && (MOCK_PROJECT_CARD_DATA[project.id]?.projectId ?? project.id.slice(0, 8))) ?? '—'
+  const projectIdDisplay = project?.id?.slice(0, 8) ?? '—'
   const budgetSummary = budget?.summary ?? { predicted_total: 0, actual_total: 0, profitability: 0 }
+  const isUnderBudget = (budgetSummary.actual_total <= budgetSummary.predicted_total)
   const timelineStart = phases.length
     ? phases.reduce((min, p) => (p.start_date < min ? p.start_date : min), phases[0].start_date)
     : project?.expected_start_date
@@ -661,7 +527,7 @@ export function ProjectsPage() {
     ? Math.round((budgetSummary.actual_total / budgetSummary.predicted_total) * 100)
     : 0
   const healthScore = Math.min(100, Math.max(0,
-    (budgetSummary.profitability >= 0 ? 40 : 20) +
+    (isUnderBudget ? 40 : 20) +
     (daysLeft == null || daysLeft > 7 ? 35 : daysLeft > 0 ? 20 : 0) +
     (timelinePct <= 90 ? 25 : 15)
   ))
@@ -681,14 +547,35 @@ export function ProjectsPage() {
   const statusPillStyle = statusKey === 'active' ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } : statusKey === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } : statusKey === 'on_hold' ? { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' } : statusKey === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } : { bg: '#f8fafc', text: '#64748b', dot: '#94a3b8' }
   const addressDisplay = [project?.address_line_1, project?.city].filter(Boolean).join(', ') || '—'
   const BUDGET_ITEM_COLORS: Record<string, string> = { Labor: '#6366f1', Materials: '#0ea5e9', Subcontractors: '#8b5cf6' }
-  const MOCK_ACTIVITY = [
-    { user: 'MK', name: 'Mike T.', color: '#6366f1', action: 'Added job walk photo', time: '2h ago', tag: 'Media' },
-    { user: 'SC', name: 'Sarah C.', color: '#16a34a', action: 'Logged 6.5hrs – Tile Install', time: '4h ago', tag: 'Time' },
-    { user: 'JL', name: 'Jordan Lee', color: '#16a34a', action: 'Updated budget – Materials', time: 'Yesterday', tag: 'Budget' },
-    { user: 'AB', name: 'ABC Electrical', color: '#6366f1', action: 'Bid awarded – $4,200', time: 'Mar 4', tag: 'Bid' },
-    { user: 'QU', name: 'Quality Plumbing', color: '#0ea5e9', action: 'Inspection scheduled', time: 'Mar 3', tag: 'Schedule' },
-  ]
-  const TAG_COLORS: Record<string, { bg: string; text: string }> = { Media: { bg: '#eff6ff', text: '#1d4ed8' }, Time: { bg: '#f0fdf4', text: '#15803d' }, Budget: { bg: '#fefce8', text: '#a16207' }, Bid: { bg: '#fdf4ff', text: '#7e22ce' }, Schedule: { bg: '#fff7ed', text: '#c2410c' } }
+  const TAG_COLORS: Record<string, { bg: string; text: string }> = { Media: { bg: '#eff6ff', text: '#1d4ed8' }, Time: { bg: '#f0fdf4', text: '#15803d' }, Budget: { bg: '#fefce8', text: '#a16207' }, Bid: { bg: '#fdf4ff', text: '#7e22ce' }, Schedule: { bg: '#fff7ed', text: '#c2410c' }, Takeoff: { bg: '#eff6ff', text: '#1d4ed8' } }
+
+  function formatActivityTime(at: string): string {
+    if (!at) return '—'
+    const d = dayjs(at)
+    const now = dayjs()
+    const diffMins = now.diff(d, 'minute')
+    if (diffMins < 60) return `${diffMins}m ago`
+    const diffHours = now.diff(d, 'hour')
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffHours < 48 && now.date() !== d.date()) return 'Yesterday'
+    if (diffHours < 24 * 7) return d.format('ddd')
+    return d.format('MMM D')
+  }
+
+  function getInitials(name: string): string {
+    if (!name?.trim()) return '?'
+    const parts = name.trim().split(/\s+/)
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase().slice(0, 2)
+    return name.slice(0, 2).toUpperCase()
+  }
+
+  const ACTIVITY_AVATAR_COLORS = ['#6366f1', '#16a34a', '#0ea5e9', '#8b5cf6', '#c2410c']
+  function avatarColorFor(who: string, index: number): string {
+    if (!who) return ACTIVITY_AVATAR_COLORS[index % ACTIVITY_AVATAR_COLORS.length]
+    let h = 0
+    for (let i = 0; i < who.length; i++) h = (h << 5) - h + who.charCodeAt(i)
+    return ACTIVITY_AVATAR_COLORS[Math.abs(h) % ACTIVITY_AVATAR_COLORS.length]
+  }
 
   return (
     <div className="project-overview-page w-full max-w-[1600px] mx-auto">
@@ -715,13 +602,27 @@ export function ProjectsPage() {
               {project?.name} <span className="project-overview-title-muted">– {addressDisplay}</span>
             </h1>
           </div>
-          <div className="project-overview-hero-actions">
-            <button type="button" className="project-overview-hero-btn">Edit</button>
-            <button type="button" className="project-overview-hero-btn">Share</button>
-            <button type="button" className="project-overview-hero-btn project-overview-hero-btn-primary">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-              Add Update
+          <div className="project-overview-hero-actions relative" ref={heroMenuRef}>
+            <button
+              type="button"
+              className="project-overview-hero-menu-trigger"
+              onClick={(e) => { e.stopPropagation(); setHeroMenuOpen((v) => !v) }}
+              aria-expanded={heroMenuOpen}
+              aria-haspopup="true"
+              title="Project actions"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
             </button>
+            {heroMenuOpen && (
+              <div className="project-overview-hero-menu" role="menu">
+                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
+                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false) }}>Share</button>
+                <button type="button" className="project-overview-hero-menu-item project-overview-hero-menu-item-danger" role="menuitem" onClick={() => { setHeroMenuOpen(false); project && setDeleteConfirmProject(project) }} title="Delete project">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
+                  Delete
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -731,26 +632,26 @@ export function ProjectsPage() {
             <HealthRing score={healthScore} />
             <div>
               <div className="project-overview-kpi-label">Project Health</div>
-              <div className="text-xs text-[var(--text-secondary)]">Based on budget,<br />schedule & activity</div>
+              <div className="text-xs text-[var(--text-primary)]">Based on budget,<br />schedule & activity</div>
             </div>
           </div>
           <div className="project-overview-kpi-cell">
             <div className="project-overview-kpi-label">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
               Client
             </div>
             <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.assigned_to_name || '—'}</div>
           </div>
           <div className="project-overview-kpi-cell">
             <div className="project-overview-kpi-label">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
               Timeline
             </div>
             <div className="text-[14px] font-semibold text-[var(--text-primary)]">{timelineLabel}</div>
             <div className="mt-1.5">
-              <div className="flex justify-between mb-0.5 text-[11px]">
-                <span className="text-[var(--text-muted)]">{timelinePct}% elapsed</span>
-                <span className="font-semibold" style={{ color: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-muted)' }}>{daysLeft != null ? `${daysLeft}d left` : '—'}</span>
+              <div className="flex justify-between mb-0.5 text-[11px] text-[var(--text-primary)]">
+                <span>{timelinePct}% elapsed</span>
+                <span className="font-semibold" style={{ color: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-primary)' }}>{daysLeft != null ? `${daysLeft}d left` : '—'}</span>
               </div>
               <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
                 <div className="h-full rounded-sm transition-[width]" style={{ width: `${timelinePct}%`, background: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-primary)' }} />
@@ -759,15 +660,14 @@ export function ProjectsPage() {
           </div>
           <div className="project-overview-kpi-cell">
             <div className="project-overview-kpi-label">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
               Budget vs Actual
             </div>
-            <div className="text-[14px] font-bold font-mono text-[var(--text-primary)]">${budgetSummary.actual_total.toLocaleString()} <span className="text-xs font-normal font-sans text-[var(--text-muted)]">/ ${budgetSummary.predicted_total.toLocaleString()}</span></div>
+            <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+              ${budgetSummary.actual_total.toLocaleString()} <span className="text-xs font-normal font-sans text-[var(--text-primary)]">/ ${budgetSummary.predicted_total.toLocaleString()}</span>
+            </div>
             <div className="mt-1.5">
-              <div className="flex justify-between mb-0.5 text-[11px]">
-                <span className="text-[var(--text-muted)]">{budgetPct}% used</span>
-                <span className="font-semibold text-[var(--green,#16a34a)]">+${budgetSummary.profitability.toLocaleString()}</span>
-              </div>
+              <div className="text-[11px] text-[var(--text-primary)] mb-0.5">{budgetPct}% used</div>
               <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
                 <div className="h-full rounded-sm transition-[width]" style={{ width: `${Math.min(100, budgetPct)}%`, background: budgetPct > 95 ? 'var(--red)' : budgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)' }} />
               </div>
@@ -775,13 +675,34 @@ export function ProjectsPage() {
           </div>
           <div className="project-overview-kpi-cell">
             <div className="project-overview-kpi-label">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
-              Profitability
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+              Build plans
             </div>
-            <div className="text-xl font-bold font-mono" style={{ color: budgetSummary.profitability >= 0 ? 'var(--green,#16a34a)' : 'var(--red)' }}>
-              {budgetSummary.profitability >= 0 ? '+' : ''}${budgetSummary.profitability.toLocaleString()}
-            </div>
-            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">under budget</div>
+            {buildPlans.length > 0 ? (
+              <div className="flex flex-col gap-1 mt-1 min-w-0">
+                {buildPlans.map((plan) => (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    onClick={async () => {
+                      if (!id) return
+                      try {
+                        const { url } = await api.projects.getBuildPlanViewUrl(id, plan.id)
+                        window.open(url, '_blank')
+                      } catch {
+                        window.open(plan.url, '_blank')
+                      }
+                    }}
+                    className="text-[12px] font-medium text-left text-[var(--accent)] hover:underline truncate cursor-pointer bg-transparent border-none p-0"
+                    title={plan.file_name}
+                  >
+                    {plan.file_name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[12px] text-[var(--text-muted)] mt-1">No plans. Use Edit to add.</div>
+            )}
           </div>
         </div>
 
@@ -796,14 +717,29 @@ export function ProjectsPage() {
       </div>
 
       {activeTab === 'overview' && project && (
-        <div className="project-overview-body">
+        <div className="project-overview-wrap">
+          {overviewSetupReady && (
+            <SetupBanner
+              project={{
+                assigned_to_name: project.assigned_to_name,
+                phases,
+                budget: budgetSummary.predicted_total,
+                budgetItemsCount: budget?.items?.length ?? 0,
+                team: subcontractors,
+                workTypes,
+                milestones,
+              }}
+              onOpenWizard={() => setSetupWizardOpen(true)}
+            />
+          )}
+          <div className="project-overview-body">
           {/* Col 1 – Project Breakdown + Milestones */}
           <div className="flex flex-col gap-[18px]">
             <div className="project-overview-card">
               <div className="project-overview-card-title">Project Breakdown</div>
               {project.scope && <div className="project-overview-card-subtitle">{project.scope}</div>}
               <div className="flex flex-col gap-0">
-                {phases.length > 0 ? phases.map((ph, i) => {
+                {phases.length > 0 ? phases.map((ph) => {
                   const today = dayjs().format('YYYY-MM-DD')
                   const status = today > ph.end_date ? 'complete' : today >= ph.start_date && today <= ph.end_date ? 'in-progress' : 'upcoming'
                   const cfg = { complete: { bg: '#f0fdf4', bar: '#16a34a', text: '#15803d', label: 'Complete' }, 'in-progress': { bg: '#eff6ff', bar: '#3b82f6', text: '#1d4ed8', label: 'In progress' }, upcoming: { bg: 'var(--bg-base)', bar: 'var(--border)', text: 'var(--text-muted)', label: 'Upcoming' } }[status]
@@ -831,7 +767,7 @@ export function ProjectsPage() {
             <div className="project-overview-card">
               <div className="project-overview-card-title">Key Milestones</div>
               <div className="flex flex-col gap-0">
-                {milestones.length > 0 ? milestones.map((m, i) => (
+                {milestones.length > 0 ? milestones.map((m) => (
                   <div key={m.id} className="project-overview-milestone-row">
                     <div className="project-overview-milestone-icon" style={{ background: m.completed ? '#f0fdf4' : '#fff7ed' }}>
                       {m.completed ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>}
@@ -855,16 +791,13 @@ export function ProjectsPage() {
               </div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <div className="text-[22px] font-bold font-mono text-[var(--text-primary)]">${budgetSummary.actual_total.toLocaleString()}</div>
+                  <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                    ${budgetSummary.actual_total.toLocaleString()}
+                  </div>
                   <div className="text-xs text-[var(--text-muted)]">of ${budgetSummary.predicted_total.toLocaleString()} budget</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold font-mono text-[var(--green,#16a34a)]">+${budgetSummary.profitability.toLocaleString()}</div>
-                  <div className="text-xs text-[var(--text-muted)]">under budget</div>
                 </div>
               </div>
               {(budget?.items ?? []).map((item) => {
-                const pct = item.predicted > 0 ? Math.round((item.actual / item.predicted) * 100) : 0
                 const over = item.actual > item.predicted
                 const color = BUDGET_ITEM_COLORS[item.label] ?? '#6366f1'
                 const maxVal = Math.max(item.predicted, item.actual)
@@ -894,59 +827,48 @@ export function ProjectsPage() {
             <div className="project-overview-card">
               <div className="project-overview-card-title">Team</div>
               <div className="flex flex-col gap-0">
-                {project.assigned_to_name && (
-                  <div className="flex items-center gap-3 py-2.5 border-b border-[var(--border)]">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--green,#16a34a)] text-white text-[11px] font-bold flex items-center justify-center shrink-0">{project.assigned_to_name.slice(0, 2).toUpperCase()}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-semibold text-[var(--text-primary)]">{project.assigned_to_name}</div>
-                      <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Assigned</div>
-                    </div>
-                    <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
-                  </div>
-                )}
-                {subcontractors.map((s, i) => (
-                  <div key={s.id} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][i % 3] }}>{s.name.slice(0, 2).toUpperCase()}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-semibold text-[var(--text-primary)]">{s.name}</div>
-                      <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{s.trade}</div>
-                    </div>
-                    <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
-                  </div>
-                ))}
-                {!project.assigned_to_name && subcontractors.length === 0 && <p className="text-sm text-[var(--text-muted)]">No team members yet.</p>}
+                {(() => {
+                  const empMap = new Map(rosterEmployees.map((e) => [e.id, e]))
+                  const rosterRows = jobAssignments
+                    .filter((a) => !a.ended_at)
+                    .map((a) => {
+                      const emp = empMap.get(a.employee_id)
+                      return { assignment: a, name: emp?.name ?? a.employee_id, role: a.role_on_job || emp?.role || '—' }
+                    })
+                  const hasRoster = rosterRows.length > 0
+                  const hasSubs = subcontractors.length > 0
+                  if (!hasRoster && !hasSubs) return <p className="text-sm text-[var(--text-muted)]">No team members yet.</p>
+                  return (
+                    <>
+                      {rosterRows.map(({ assignment, name, role }, i) => (
+                        <div key={assignment.id} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)]">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][i % 3] }}>{name.slice(0, 2).toUpperCase()}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">{name}</div>
+                            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{role}</div>
+                          </div>
+                          <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
+                        </div>
+                      ))}
+                      {subcontractors.map((s, i) => (
+                        <div key={s.id} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][(rosterRows.length + i) % 3] }}>{s.name.slice(0, 2).toUpperCase()}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">{s.name}</div>
+                            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{s.trade}</div>
+                          </div>
+                          <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
+                        </div>
+                      ))}
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>
 
-          {/* Col 3 – Activity + Quick Actions */}
+          {/* Col 3 – Quick Actions + Live Activity */}
           <div className="flex flex-col gap-[18px]">
-            <div className="project-overview-card">
-              <div className="project-overview-card-title">Live Activity</div>
-              <div className="project-overview-card-subtitle">Recent updates across this project</div>
-              <div className="flex flex-col gap-0 relative">
-                <div className="project-overview-activity-line" />
-                {MOCK_ACTIVITY.map((a, i) => {
-                  const tc = TAG_COLORS[a.tag] ?? { bg: 'var(--bg-base)', text: 'var(--text-secondary)' }
-                  return (
-                    <div key={i} className="project-overview-activity-item">
-                      <div className="project-overview-activity-avatar" style={{ background: a.color }}>{a.user}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="text-xs font-semibold text-[var(--text-primary)]">{a.name} </span>
-                            <span className="text-xs text-[var(--text-secondary)]">{a.action}</span>
-                          </div>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0" style={{ background: tc.bg, color: tc.text }}>{a.tag}</span>
-                        </div>
-                        <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{a.time}</div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              <button type="button" className="project-overview-view-all">View all activity</button>
-            </div>
             <div className="project-overview-card">
               <div className="project-overview-card-title">Quick Actions</div>
               <div className="project-overview-quick-actions">
@@ -963,6 +885,40 @@ export function ProjectsPage() {
                 ))}
               </div>
             </div>
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Live Activity</div>
+              <div className="project-overview-card-subtitle">Recent updates across this project</div>
+              <div className="flex flex-col gap-0 relative">
+                <div className="project-overview-activity-line" />
+                {activity.length === 0 ? (
+                  <p className="text-sm text-[var(--text-muted)] py-4 pl-10">No recent activity yet.</p>
+                ) : (
+                  activity.map((a, i) => {
+                    const tc = TAG_COLORS[a.tag] ?? { bg: 'var(--bg-base)', text: 'var(--text-secondary)' }
+                    const displayAction = a.detail ? `${a.action}: ${a.detail}` : a.action
+                    return (
+                      <div key={`${a.at}-${i}`} className="project-overview-activity-item">
+                        <div className="project-overview-activity-avatar" style={{ background: avatarColorFor(a.who, i) }}>
+                          {getInitials(a.who || '')}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              {a.who && <span className="text-xs font-semibold text-[var(--text-primary)]">{a.who} </span>}
+                              <span className="text-xs text-[var(--text-secondary)]">{displayAction}</span>
+                            </div>
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0" style={{ background: tc.bg, color: tc.text }}>{a.tag}</span>
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{formatActivityTime(a.at)}</div>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <button type="button" className="project-overview-view-all">View all activity</button>
+            </div>
+          </div>
           </div>
         </div>
       )}
@@ -985,6 +941,12 @@ export function ProjectsPage() {
             projectId={project.id}
             projectName={project.name}
             readOnly={false}
+            subcontractors={subcontractors}
+            jobAssignments={jobAssignments}
+            rosterEmployees={rosterEmployees}
+            onSubcontractorAdded={refreshSubcontractors}
+            onCrewChange={() => setDetailRefreshTrigger((t) => t + 1)}
+            onOpenSetupWizard={() => setSetupWizardOpen(true)}
           />
         </section>
       )}
@@ -1000,7 +962,7 @@ export function ProjectsPage() {
             onPhasesChange={setBuilderPhases}
             onMilestonesChange={setBuilderMilestones}
             onMetaChange={setBuilderMeta}
-            onSave={id && !isDemo ? async (metaOverride) => {
+            onSave={id ? async (metaOverride) => {
               setScheduleSaving(true)
               try {
                 const m = metaOverride ?? builderMeta
@@ -1065,10 +1027,18 @@ export function ProjectsPage() {
                 setScheduleSaving(false)
               }
             } : undefined}
-            onImportClick={!isDemo ? () => setScheduleImportOpen(true) : undefined}
-            isDemo={isDemo}
+            onImportClick={() => setScheduleImportOpen(true)}
             saving={scheduleSaving}
           />
+          {deleteConfirmProject && (
+            <ConfirmDeleteProjectModal
+              project={deleteConfirmProject}
+              onClose={() => { setDeleteConfirmProject(null); setDeleteError(null) }}
+              onConfirm={handleDeleteProject}
+              isDeleting={isDeletingProject}
+              error={deleteError}
+            />
+          )}
           {scheduleImportOpen && id && project && (
             <ImportScheduleModal
               projectId={id}
@@ -1097,7 +1067,6 @@ export function ProjectsPage() {
             items={budget?.items ?? []}
             schedulePhases={builderPhases}
             onSave={async (items) => {
-              if (isDemo) return
               const result = await api.projects.updateBudget(project!.id, items)
               setBudget(result)
             }}
@@ -1112,14 +1081,12 @@ export function ProjectsPage() {
             projectName={project.name}
             media={media}
             onUpload={async (file, uploaderName, caption) => {
-              if (isDemo) return
               await api.projects.uploadMedia(project.id, file, uploaderName, caption)
             }}
             onDelete={async (mediaId) => {
-              if (isDemo) return
               await api.projects.deleteMedia(project.id, mediaId)
             }}
-            onRefresh={isDemo ? () => {} : refreshMedia}
+            onRefresh={refreshMedia}
           />
         </section>
       )}
@@ -1129,18 +1096,9 @@ export function ProjectsPage() {
           <LaunchTakeoffWidget
             projectId={project.id}
             onUpload={async (file) => {
-              if (isDemo) return { material_list: { categories: [], summary: '' } }
-              if (isMockProjectId(project.id)) {
-                const result = await api.runTakeoff(file, project.name)
-                const newTakeoff = {
-                  id: result.id,
-                  material_list: result.materialList as MaterialList,
-                  created_at: result.createdAt ?? new Date().toISOString(),
-                }
-                setTakeoffs((prev) => [newTakeoff, ...prev])
-                return { material_list: result.materialList as MaterialList }
-              }
               const result = await api.projects.launchTakeoff(project.id, file)
+              const list = await api.projects.getTakeoffs(project.id)
+              setTakeoffs(list)
               return { material_list: result.material_list as MaterialList }
             }}
             existingTakeoffs={takeoffs}
@@ -1161,36 +1119,45 @@ export function ProjectsPage() {
             }}
             takeoffCategories={takeoffCategories}
             subcontractors={subcontractors}
-            onAddSub={
-              isDemo
-                ? undefined
-                : async (row) => {
-                    await api.projects.createSubcontractor(project.id, row)
-                    refreshSubcontractors()
-                  }
-            }
-            onDeleteSub={
-              isDemo
-                ? undefined
-                : async (subId) => {
-                    await api.projects.deleteSubcontractor(project.id, subId)
-                    refreshSubcontractors()
-                  }
-            }
+            onAddSub={async (row) => {
+              await api.projects.createSubcontractor(project.id, row)
+              refreshSubcontractors()
+            }}
+            onDeleteSub={async (subId) => {
+              await api.projects.deleteSubcontractor(project.id, subId)
+              refreshSubcontractors()
+            }}
             onBulkSend={(subIds) => {
               setBulkSendIds(subIds)
               setBulkSendOpen(true)
             }}
-            initialBidSheet={isMockProjectId(id ?? '') ? getMockProjectDetail(id!).bidSheet : undefined}
           />
         </section>
+      )}
+
+      {setupWizardOpen && project && (
+        <SetupWizard
+          project={wizardStateFromProject(project, phases, budget?.items ?? [], milestones, tasks, subcontractors, workTypes, jobAssignments, rosterEmployees)}
+          existingProjectId={project.id}
+          onClose={() => { setSetupWizardOpen(false); if (project?.id) setDetailRefreshTrigger((t) => t + 1) }}
+          onComplete={(_, extras) => {
+            setSetupWizardOpen(false)
+            const projectId = project?.id
+            if (extras && id && projectId) {
+              const list = extras.workTypes ?? []
+              pendingWizardWorkTypes.current = list
+              setWorkTypesByProject((prev) => ({ ...prev, [id]: list }))
+            }
+            setDetailRefreshTrigger((t) => t + 1)
+            if (projectId) api.projects.getBuildPlans(projectId).then(setBuildPlans).catch(() => setBuildPlans([]))
+          }}
+        />
       )}
 
       {bulkSendOpen && project && (
         <BulkSendModal
           subCount={bulkSendIds.length}
           onSend={async (subject, body) => {
-            if (isDemo) return
             await api.projects.bulkSendSubcontractors(project.id, bulkSendIds, subject, body)
           }}
           onClose={() => {

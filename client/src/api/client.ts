@@ -5,16 +5,18 @@ import type {
   Milestone,
   ProjectTask,
   JobWalkMedia,
+  ProjectBuildPlan,
   BudgetLineItem,
   BudgetSummary,
   Subcontractor,
+  ProjectWorkType,
+  ProjectActivityItem,
   Contractor,
   BidSheet,
   MaterialList as GlobalMaterialList,
   ScheduleItem,
 } from '@/types/global'
-
-const API_BASE = '/api'
+import { API_BASE } from '@/api/config'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {}
@@ -29,7 +31,12 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
-    throw new Error((data as { error?: string }).error || res.statusText)
+    const msg =
+      (data as { error?: string }).error ||
+      (res.status === 404 ? 'Project or resource not found.' : null) ||
+      res.statusText ||
+      'Request failed'
+    throw new Error(msg)
   }
   return res.json() as Promise<T>
 }
@@ -69,6 +76,88 @@ export interface TakeoffResponse {
   name: string
   materialList: MaterialList
   createdAt?: string
+}
+
+export interface DashboardAlert {
+  id: string
+  type: 'invoice' | 'estimate' | 'budget_overrun'
+  urgency: 'high' | 'medium' | 'low'
+  label: string
+  sub: string
+  action: string
+  entityId: string
+  entityType: 'invoice' | 'estimate' | 'project'
+  jobId: string
+}
+
+export interface DismissedAlert {
+  id: string
+  alertId: string
+  dismissedAt: string
+  label: string
+  sub: string
+  type: 'invoice' | 'estimate' | 'budget_overrun'
+  action: string
+  entityId: string
+  entityType: string
+  jobId: string
+  urgency: 'high' | 'medium' | 'low'
+}
+
+export interface DashboardKpis {
+  totalRevenue: number
+  totalExpense: number
+  outstanding: number
+  openInvoicesCount: number
+  activeJobs: number
+  totalProjects: number
+  revenueTrend?: number[]
+  expenseTrend?: number[]
+}
+
+export interface ClockedInEntry {
+  employeeId: string
+  employeeName: string
+  initials: string
+  jobName: string
+  jobId: string
+  clockIn: string
+  clockInFormatted: string
+  hoursSoFar: number
+}
+
+export interface DashboardProject {
+  id: string
+  name: string
+  status: string
+  client: string
+  initials: string
+  budget_total: number
+  spent_total: number
+  timeline_start: string | null
+  timeline_end: string | null
+  timeline_pct: number | null
+}
+
+export interface Message {
+  id: string
+  conversation_id: string
+  sender_id: string
+  body: string
+  created_at: string
+}
+
+export interface ConversationListItem {
+  id: string
+  updated_at: string
+  last_message: {
+    id: string
+    sender_id: string
+    body: string
+    created_at: string
+  } | null
+  unread_count: number
+  other_participant_ids: string[]
 }
 
 export const api = {
@@ -267,6 +356,40 @@ export const api = {
         throw new Error((data as { error?: string }).error || res.statusText)
       }
     },
+    async getBuildPlans(projectId: string): Promise<ProjectBuildPlan[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans`, { headers })
+      return handleResponse<ProjectBuildPlan[]>(res)
+    },
+    async uploadBuildPlan(projectId: string, file: File, uploader_name?: string): Promise<ProjectBuildPlan> {
+      const allHeaders = await getAuthHeaders()
+      const form = new FormData()
+      form.append('file', file)
+      if (uploader_name) form.append('uploader_name', uploader_name)
+      // Use only Authorization so browser can set Content-Type for FormData (with boundary)
+      const headers: Record<string, string> = {}
+      const auth = (allHeaders as Record<string, string> | undefined)?.Authorization
+      if (auth) headers['Authorization'] = auth
+      const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans`, {
+        method: 'POST',
+        body: form,
+        headers,
+      })
+      return handleResponse<ProjectBuildPlan>(res)
+    },
+    async getBuildPlanViewUrl(projectId: string, planId: string): Promise<{ url: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans/${planId}/view`, { headers })
+      return handleResponse<{ url: string }>(res)
+    },
+    async deleteBuildPlan(projectId: string, planId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans/${planId}`, { method: 'DELETE', headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
+    },
     async getBudget(projectId: string): Promise<{ items: BudgetLineItem[]; summary: BudgetSummary }> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/budget`, { headers })
@@ -297,6 +420,11 @@ export const api = {
       const res = await fetch(`${API_BASE}/projects/${projectId}/takeoffs`, { headers })
       return handleResponse<{ id: string; material_list: GlobalMaterialList; created_at: string }[]>(res)
     },
+    async getActivity(projectId: string): Promise<ProjectActivityItem[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/activity`, { headers })
+      return handleResponse<ProjectActivityItem[]>(res)
+    },
     async getSubcontractors(projectId: string): Promise<Subcontractor[]> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, { headers })
@@ -323,6 +451,37 @@ export const api = {
     async deleteSubcontractor(projectId: string, subId: string): Promise<void> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors/${subId}`, { method: 'DELETE', headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
+    },
+    async getWorkTypes(projectId: string): Promise<ProjectWorkType[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/work-types`, { headers })
+      return handleResponse<ProjectWorkType[]>(res)
+    },
+    async createWorkType(projectId: string, body: { name: string; description?: string; rate: number; unit: string; type_key?: string; custom_color?: string }): Promise<ProjectWorkType> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/work-types`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<ProjectWorkType>(res)
+    },
+    async updateWorkType(projectId: string, wtId: string, body: Partial<{ name: string; description: string; rate: number; unit: string; type_key: string; custom_color: string }>): Promise<ProjectWorkType> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/work-types/${wtId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<ProjectWorkType>(res)
+    },
+    async deleteWorkType(projectId: string, wtId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/work-types/${wtId}`, { method: 'DELETE', headers })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { error?: string }).error || res.statusText)
@@ -358,6 +517,95 @@ export const api = {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/schedule?date=${encodeURIComponent(date)}`, { headers })
     return handleResponse<ScheduleItem[]>(res)
+  },
+
+  /** Dates in a month that have at least one schedule item (task or milestone). */
+  async getScheduleDays(month: string): Promise<{ dates: string[] }> {
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/schedule/days?month=${encodeURIComponent(month)}`, { headers })
+    return handleResponse<{ dates: string[] }>(res)
+  },
+
+  /** Dashboard aggregates (alerts, KPIs, clocked-in, projects). */
+  dashboard: {
+    async getAlerts(): Promise<DashboardAlert[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/dashboard/alerts`, { headers })
+      return handleResponse<DashboardAlert[]>(res)
+    },
+    async dismissAlert(alert: DashboardAlert): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/dashboard/alerts/dismiss`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ alert }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
+    },
+    async getDismissedAlerts(): Promise<DismissedAlert[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/dashboard/alerts/dismissed`, { headers })
+      return handleResponse<DismissedAlert[]>(res)
+    },
+    async getKpis(): Promise<DashboardKpis> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/dashboard/kpis`, { headers })
+      return handleResponse<DashboardKpis>(res)
+    },
+    async getClockedIn(): Promise<ClockedInEntry[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/dashboard/clocked-in`, { headers })
+      return handleResponse<ClockedInEntry[]>(res)
+    },
+    async getProjects(): Promise<DashboardProject[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/dashboard/projects`, { headers })
+      return handleResponse<DashboardProject[]>(res)
+    },
+  },
+
+  /** Messaging: conversations and messages */
+  conversations: {
+    async list(): Promise<ConversationListItem[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/conversations`, { headers })
+      return handleResponse<ConversationListItem[]>(res)
+    },
+    async findOrCreate(otherUserId: string): Promise<{ id: string; created_at: string; updated_at: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/conversations/find-or-create?other_user_id=${encodeURIComponent(otherUserId)}`, { headers })
+      return handleResponse<{ id: string; created_at: string; updated_at: string }>(res)
+    },
+    async getMessages(conversationId: string, opts?: { limit?: number; before?: string }): Promise<{ messages: Message[]; has_more: boolean }> {
+      const headers = await getAuthHeaders()
+      const params = new URLSearchParams()
+      if (opts?.limit) params.set('limit', String(opts.limit))
+      if (opts?.before) params.set('before', opts.before)
+      const q = params.toString() ? `?${params}` : ''
+      const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages${q}`, { headers })
+      return handleResponse<{ messages: Message[]; has_more: boolean }>(res)
+    },
+    async sendMessage(conversationId: string, body: string): Promise<Message> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ body }),
+      })
+      return handleResponse<Message>(res)
+    },
+    async markRead(conversationId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      await fetch(`${API_BASE}/conversations/${conversationId}/read`, { method: 'POST', headers })
+    },
+    async getUnreadCount(): Promise<{ count: number }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/conversations/unread-count`, { headers })
+      return handleResponse<{ count: number }>(res)
+    },
   },
 
   /** Global contractor contact list (Manage > Contractors). */

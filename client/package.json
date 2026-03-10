@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@iconscout/react-unicons": "^2.2.5",
+    "@phosphor-icons/react": "^2.1.10",
     "@supabase/supabase-js": "^2.49.1",
     "dayjs": "^1.11.19",
     "jspdf": "^4.2.0",

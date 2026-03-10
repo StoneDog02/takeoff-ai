@@ -1,5 +1,6 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { sendInviteEmail } = require('../lib/sendInviteEmail')
 const { INVITE_EXPIRY_DAYS, generateToken } = require('./invites')
 
 const router = express.Router()
@@ -146,7 +147,7 @@ router.post('/:id/invite', async (req, res, next) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { data: employee, error: empErr } = await supabase
       .from('employees')
-      .select('id, email, auth_user_id')
+      .select('id, name, email, auth_user_id')
       .eq('id', req.params.id)
       .eq('user_id', req.user?.id)
       .single()
@@ -166,7 +167,21 @@ router.post('/:id/invite', async (req, res, next) => {
     if (insertErr) throw insertErr
     const appOrigin = process.env.APP_ORIGIN || process.env.VITE_APP_ORIGIN || ''
     const inviteLink = appOrigin ? `${appOrigin.replace(/\/$/, '')}/accept-invite?token=${token}` : null
-    res.status(201).json({ ok: true, expires_at: expiresAt.toISOString(), invite_link: inviteLink })
+    let inviteEmailSent = false
+    if (employee.email && inviteLink) {
+      const emailResult = await sendInviteEmail({
+        to: employee.email,
+        inviteLink,
+        employeeName: employee.name,
+      })
+      inviteEmailSent = emailResult.sent
+    }
+    res.status(201).json({
+      ok: true,
+      expires_at: expiresAt.toISOString(),
+      invite_link: inviteLink,
+      invite_email_sent: inviteEmailSent,
+    })
   } catch (err) {
     next(err)
   }

@@ -30,10 +30,10 @@ export function Footer() {
             className="inline-flex items-center gap-2.5 no-underline mb-3.5"
           >
             <div className="w-8 h-8 bg-accent flex items-center justify-center [clip-path:polygon(0_0,100%_0,100%_75%,75%_100%,0_100%)]">
-              <span className="font-sora font-extrabold text-sm text-white">T</span>
+              <span className="font-sora font-extrabold text-sm text-white">P</span>
             </div>
             <span className="font-sora font-semibold text-base text-landing-white tracking-tight">
-              Takeoff
+              Proj-X
             </span>
           </Link>
           <p className="text-sm text-white-dim leading-relaxed mt-3.5 max-w-[220px]">
@@ -106,7 +106,7 @@ export function Footer() {
       </div>
       <div className="max-w-[1200px] mx-auto mt-7 flex flex-col sm:flex-row items-center justify-between gap-4">
         <span className="text-[13px] text-white-dim/80">
-          © 2026 Takeoff. All rights reserved. | Built for contractors, by builders.
+          © 2026 Proj-X. All rights reserved. | Built for contractors, by builders.
         </span>
       </div>
     </footer>

@@ -109,7 +109,7 @@ export function EstimateBuilderModal({
     return true
   }
 
-  const handleSave = async (asDraft: boolean) => {
+  const handleSave = async (_asDraft: boolean) => {
     const payload: NewEstimatePayload = {
       id: `est-${Date.now()}`,
       job_id: data.jobId,

@@ -202,7 +202,7 @@ export function EmployeeHoursPage() {
       <div className="w-full px-4 sm:px-6 lg:px-8 py-10">
         <div className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 shadow-card p-6 font-sora">
           <p className="text-muted text-sm">
-            Your account is set up as an employee. Ask your employer to add you to the roster so your hours appear here.
+            Your employer removed you from their crew. This account can't be used until you're added back and sent a new invite.
           </p>
         </div>
       </div>

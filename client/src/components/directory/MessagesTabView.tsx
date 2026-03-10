@@ -148,7 +148,6 @@ export function MessagesTabView({
                 initials={selected.avatar}
                 color={selected.color}
                 size={42}
-                status={selected.status}
               />
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-base text-[var(--text-primary)]">

@@ -1,4 +1,4 @@
-const API_BASE = '/api'
+import { API_BASE } from '@/api/config'
 
 export interface ValidateInviteResponse {
   valid: boolean

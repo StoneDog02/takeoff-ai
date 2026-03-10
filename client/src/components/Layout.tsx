@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
 
-const APP_ROUTES = ['/dashboard', '/projects', '/estimates', '/revenue', '/teams', '/payroll', '/directory', '/contractors', '/messages', '/settings']
+const APP_ROUTES = ['/dashboard', '/projects', '/estimates', '/revenue', '/teams', '/payroll', '/directory', '/contractors', '/settings']
 
 export function RootLayout() {
   const location = useLocation()
@@ -9,7 +9,7 @@ export function RootLayout() {
     location.pathname === '/landing' ||
     location.pathname === '/sign-up' ||
     location.pathname === '/sign-in'
-  const isAppRoute = APP_ROUTES.some((route) => location.pathname === route || (route !== '/settings' && route !== '/messages' && location.pathname.startsWith(route + '/')))
+  const isAppRoute = APP_ROUTES.some((route) => location.pathname === route || (route !== '/settings' && location.pathname.startsWith(route + '/')))
 
   return (
     <div className="flex flex-col w-full min-h-screen">

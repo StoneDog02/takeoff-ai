@@ -8,8 +8,7 @@ import type {
   JobSpendSummary,
 } from '@/types/global'
 import { supabase } from '@/lib/supabaseClient'
-
-const API_BASE = '/api'
+import { API_BASE } from '@/api/config'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {}
@@ -266,13 +265,13 @@ export const estimatesApi = {
     return handleResponse<void>(res)
   },
 
-  // Job expenses
-  async getJobExpenses(jobId: string): Promise<JobExpense[]> {
+  // Job expenses (optional jobId; omit to fetch all for pipeline)
+  async getJobExpenses(jobId?: string): Promise<JobExpense[]> {
     const headers = await getAuthHeaders()
-    const res = await fetch(
-      `${API_BASE}/job-expenses?job_id=${encodeURIComponent(jobId)}`,
-      { headers }
-    )
+    const url = jobId
+      ? `${API_BASE}/job-expenses?job_id=${encodeURIComponent(jobId)}`
+      : `${API_BASE}/job-expenses`
+    const res = await fetch(url, { headers })
     return handleResponse<JobExpense[]>(res)
   },
 

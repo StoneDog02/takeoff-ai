@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { ClockInView } from './ClockInView'
 import { GeofenceConfig } from './GeofenceConfig'
 import { GpsClockOutLogList } from './GpsClockOutLogList'
 import { teamsApi } from '@/api/teamsClient'
@@ -39,10 +38,6 @@ export function GeofenceTab({ onSelectEmployee }: GeofenceTabProps) {
       </div>
 
       <div className="teams-geo-layout">
-        <section className="teams-geo-section">
-          <h3 className="teams-section-heading">Clock in / out</h3>
-          <ClockInView />
-        </section>
         <section className="teams-geo-section">
           <h3 className="teams-section-heading">Geofence per job</h3>
           <GeofenceConfig />

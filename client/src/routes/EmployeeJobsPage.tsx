@@ -66,7 +66,7 @@ const STATUS_CFG: Record<JobStatus, { label: string; Icon: typeof Circle; classN
   },
 }
 
-function CrewStack({ crew, currentUserName }: { crew: string[]; currentUserName: string | null }) {
+function CrewStack({ crew, currentUserName: _currentUserName }: { crew: string[]; currentUserName: string | null }) {
   const shown = crew.slice(0, 3)
   const extra = crew.length - 3
   return (
@@ -306,7 +306,7 @@ export function EmployeeJobsPage() {
       <div className="w-full px-4 sm:px-6 lg:px-8 py-10">
         <div className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 shadow-card p-6 font-sora">
           <p className="text-muted text-sm">
-            Your account is set up as an employee. Ask your employer to add you to the roster so your job assignments appear here.
+            Your employer removed you from their crew. This account can't be used until you're added back and sent a new invite.
           </p>
         </div>
       </div>

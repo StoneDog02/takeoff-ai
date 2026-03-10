@@ -57,7 +57,7 @@ export const router = createBrowserRouter([
           { path: 'payroll', element: <PayrollPage /> },
           { path: 'directory', element: <DirectoryPage /> },
           { path: 'contractors', element: <Navigate to="/directory" replace /> },
-          { path: 'messages', element: <DirectoryPage /> },
+          { path: 'messages', element: <Navigate to="/directory" replace /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'admin', element: <AdminGuard><AdminPage /></AdminGuard> },
         ],

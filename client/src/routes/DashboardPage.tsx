@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppLayout } from '@/contexts/AppLayoutContext'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { dayjs, formatDate } from '@/lib/date'
 import { api } from '@/api/client'
 import type { ScheduleItem } from '@/types/global'
+import type { ConversationListItem } from '@/api/client'
 
 // --- Icons (inline SVGs) ---
 function IconPlus({ className, style }: { className?: string; style?: React.CSSProperties }) {
@@ -23,102 +25,9 @@ function IconSearch({ className }: { className?: string }) {
     </svg>
   )
 }
-function IconChip({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="32" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M9 3v18" />
-      <path d="M15 3v18" />
-      <path d="M3 9h18" />
-      <path d="M3 15h18" />
-    </svg>
-  )
-}
-function IconArrowLeft({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M19 12H5" />
-      <path d="m12 19-7-7 7-7" />
-    </svg>
-  )
-}
-function IconBarChart({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return (
-    <svg className={className} style={style} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <line x1="12" x2="12" y1="20" y2="10" />
-      <line x1="18" x2="18" y1="20" y2="4" />
-      <line x1="6" x2="6" y1="20" y2="16" />
-    </svg>
-  )
-}
-function IconArrowUp({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return (
-    <svg className={className} style={style} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m5 12 7-7 7 7" />
-      <path d="M12 19V5" />
-    </svg>
-  )
-}
-function IconSend({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m22 2-7 20-4-9-9-4Z" />
-      <path d="M22 2 11 13" />
-    </svg>
-  )
-}
-// --- Mock data ---
-type PeriodKey = 'month' | 'quarter' | 'ytd'
-type ProfitRevenueSnapshot = { revenue: number; profit: number; marginPercent: number; periodTrend: number }
-
-const profitRevenueByPeriod: Record<PeriodKey, ProfitRevenueSnapshot> = {
-  month: { revenue: 184200, profit: 42150, marginPercent: 22.9, periodTrend: 8.2 },
-  quarter: { revenue: 512400, profit: 118200, marginPercent: 23.1, periodTrend: 5.4 },
-  ytd: { revenue: 1842000, profit: 398400, marginPercent: 21.6, periodTrend: 12.1 },
-}
-
-/** Expense by period: mock (replace with API). Derived from revenue - profit for consistency. */
-const expenseByPeriod: Record<'month' | 'ytd', { value: number; trend: number }> = {
-  month: { value: profitRevenueByPeriod.month.revenue - profitRevenueByPeriod.month.profit, trend: 5 },
-  ytd: { value: profitRevenueByPeriod.ytd.revenue - profitRevenueByPeriod.ytd.profit, trend: 6 },
-}
-
-// Extended project data for health cards (budget/timeline bars)
+// --- Dashboard live data (replaces mocks) ---
 const PROJECT_COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#EF4444'] as const
 type ProjectStatusKey = 'active' | 'planning' | 'completed' | 'on-hold'
-const projects: {
-  id: string
-  name: string
-  client: string
-  initials: string
-  color: string
-  budget: number
-  spent: number
-  timelineStart: string
-  timelineEnd: string
-  pctTime: number
-  status: ProjectStatusKey
-}[] = [
-  { id: 'PRJ-001', name: 'Kitchen Remodel', client: 'Savannah Nguyen', initials: 'SN', color: PROJECT_COLORS[0], budget: 48200, spent: 31400, timelineStart: 'Jun 2025', timelineEnd: 'Aug 2025', pctTime: 78, status: 'active' },
-  { id: 'PRJ-002', name: 'Office Build-Out', client: 'Jordan Lee', initials: 'JL', color: PROJECT_COLORS[1], budget: 125000, spent: 44200, timelineStart: 'Jul 2025', timelineEnd: 'Oct 2025', pctTime: 35, status: 'planning' },
-  { id: 'PRJ-003', name: 'Bathroom Renovation', client: 'Alexis Kim', initials: 'AK', color: PROJECT_COLORS[2], budget: 22400, spent: 22100, timelineStart: 'May 2025', timelineEnd: 'Jun 2025', pctTime: 100, status: 'completed' },
-  { id: 'PRJ-004', name: 'Exterior Siding', client: 'Morgan Reed', initials: 'MR', color: PROJECT_COLORS[3], budget: 67500, spent: 18200, timelineStart: 'Aug 2025', timelineEnd: 'Nov 2025', pctTime: 20, status: 'on-hold' },
-]
-
-const ATTENTION_ITEMS: { id: number; type: string; icon: string; label: string; sub: string; action: string; urgency: 'high' | 'medium' | 'low' }[] = [
-  { id: 1, type: 'invoice', icon: '🧾', label: 'Invoice #inv-3 overdue', sub: 'Kitchen Remodel · 12 days past due', action: 'View Invoice', urgency: 'high' },
-  { id: 2, type: 'estimate', icon: '📋', label: 'est-2 awaiting client response', sub: 'Master Bath · Sent 14 days ago', action: 'Follow Up', urgency: 'medium' },
-  { id: 3, type: 'timecard', icon: '⏱', label: '3 timesheets need approval', sub: 'Week of Mar 3 · Marcus, Dev, Raul', action: 'Review', urgency: 'medium' },
-]
-
-const CREW: { name: string; role: string; initials: string; color: string; job: string; clockedIn: string; hours: number }[] = [
-  { name: 'Marcus T.', role: 'Framing Lead', initials: 'MT', color: PROJECT_COLORS[0], job: 'Kitchen Remodel', clockedIn: '7:02 AM', hours: 4.2 },
-  { name: 'Dev P.', role: 'Electrician', initials: 'DP', color: PROJECT_COLORS[1], job: 'Office Build-Out', clockedIn: '7:45 AM', hours: 3.5 },
-  { name: 'Raul S.', role: 'Tile Installer', initials: 'RS', color: PROJECT_COLORS[2], job: 'Kitchen Remodel', clockedIn: '8:10 AM', hours: 3.1 },
-]
-
-const SPARKLINE_REVENUE = [68, 72, 65, 80, 74, 88, 95, 91, 100, 107, 112, 118]
-const SPARKLINE_EXPENSE = [30, 28, 35, 32, 38, 34, 40, 37, 42, 39, 44, 41]
 
 const STATUS_CONFIG: Record<ProjectStatusKey, { label: string; color: string; bg: string }> = {
   active: { label: 'Active', color: '#10B981', bg: '#ECFDF5' },
@@ -148,35 +57,7 @@ function toDateKey(d: dayjs.Dayjs) {
 const now = dayjs()
 const todayKey = toDateKey(now)
 
-// Chat: contacts + initial messages per conversation
-type ChatMsg = { id: string; role: 'user' | 'assistant'; text: string; time: string }
-type ChatContact = { id: string; name: string; initials: string; timeLabel: string; unread: number }
-const CHAT_CONTACTS: (ChatContact & { color: string })[] = [
-  { id: 'support', name: 'Support', initials: 'S', timeLabel: '4:30 PM', unread: 2, color: '#6B7280' },
-  { id: 'pm', name: 'Sarah (PM)', initials: 'SP', timeLabel: '4:30 PM', unread: 1, color: '#8B5CF6' },
-  { id: 'estimator', name: 'Mike (Estimator)', initials: 'ME', timeLabel: 'Yesterday', unread: 0, color: '#F59E0B' },
-  { id: 'client', name: 'Savannah Nguyen', initials: 'SN', timeLabel: 'Yesterday', unread: 0, color: '#10B981' },
-]
-const CHAT_CONVERSATIONS_INITIAL: Record<string, ChatMsg[]> = {
-  support: [
-    { id: 's1', role: 'assistant', text: 'Hi, how can I help with your project today?', time: '10:32 AM' },
-    { id: 's2', role: 'user', text: 'Can you pull the latest cost breakdown for the kitchen remodel?', time: '10:33 AM' },
-    { id: 's3', role: 'assistant', text: "Sure. I've pulled the kitchen remodel summary: materials $12,400, labor $8,200. Want a PDF export?", time: '10:34 AM' },
-  ],
-  pm: [
-    { id: 'p1', role: 'assistant', text: 'Schedule looks good for the next two weeks. Want to lock in subs for Phase 2?', time: '9:15 AM' },
-    { id: 'p2', role: 'user', text: 'Yes — can you send the updated Gantt?', time: '9:22 AM' },
-  ],
-  estimator: [
-    { id: 'e1', role: 'assistant', text: 'Revised estimate is ready. Total $48,200; I can break it down by trade if you need.', time: 'Yesterday' },
-  ],
-  client: [
-    { id: 'c1', role: 'assistant', text: "Looks great! When can we do a walkthrough?", time: 'Yesterday' },
-  ],
-}
-function formatCurrency(n: number, decimals = 2) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n)
-}
+const CHAT_COLORS = ['#6B7280', '#8B5CF6', '#F59E0B', '#10B981', '#3B82F6']
 const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })
 const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0)
 
@@ -207,11 +88,24 @@ function Sparkline({ data, color, height = 32, width = 80 }: { data: number[]; c
 }
 
 /** Project health card with budget and timeline bars */
+type ProjectCardData = {
+  id: string
+  name: string
+  client: string
+  initials: string
+  color: string
+  budget: number
+  spent: number
+  timelineStart: string
+  timelineEnd: string
+  pctTime: number
+  status: ProjectStatusKey
+}
 function ProjectHealthCard({
   project,
   onClick,
 }: {
-  project: (typeof projects)[0]
+  project: ProjectCardData
   onClick?: () => void
 }) {
   const budgetPct = pct(project.spent, project.budget)
@@ -390,13 +284,11 @@ function CalendarWidget({
 
 export function DashboardPage() {
   useTheme()
-  const [revenuePeriod, setRevenuePeriod] = useState<'ytd' | 'month'>('ytd')
-  const [expensePeriod, setExpensePeriod] = useState<'ytd' | 'month'>('month')
-  const [projectSearch, setProjectSearch] = useState('')
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
-  const [conversationsByContactId, setConversationsByContactId] = useState<Record<string, ChatMsg[]>>(CHAT_CONVERSATIONS_INITIAL)
-  const [chatInput, setChatInput] = useState('')
+  const [projectSearch, _setProjectSearch] = useState('')
+  const [chatConversations, setChatConversations] = useState<ConversationListItem[]>([])
+  const [chatConversationsLoading, setChatConversationsLoading] = useState(true)
   const [chatSearch, setChatSearch] = useState('')
+  const { user: authUser } = useAuth()
   const [selectedTaskDate, setSelectedTaskDate] = useState(todayKey)
   const [calendarView, setCalendarView] = useState(() => {
     const n = dayjs()
@@ -404,29 +296,33 @@ export function DashboardPage() {
   })
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([])
   const [scheduleLoading, setScheduleLoading] = useState(false)
-  const [dismissedAlerts, setDismissedAlerts] = useState<number[]>([])
+  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([])
+  const [alerts, setAlerts] = useState<import('@/api/client').DashboardAlert[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(true)
+  const [kpis, setKpis] = useState<import('@/api/client').DashboardKpis | null>(null)
+  const [kpisLoading, setKpisLoading] = useState(true)
+  const [clockedIn, setClockedIn] = useState<import('@/api/client').ClockedInEntry[]>([])
+  const [clockedInLoading, setClockedInLoading] = useState(true)
+  const [dashboardProjects, setDashboardProjects] = useState<import('@/api/client').DashboardProject[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [scheduleDaysDates, setScheduleDaysDates] = useState<string[]>([])
+  const [scheduleDaysMonth, setScheduleDaysMonth] = useState<string>('')
 
   const appLayout = useAppLayout()
   const navigate = useNavigate()
 
-  const visibleAlerts = ATTENTION_ITEMS.filter((a) => !dismissedAlerts.includes(a.id))
-  const activeJobsCount = projects.filter((p) => p.status === 'active').length
+  const visibleAlerts = alerts.filter((a) => !dismissedAlerts.includes(a.id))
 
   // Map API schedule items to today's schedule display (time placeholder when not available)
   const scheduleForDisplay = scheduleItems.length > 0
-    ? scheduleItems.slice(0, 8).map((item, i) => ({
+    ? scheduleItems.slice(0, 8).map((item) => ({
         time: item.endDate ? dayjs(item.endDate).format('h:mm A') : '—',
         title: item.title,
         job: item.projectName,
         who: item.responsible ?? '',
         type: item.type === 'milestone' ? 'milestone' : 'task',
       }))
-    : [
-        { time: '8:00 AM', title: 'Site walkthrough', job: 'Office Build-Out', who: 'Jordan Lee', type: 'meeting' as const },
-        { time: '11:00 AM', title: 'Tile delivery', job: 'Kitchen Remodel', who: 'Home Depot', type: 'delivery' as const },
-        { time: '2:00 PM', title: 'Estimate review call', job: 'Exterior Siding', who: 'Morgan Reed', type: 'call' as const },
-        { time: '4:30 PM', title: 'Crew checkout & timecard', job: 'All', who: '', type: 'admin' as const },
-      ]
+    : []
 
   useEffect(() => {
     let cancelled = false
@@ -445,18 +341,140 @@ export function DashboardPage() {
     return () => { cancelled = true }
   }, [selectedTaskDate])
 
-  const revenueData = revenuePeriod === 'ytd' ? profitRevenueByPeriod.ytd : profitRevenueByPeriod.month
-  const expenseData = expenseByPeriod[expensePeriod]
+  useEffect(() => {
+    let cancelled = false
+    setAlertsLoading(true)
+    api.dashboard.getAlerts().then((data) => {
+      if (!cancelled) {
+        setAlerts(data)
+        setAlertsLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setAlerts([])
+        setAlertsLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
 
-  const calendarBusyDays = new Set<number>()
+  useEffect(() => {
+    let cancelled = false
+    setKpisLoading(true)
+    api.dashboard.getKpis().then((data) => {
+      if (!cancelled) {
+        setKpis(data)
+        setKpisLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setKpis(null)
+        setKpisLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
 
-  const filteredProjects = projects.filter(
-    (p) =>
-      projectSearch === '' ||
-      p.id.toLowerCase().includes(projectSearch.toLowerCase()) ||
-      p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
-      p.client.toLowerCase().includes(projectSearch.toLowerCase())
-  )
+  useEffect(() => {
+    let cancelled = false
+    setClockedInLoading(true)
+    api.dashboard.getClockedIn().then((data) => {
+      if (!cancelled) {
+        setClockedIn(data)
+        setClockedInLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setClockedIn([])
+        setClockedInLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setProjectsLoading(true)
+    api.dashboard.getProjects().then((data) => {
+      if (!cancelled) {
+        setDashboardProjects(data)
+        setProjectsLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setDashboardProjects([])
+        setProjectsLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const calendarMonthKey = `${calendarView.year}-${String(calendarView.month + 1).padStart(2, '0')}`
+  useEffect(() => {
+    let cancelled = false
+    api.getScheduleDays(calendarMonthKey).then(({ dates }) => {
+      if (!cancelled) {
+        setScheduleDaysDates(dates)
+        setScheduleDaysMonth(calendarMonthKey)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setScheduleDaysDates([])
+        setScheduleDaysMonth(calendarMonthKey)
+      }
+    })
+    return () => { cancelled = true }
+  }, [calendarMonthKey])
+
+  const calendarBusyDays = calendarMonthKey === scheduleDaysMonth
+    ? new Set(scheduleDaysDates.map((d) => parseInt(d.split('-')[2], 10)))
+    : new Set<number>()
+
+  useEffect(() => {
+    let cancelled = false
+    setChatConversationsLoading(true)
+    api.conversations.list().then((data) => {
+      if (!cancelled) {
+        setChatConversations(data)
+        setChatConversationsLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setChatConversations([])
+        setChatConversationsLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const filteredChatConversations = chatSearch.trim()
+    ? chatConversations.filter((c) => {
+        const preview = c.last_message?.body ?? ''
+        return preview.toLowerCase().includes(chatSearch.toLowerCase())
+      })
+    : chatConversations
+
+  const filteredProjects: ProjectCardData[] = dashboardProjects
+    .filter(
+      (p) =>
+        projectSearch === '' ||
+        p.id.toLowerCase().includes(projectSearch.toLowerCase()) ||
+        p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+        (p.client || '').toLowerCase().includes(projectSearch.toLowerCase())
+    )
+    .map((p, i) => ({
+      id: p.id,
+      name: p.name,
+      client: p.client || '',
+      initials: p.initials || p.name.slice(0, 2).toUpperCase(),
+      color: PROJECT_COLORS[i % PROJECT_COLORS.length],
+      budget: p.budget_total || 0,
+      spent: p.spent_total || 0,
+      timelineStart: p.timeline_start ? formatDate(p.timeline_start) : '—',
+      timelineEnd: p.timeline_end ? formatDate(p.timeline_end) : '—',
+      pctTime: p.timeline_pct ?? 0,
+      status: (p.status === 'on_hold' ? 'on-hold' : p.status) as ProjectStatusKey,
+    }))
 
   const greeting = (() => {
     const h = dayjs().hour()
@@ -486,7 +504,7 @@ export function DashboardPage() {
             <button
               type="button"
               className="btn btn-primary shrink-0 py-2 px-4 text-sm font-semibold flex items-center gap-1.5"
-              onClick={() => navigate('/projects')}
+              onClick={() => navigate('/projects?new=1')}
             >
               <IconPlus className="w-4 h-4" />
               New Project
@@ -495,27 +513,40 @@ export function DashboardPage() {
         </div>
 
         {/* Needs Attention */}
-        {visibleAlerts.length > 0 && (
+        {!alertsLoading && visibleAlerts.length > 0 && (
           <div className="space-y-1.5 mb-5">
             {visibleAlerts.map((alert) => {
               const u = URGENCY_STYLES[alert.urgency]
+              const icon = alert.type === 'invoice' ? '🧾' : alert.type === 'estimate' ? '📋' : '⚠️'
+              const onAction = () => {
+                if (alert.type === 'budget_overrun') navigate(`/projects/${alert.entityId}`)
+                else if (alert.type === 'estimate') navigate('/estimates')
+                else navigate('/revenue')
+              }
               return (
                 <div
                   key={alert.id}
                   className="flex items-center gap-3 rounded-xl px-4 py-2.5 border"
                   style={{ background: u.bg, borderColor: u.border }}
                 >
-                  <span className="text-base shrink-0" aria-hidden>{alert.icon}</span>
+                  <span className="text-base shrink-0" aria-hidden>{icon}</span>
                   <div className="flex-1 min-w-0">
                     <span className="text-[13px] font-semibold" style={{ color: u.color }}>{alert.label}</span>
                     <span className="text-xs text-gray-500 dark:text-white-dim ml-2">{alert.sub}</span>
                   </div>
-                  <button type="button" className="text-[11px] font-semibold text-white px-3 py-1 rounded-md shrink-0" style={{ background: u.color }}>
+                  <button type="button" onClick={onAction} className="text-[11px] font-semibold text-white px-3 py-1 rounded-md shrink-0" style={{ background: u.color }}>
                     {alert.action}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDismissedAlerts((d) => [...d, alert.id])}
+                    onClick={async () => {
+                      try {
+                        await api.dashboard.dismissAlert(alert)
+                        setDismissedAlerts((d) => [...d, alert.id])
+                      } catch {
+                        // keep visible on error
+                      }
+                    }}
                     className="text-gray-400 hover:text-gray-600 dark:hover:text-white-dim text-lg leading-none p-0 shrink-0"
                     aria-label="Dismiss"
                   >
@@ -529,11 +560,14 @@ export function DashboardPage() {
 
         {/* KPI cards: 4 columns */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          {[
-            { label: 'Total Revenue', val: fmt(revenueData.revenue), sub: `+${revenueData.periodTrend}% YTD`, color: '#10B981', spark: SPARKLINE_REVENUE, sparkColor: '#10B981' },
-            { label: 'Total Expense', val: fmt(expenseData.value), sub: `+${expenseData.trend}% YTD`, color: '#F59E0B', spark: SPARKLINE_EXPENSE, sparkColor: '#F59E0B' },
-            { label: 'Outstanding', val: fmt(12835), sub: '2 open invoices', color: '#EF4444', spark: null, sparkColor: null },
-            { label: 'Active Jobs', val: String(activeJobsCount), sub: `of ${projects.length} projects`, color: '#3B82F6', spark: null, sparkColor: null },
+          {kpisLoading ? (
+            <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">Loading KPIs…</div>
+          ) : (
+          [
+            { label: 'Total Revenue', val: fmt(kpis?.totalRevenue ?? 0), sub: 'YTD', color: '#10B981', spark: (kpis?.revenueTrend?.length ? kpis.revenueTrend : []), sparkColor: '#10B981' as const },
+            { label: 'Total Expense', val: fmt(kpis?.totalExpense ?? 0), sub: 'YTD', color: '#F59E0B', spark: (kpis?.expenseTrend?.length ? kpis.expenseTrend : []), sparkColor: '#F59E0B' as const },
+            { label: 'Outstanding', val: fmt(kpis?.outstanding ?? 0), sub: `${kpis?.openInvoicesCount ?? 0} open invoices`, color: '#EF4444', spark: null, sparkColor: null },
+            { label: 'Active Jobs', val: String(kpis?.activeJobs ?? 0), sub: `of ${kpis?.totalProjects ?? 0} projects`, color: '#3B82F6', spark: null, sparkColor: null },
           ].map((k, i) => (
             <div
               key={i}
@@ -542,7 +576,7 @@ export function DashboardPage() {
               <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-2xl" style={{ background: k.color }} />
               <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-white-dim mb-2">{k.label}</div>
               <div className="text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1.5">{k.val}</div>
-              {k.spark ? (
+              {k.spark && k.spark.length >= 2 ? (
                 <div className="flex items-end justify-between gap-2">
                   <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
                   <Sparkline data={k.spark} color={k.sparkColor} height={28} width={72} />
@@ -551,7 +585,8 @@ export function DashboardPage() {
                 <div className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</div>
               )}
             </div>
-          ))}
+          ))
+          )}
         </div>
 
         {/* Today's Schedule */}
@@ -564,6 +599,8 @@ export function DashboardPage() {
           </div>
           {scheduleLoading ? (
             <div className="px-5 py-4 text-sm text-gray-500 dark:text-white-dim">Loading schedule…</div>
+          ) : scheduleForDisplay.length === 0 ? (
+            <div className="px-5 py-4 text-sm text-gray-500 dark:text-white-dim">No schedule items for this day.</div>
           ) : (
             scheduleForDisplay.map((item, i) => {
               const t = SCHEDULE_TYPE_STYLES[item.type] || SCHEDULE_TYPE_STYLES.admin
@@ -603,9 +640,15 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-            {filteredProjects.map((p) => (
-              <ProjectHealthCard key={p.id} project={p} onClick={() => navigate(`/projects/${p.id}`)} />
-            ))}
+            {projectsLoading ? (
+              <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">Loading projects…</div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">No projects yet.</div>
+            ) : (
+              filteredProjects.map((p) => (
+                <ProjectHealthCard key={p.id} project={p} onClick={() => navigate(`/projects/${p.id}`)} />
+              ))
+            )}
           </div>
         </div>
       </main>
@@ -639,23 +682,29 @@ export function DashboardPage() {
           <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 dark:border-border flex items-center justify-between">
               <span className="text-xs font-bold text-gray-900 dark:text-landing-white">Clocked In Now</span>
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">● {CREW.length} active</span>
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">● {clockedIn.length} active</span>
             </div>
-            {CREW.map((c, i) => (
-              <div key={i} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ background: c.color + '20', color: c.color }}>{c.initials}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.name}</div>
-                  <div className="text-[10px] text-gray-500 dark:text-white-dim truncate">{c.job}</div>
+            {clockedInLoading ? (
+              <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">Loading…</div>
+            ) : clockedIn.length === 0 ? (
+              <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">No one clocked in.</div>
+            ) : (
+              clockedIn.map((c, i) => (
+                <div key={c.employeeId + c.jobId} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ background: PROJECT_COLORS[i % PROJECT_COLORS.length] + '20', color: PROJECT_COLORS[i % PROJECT_COLORS.length] }}>{c.initials}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.employeeName}</div>
+                    <div className="text-[10px] text-gray-500 dark:text-white-dim truncate">{c.jobName}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.hoursSoFar}h</div>
+                    <div className="text-[10px] text-gray-500 dark:text-white-dim">{c.clockInFormatted}</div>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.hours}h</div>
-                  <div className="text-[10px] text-gray-500 dark:text-white-dim">{c.clockedIn}</div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
             <div className="px-4 py-2.5 border-t border-gray-100 dark:border-border">
-              <button type="button" className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
+              <button type="button" onClick={() => navigate('/teams')} className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
                 View Full Timeclock →
               </button>
             </div>
@@ -665,7 +714,7 @@ export function DashboardPage() {
           <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden flex flex-col min-h-0">
             <div className="px-4 py-3 border-b border-gray-100 dark:border-border flex items-center justify-between shrink-0">
               <span className="text-xs font-bold text-gray-900 dark:text-landing-white">Recent Chats</span>
-              <button type="button" className="text-gray-500 dark:text-white-dim hover:text-gray-700 dark:hover:text-landing-white text-lg leading-none" aria-label="New chat">+</button>
+              <button type="button" onClick={() => navigate('/directory')} className="text-gray-500 dark:text-white-dim hover:text-gray-700 dark:hover:text-landing-white text-lg leading-none" aria-label="New chat">+</button>
             </div>
             <div className="p-2 shrink-0">
               <div className="relative">
@@ -673,113 +722,52 @@ export function DashboardPage() {
                 <input type="search" placeholder="Search…" value={chatSearch} onChange={(e) => setChatSearch(e.target.value)} className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 dark:border-border-dark bg-gray-50 dark:bg-dark-4 text-sm text-gray-900 dark:text-landing-white placeholder:text-gray-400 dark:placeholder:text-white-dim focus:outline-none focus:ring-2 focus:ring-accent/30" aria-label="Search chats" />
               </div>
             </div>
-
-          {selectedContactId == null ? (
-            <>
-              <div className="flex flex-col overflow-y-auto min-h-0">
-                {CHAT_CONTACTS.filter((c) => !chatSearch || c.name.toLowerCase().includes(chatSearch.toLowerCase())).map((c) => {
-                  const msgs = conversationsByContactId[c.id] ?? []
-                  const last = msgs[msgs.length - 1]
-                  const preview = last ? (last.role === 'user' ? 'You: ' : '') + last.text : 'No messages yet'
+            <div className="flex flex-col overflow-y-auto min-h-0">
+              {chatConversationsLoading ? (
+                <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">Loading…</div>
+              ) : filteredChatConversations.length === 0 ? (
+                <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">No conversations yet.</div>
+              ) : (
+                filteredChatConversations.slice(0, 6).map((c, i) => {
+                  const last = c.last_message
+                  const isFromMe = last && authUser?.id && last.sender_id === authUser.id
+                  const preview = last ? (isFromMe ? 'You: ' : '') + (last.body?.slice(0, 35) || '') + (last.body?.length > 35 ? '…' : '') : 'No messages yet'
+                  const timeLabel = last ? dayjs(last.created_at).format('h:mm A') : '—'
+                  const color = CHAT_COLORS[i % CHAT_COLORS.length]
                   return (
-                    <div key={c.id} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0 hover:bg-gray-50 dark:hover:bg-dark-4/50 cursor-pointer transition-colors" onClick={() => setSelectedContactId(c.id)} onKeyDown={(e) => e.key === 'Enter' && setSelectedContactId(c.id)} role="button" tabIndex={0}>
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0 hover:bg-gray-50 dark:hover:bg-dark-4/50 cursor-pointer transition-colors"
+                      onClick={() => navigate('/directory')}
+                      onKeyDown={(e) => e.key === 'Enter' && navigate('/directory')}
+                      role="button"
+                      tabIndex={0}
+                    >
                       <div className="relative shrink-0">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: c.color + '20', color: c.color }}>{c.initials}</div>
-                        {c.unread > 0 && (
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: color + '20', color }}>?</div>
+                        {c.unread_count > 0 && (
                           <div className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-accent border-2 border-white dark:border-dark-3 flex items-center justify-center text-[8px] font-bold text-white">
-                            {c.unread > 99 ? '99+' : c.unread}
+                            {c.unread_count > 99 ? '99+' : c.unread_count}
                           </div>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-center gap-2 mb-0.5">
-                          <span className={`text-xs truncate ${c.unread ? 'font-bold' : 'font-medium'} text-gray-900 dark:text-landing-white`}>{c.name}</span>
-                          <span className="text-[10px] text-gray-500 dark:text-white-dim shrink-0">{c.timeLabel}</span>
+                          <span className={`text-xs truncate ${c.unread_count ? 'font-bold' : 'font-medium'} text-gray-900 dark:text-landing-white`}>Chat</span>
+                          <span className="text-[10px] text-gray-500 dark:text-white-dim shrink-0">{timeLabel}</span>
                         </div>
-                        <div className="text-[11px] text-gray-500 dark:text-white-dim truncate">{preview.length > 40 ? preview.slice(0, 40) + '…' : preview}</div>
+                        <div className="text-[11px] text-gray-500 dark:text-white-dim truncate">{preview}</div>
                       </div>
                     </div>
                   )
-                })}
-              </div>
-              <div className="p-2.5 border-t border-gray-100 dark:border-border shrink-0">
-                <button type="button" className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
-                  View All Messages →
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col min-h-0">
-              <div className="py-2 shrink-0 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedContactId(null)}
-                  className="p-2 rounded-lg text-gray-500 dark:text-white-dim hover:bg-gray-100 dark:hover:bg-dark-4 hover:text-gray-900 dark:hover:text-landing-white transition-colors"
-                  aria-label="Back to chats"
-                >
-                  <IconArrowLeft className="w-4 h-4" />
-                </button>
-                <span className="text-sm font-semibold text-gray-900 dark:text-landing-white truncate">
-                  {CHAT_CONTACTS.find((c) => c.id === selectedContactId)?.name ?? 'Chat'}
-                </span>
-              </div>
-              <div className="flex-1 overflow-y-auto min-h-0 py-3 space-y-2">
-                {(conversationsByContactId[selectedContactId] ?? []).map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                        msg.role === 'user'
-                          ? 'bg-accent text-white'
-                          : 'bg-white dark:bg-dark-3 text-gray-900 dark:text-landing-white border border-gray-200 dark:border-border-dark shadow-sm'
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                      <p className={`text-[10px] mt-1 ${msg.role === 'user' ? 'text-white/80' : 'text-gray-500 dark:text-white-faint'}`}>
-                        {msg.time}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <form
-                className="pt-3 shrink-0"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const text = chatInput.trim()
-                  if (!text || !selectedContactId) return
-                  const time = dayjs().format('h:mm A')
-                  const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', text, time }
-                  const assistantMsg: ChatMsg = { id: `a-${Date.now()}`, role: 'assistant', text: "Got it — I'll follow up on that.", time }
-                  setConversationsByContactId((prev) => ({
-                    ...prev,
-                    [selectedContactId]: [...(prev[selectedContactId] ?? []), userMsg, assistantMsg],
-                  }))
-                  setChatInput('')
-                }}
-              >
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type a message..."
-                    className="flex-1 min-w-0 rounded-lg border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-4 text-gray-900 dark:text-landing-white placeholder:text-gray-400 dark:placeholder:text-white-dim text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
-                    aria-label="Chat message"
-                  />
-                  <button
-                    type="submit"
-                    className="p-2 rounded-lg bg-accent text-white hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent/50 shrink-0"
-                    aria-label="Send message"
-                  >
-                    <IconSend />
-                  </button>
-                </div>
-              </form>
+                })
+              )}
             </div>
-          )}
+            <div className="p-2.5 border-t border-gray-100 dark:border-border shrink-0">
+              <button type="button" onClick={() => navigate('/directory')} className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">
+                View All Messages →
+              </button>
+            </div>
           </div>
         </div>
     </div>

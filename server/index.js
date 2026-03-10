@@ -21,6 +21,8 @@ const geofencesRoutes = require('./routes/geofences')
 const gpsClockOutRoutes = require('./routes/gps-clock-out')
 const payrollRoutes = require('./routes/payroll')
 const scheduleRoutes = require('./routes/schedule')
+const dashboardRoutes = require('./routes/dashboard')
+const conversationsRoutes = require('./routes/conversations')
 const contractorsRoutes = require('./routes/contractors')
 const meRoutes = require('./routes/me')
 const adminRoutes = require('./routes/admin')
@@ -56,6 +58,8 @@ app.use('/api/geofences', requireAuth, geofencesRoutes)
 app.use('/api/gps-clock-out', requireAuth, gpsClockOutRoutes)
 app.use('/api/payroll', requireAuth, payrollRoutes)
 app.use('/api/schedule', requireAuth, scheduleRoutes)
+app.use('/api/dashboard', requireAuth, dashboardRoutes)
+app.use('/api/conversations', requireAuth, conversationsRoutes)
 app.use('/api/contractors', requireAuth, contractorsRoutes)
 
 app.use((err, req, res, next) => {
@@ -72,6 +76,10 @@ app.get('*', (req, res, next) => {
     if (err) next()
   })
 })
+
+if (projectsRoutes.ensureBuildPlansBucket) {
+  projectsRoutes.ensureBuildPlansBucket().catch((err) => console.warn('Ensure build plans bucket:', err?.message))
+}
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`)

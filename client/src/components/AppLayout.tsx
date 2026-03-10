@@ -1,17 +1,47 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
+import { supabase } from '@/lib/supabaseClient'
+import { api } from '@/api/client'
+import type { DismissedAlert } from '@/api/client'
 
 export function AppLayout() {
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false)
+  const [dismissedAlerts, setDismissedAlerts] = useState<DismissedAlert[]>([])
+  const [dismissedAlertsLoading, setDismissedAlertsLoading] = useState(false)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const { isAdmin, type } = useAuth()
+
+  useEffect(() => {
+    if (!profileMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (profileMenuRef.current && !profileMenuRef.current.contains(target)) {
+        setProfileMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [profileMenuOpen])
+
+
+  useEffect(() => {
+    if (!notificationsPanelOpen) return
+    setDismissedAlertsLoading(true)
+    api.dashboard.getDismissedAlerts().then((list) => {
+      setDismissedAlerts(list)
+      setDismissedAlertsLoading(false)
+    }).catch(() => setDismissedAlertsLoading(false))
+  }, [notificationsPanelOpen])
   const { previewRole } = usePreview()
   const showAdminNav = isAdmin && previewRole !== 'project_manager'
   const showPmNav = !isAdmin || previewRole === 'project_manager'
@@ -29,6 +59,11 @@ export function AppLayout() {
   const openMobileNav = () => setMobileNavOpen(true)
   const closeMobileNav = () => setMobileNavOpen(false)
 
+  async function handleLogout() {
+    await supabase?.auth.signOut()
+    navigate('/sign-in', { replace: true })
+  }
+
   return (
     <div className="dashboard-app">
       <div className={`nav-overlay ${mobileNavOpen ? 'visible' : ''}`} onClick={closeMobileNav} aria-hidden />
@@ -36,11 +71,11 @@ export function AppLayout() {
       <div className="app">
         <nav className={`sidenav ${navCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`} id="sidenav">
           <div className="nav-header">
-            <Link to="/" className="logo" aria-label="Takeoff AI home">
+            <Link to="/" className="logo" aria-label="Proj-X home">
               <div className="logo-icon">
                 <svg viewBox="0 0 14 14" aria-hidden><path d="M7 1L13 4.5V10.5L7 14L1 10.5V4.5L7 1Z" fill="currentColor" /></svg>
               </div>
-              <span className="logo-text">Takeoff AI</span>
+              <span className="logo-text">Proj-X</span>
             </Link>
             <button type="button" className="collapse-btn" onClick={toggleCollapse} title={navCollapsed ? 'Expand' : 'Collapse'} aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M7.5 2L4 6l3.5 4" /></svg>
@@ -96,32 +131,57 @@ export function AppLayout() {
                 <div className="nav-divider" />
               </>
             )}
-            <div className="nav-section-label">Account</div>
           </div>
 
-          <div style={{ padding: '0 8px' }}>
-            <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
-              <span className="nav-label">Settings</span>
-            </NavLink>
-          </div>
-          <div className="nav-divider" />
-          <div className="nav-actions">
-            <button type="button" className="icon-btn" aria-label="Notifications">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M8 2a4.5 4.5 0 0 1 4.5 4.5c0 3 1.5 4 1.5 4H2s1.5-1 1.5-4A4.5 4.5 0 0 1 8 2z" /><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" /></svg>
-              <span className="notif-dot" />
-            </button>
-            <ThemeToggle />
-          </div>
-
-          <div className="nav-footer">
-            <div className="user-row">
-              <div className="user-avatar">KR</div>
-              <div className="user-info">
-                <div className="user-name">Kyle Reynolds</div>
-                <div className="user-role">Project Manager</div>
+          <div className="nav-footer profile-menu-wrap" ref={profileMenuRef}>
+            {profileMenuOpen && (
+              <div className="profile-menu-popup" role="menu">
+                <Link to="/settings" className="profile-menu-item" onClick={() => setProfileMenuOpen(false)} role="menuitem">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                  <span>Settings</span>
+                </Link>
+                <button
+                  type="button"
+                  className="profile-menu-item profile-menu-item-notif-btn"
+                  onClick={() => {
+                    setNotificationsPanelOpen(true)
+                    setProfileMenuOpen(false)
+                  }}
+                  role="menuitem"
+                >
+                  <span className="profile-menu-item-icon-wrap">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M8 2a4.5 4.5 0 0 1 4.5 4.5c0 3 1.5 4 1.5 4H2s1.5-1 1.5-4A4.5 4.5 0 0 1 8 2z" /><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" /></svg>
+                  </span>
+                  <span>Notifications</span>
+                </button>
+                <ThemeToggle className="profile-menu-item" />
+                <button
+                  type="button"
+                  className="profile-menu-item"
+                  onClick={handleLogout}
+                  role="menuitem"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M11 11l3-3-3-3M11 4h3" /></svg>
+                  <span>Log out</span>
+                </button>
               </div>
-            </div>
+            )}
+            <button
+              type="button"
+              className="nav-footer-trigger"
+              onClick={() => setProfileMenuOpen((o) => !o)}
+              aria-expanded={profileMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Open profile menu"
+            >
+              <div className="user-row">
+                <div className="user-avatar">KR</div>
+                <div className="user-info">
+                  <div className="user-name">Kyle Reynolds</div>
+                  <div className="user-role">Project Manager</div>
+                </div>
+              </div>
+            </button>
           </div>
         </nav>
 
@@ -132,6 +192,44 @@ export function AppLayout() {
           </AppLayoutProvider>
         </div>
       </div>
+
+      {notificationsPanelOpen && (
+        <>
+          <div className="notifications-panel-overlay" onClick={() => setNotificationsPanelOpen(false)} aria-hidden />
+          <div className="notifications-panel" role="dialog" aria-label="Notifications">
+            <div className="notifications-panel-header">
+              <h2 className="notifications-panel-title">Notifications</h2>
+              <button type="button" className="notifications-panel-close" onClick={() => setNotificationsPanelOpen(false)} aria-label="Close notifications">
+                ×
+              </button>
+            </div>
+            <div className="notifications-panel-body">
+              <div className="notifications-panel-section">
+                <h3 className="notifications-panel-section-title">Closed alerts</h3>
+                {dismissedAlertsLoading ? (
+                  <div className="notifications-panel-loading">Loading…</div>
+                ) : dismissedAlerts.length > 0 ? (
+                  <ul className="notifications-panel-alerts" role="list">
+                    {dismissedAlerts.map((a) => {
+                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/estimates' : '/revenue'
+                      return (
+                        <li key={a.id}>
+                          <Link to={href} className="notifications-panel-alert" onClick={() => setNotificationsPanelOpen(false)}>
+                            <span className="notifications-panel-alert-label">{a.label}</span>
+                            <span className="notifications-panel-alert-sub">{a.sub}</span>
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className="notifications-panel-empty">No closed alerts</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

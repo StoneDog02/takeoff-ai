@@ -3,6 +3,20 @@ const multer = require('multer')
 const { runTakeoff } = require('../claude/takeoff')
 const { supabase: defaultSupabase } = require('../db/supabase')
 
+const BUILD_PLANS_BUCKET = 'job-walk-media'
+
+/** Ensure storage bucket exists (create if not). Use service-role client. */
+async function ensureBuildPlansBucket() {
+  if (!defaultSupabase) return
+  const { error } = await defaultSupabase.storage.createBucket(BUILD_PLANS_BUCKET, {
+    public: true,
+    fileSizeLimit: 25 * 1024 * 1024,
+  })
+  if (error && error.message !== 'Bucket already exists') {
+    console.warn('[projects] ensureBuildPlansBucket:', error.message)
+  }
+}
+
 const router = express.Router()
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -24,16 +38,33 @@ const upload = multer({
 
 /** Load project and ensure user owns it. Sets req.project. */
 async function loadProject(req, res, next) {
-  const supabase = req.supabase || defaultSupabase
-  if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' })
   const { id } = req.params
-  const { data: project, error } = await supabase
+  const trimmed = typeof id === 'string' ? id.trim() : ''
+  if (!trimmed || trimmed === 'undefined') {
+    return res.status(400).json({ error: 'Project ID is missing or invalid. Close the dialog and open the project again.' })
+  }
+  // Use service-role client so RLS doesn't block the lookup; we check ownership explicitly.
+  const db = defaultSupabase
+  if (!db) return res.status(503).json({ error: 'Database not configured' })
+  const { data: project, error } = await db
     .from('projects')
     .select('*')
-    .eq('id', id)
-    .eq('user_id', req.user?.id)
-    .single()
-  if (error || !project) return res.status(404).json({ error: 'Project not found' })
+    .eq('id', trimmed)
+    .maybeSingle()
+  if (error) {
+    console.warn('[projects] loadProject error', { projectId: trimmed, error: error.message })
+    return res.status(500).json({ error: 'Failed to load project' })
+  }
+  if (!project) {
+    console.warn('[projects] loadProject 404 no project', { projectId: trimmed, userId: req.user?.id })
+    return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
+  }
+  if (project.user_id !== req.user.id) {
+    console.warn('[projects] loadProject 404 wrong owner', { projectId: trimmed, projectUserId: project.user_id, requestUserId: req.user?.id })
+    return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
+  }
+  req.params.id = trimmed
   req.project = project
   next()
 }
@@ -107,13 +138,24 @@ router.get('/:id', loadProject, async (req, res) => {
 router.put('/:id', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
-    const { name, status, scope, expected_start_date, expected_end_date, assigned_to_name } = req.body || {}
+    const {
+      name,
+      status,
+      scope,
+      address_line_1,
+      expected_start_date,
+      expected_end_date,
+      estimated_value,
+      assigned_to_name,
+    } = req.body || {}
     const updates = {}
     if (name !== undefined) updates.name = name
     if (status !== undefined) updates.status = status
     if (scope !== undefined) updates.scope = scope
+    if (address_line_1 !== undefined) updates.address_line_1 = address_line_1 || null
     if (expected_start_date !== undefined) updates.expected_start_date = expected_start_date || null
     if (expected_end_date !== undefined) updates.expected_end_date = expected_end_date || null
+    if (estimated_value !== undefined) updates.estimated_value = estimated_value != null ? Number(estimated_value) : null
     if (assigned_to_name !== undefined) updates.assigned_to_name = assigned_to_name || null
     updates.updated_at = new Date().toISOString()
     const { data, error } = await supabase
@@ -380,6 +422,89 @@ router.delete('/:id/tasks/:taskId', loadProject, async (req, res, next) => {
   }
 })
 
+// --- Activity feed (unified recent activity for Live Activity panel) ---
+router.get('/:id/activity', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.json([])
+    const projectId = req.params.id
+    const limit = 30
+    const activities = []
+
+    const [mediaRes, timeRes, tasksRes, milestonesRes, bidSheetRes, takeoffsRes] = await Promise.all([
+      supabase.from('job_walk_media').select('id, uploaded_at, uploader_name, type').eq('project_id', projectId).order('uploaded_at', { ascending: false }).limit(limit),
+      supabase.from('time_entries').select('id, employee_id, clock_in, clock_out, hours').eq('job_id', projectId).order('clock_in', { ascending: false }).limit(limit),
+      supabase.from('project_tasks').select('id, title, created_at, updated_at').eq('project_id', projectId),
+      supabase.from('milestones').select('id, title, due_date, completed').eq('project_id', projectId),
+      supabase.from('bid_sheets').select('updated_at').eq('project_id', projectId).maybeSingle(),
+      supabase.from('project_takeoffs').select('id, created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(5),
+    ])
+
+    const media = mediaRes.data || []
+    const timeEntries = timeRes.data || []
+    const tasks = tasksRes.data || []
+    const milestones = milestonesRes.data || []
+    const bidSheet = bidSheetRes.data
+    const takeoffs = takeoffsRes.data || []
+
+    const employeeIds = [...new Set(timeEntries.map((e) => e.employee_id).filter(Boolean))]
+    let employeeMap = {}
+    if (employeeIds.length) {
+      const { data: employees } = await supabase.from('employees').select('id, name').in('id', employeeIds)
+      employeeMap = (employees || []).reduce((acc, emp) => { acc[emp.id] = emp.name || 'Unknown'; return acc }, {})
+    }
+
+    media.forEach((m) => {
+      activities.push({
+        at: m.uploaded_at,
+        tag: 'Media',
+        who: m.uploader_name || 'Unknown',
+        action: m.type === 'video' ? 'Added job walk video' : 'Added job walk photo',
+      })
+    })
+
+    timeEntries.forEach((e) => {
+      const hours = e.hours ?? (e.clock_in && e.clock_out ? Math.round(((new Date(e.clock_out) - new Date(e.clock_in)) / (1000 * 60 * 60)) * 100) / 100 : null)
+      const hrs = hours != null ? `${hours}hrs` : 'time'
+      activities.push({
+        at: e.clock_in,
+        tag: 'Time',
+        who: employeeMap[e.employee_id] || 'Crew',
+        action: `Logged ${hrs}`,
+      })
+    })
+
+    tasks.forEach((t) => {
+      if (t.created_at) {
+        activities.push({ at: t.created_at, tag: 'Schedule', who: '', action: 'Task added', detail: t.title })
+      }
+      if (t.updated_at && t.updated_at !== t.created_at) {
+        activities.push({ at: t.updated_at, tag: 'Schedule', who: '', action: 'Task updated', detail: t.title })
+      }
+    })
+
+    milestones.forEach((m) => {
+      if (m.completed) {
+        activities.push({ at: m.due_date + 'T12:00:00Z', tag: 'Schedule', who: '', action: 'Milestone completed', detail: m.title })
+      }
+    })
+
+    if (bidSheet?.updated_at) {
+      activities.push({ at: bidSheet.updated_at, tag: 'Bid', who: '', action: 'Bid sheet updated' })
+    }
+
+    takeoffs.forEach((t) => {
+      activities.push({ at: t.created_at, tag: 'Takeoff', who: '', action: 'Takeoff created' })
+    })
+
+    activities.sort((a, b) => new Date(b.at) - new Date(a.at))
+    res.json(activities.slice(0, limit))
+  } catch (err) {
+    console.warn('[projects] activity feed error', err?.message || err)
+    res.json([])
+  }
+})
+
 // --- Job walk media ---
 router.get('/:id/media', loadProject, async (req, res, next) => {
   try {
@@ -452,6 +577,102 @@ router.delete('/:id/media/:mediaId', loadProject, async (req, res, next) => {
   }
 })
 
+// --- Build plans (reference PDFs/drawings) ---
+router.get('/:id/build-plans', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { data, error } = await supabase
+      .from('project_build_plans')
+      .select('*')
+      .eq('project_id', req.params.id)
+      .order('uploaded_at', { ascending: false })
+    if (error) throw error
+    res.json(data || [])
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/:id/build-plans', loadProject, upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+    const supabaseClient = req.supabase || defaultSupabase
+    const supabaseStorage = defaultSupabase || supabaseClient
+    if (!supabaseClient) return res.status(503).json({ error: 'Database not configured' })
+    await ensureBuildPlansBucket()
+    const projectId = req.params.id
+    const uploaderName = (req.body && req.body.uploader_name) || req.user?.email || 'Unknown'
+    const safeName = (req.file.originalname || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
+    const ext = safeName.split('.').pop() || 'bin'
+    const path = `build-plans/${projectId}/${Date.now()}-${safeName}`
+
+    const { error: uploadErr } = await supabaseStorage.storage.from(BUILD_PLANS_BUCKET).upload(path, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false,
+    })
+    if (uploadErr) throw uploadErr
+    let url = path
+    const { data: urlData } = supabaseStorage.storage.from(BUILD_PLANS_BUCKET).getPublicUrl(path)
+    if (urlData?.publicUrl) url = urlData.publicUrl
+
+    const { data: row, error } = await supabaseClient
+      .from('project_build_plans')
+      .insert({
+        project_id: projectId,
+        file_name: req.file.originalname || safeName,
+        url,
+        uploader_name: uploaderName,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    res.status(201).json(row)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** GET view URL for a build plan (signed URL so file opens even if bucket is private). */
+router.get('/:id/build-plans/:planId/view', loadProject, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const { planId } = req.params
+    const { data: plan, error: planErr } = await db
+      .from('project_build_plans')
+      .select('url')
+      .eq('id', planId)
+      .eq('project_id', req.params.id)
+      .maybeSingle()
+    if (planErr || !plan) return res.status(404).json({ error: 'Build plan not found' })
+    let path = plan.url
+    if (path.startsWith('http')) {
+      const match = path.match(/\/object\/public\/[^/]+\/(.+)$/) || path.match(/\/storage\/v1\/object\/[^/]+\/[^/]+\/(.+)$/)
+      path = match ? match[1] : path
+    }
+    const { data: signed, error: signErr } = await db.storage.from(BUILD_PLANS_BUCKET).createSignedUrl(path, 3600)
+    if (signErr) return res.status(502).json({ error: 'Could not generate view link', detail: signErr.message })
+    res.json({ url: signed.signedUrl })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id/build-plans/:planId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { error } = await supabase
+      .from('project_build_plans')
+      .delete()
+      .eq('id', req.params.planId)
+      .eq('project_id', req.params.id)
+    if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
 // --- Budget ---
 router.get('/:id/budget', loadProject, async (req, res, next) => {
   try {
@@ -469,7 +690,7 @@ router.get('/:id/budget', loadProject, async (req, res, next) => {
       summary: {
         predicted_total,
         actual_total,
-        profitability: actual_total - predicted_total,
+        profitability: predicted_total - actual_total,
       },
     })
   } catch (err) {
@@ -511,7 +732,7 @@ router.put('/:id/budget', loadProject, async (req, res, next) => {
     const actual_total = list.reduce((s, i) => s + Number(i.actual || 0), 0)
     res.json({
       items: list,
-      summary: { predicted_total, actual_total, profitability: actual_total - predicted_total },
+      summary: { predicted_total, actual_total, profitability: predicted_total - actual_total },
     })
   } catch (err) {
     next(err)
@@ -667,6 +888,87 @@ router.post('/:id/subcontractors/bulk-send', loadProject, async (req, res, next)
   }
 })
 
+// --- Project work types ---
+router.get('/:id/work-types', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { data, error } = await supabase
+      .from('project_work_types')
+      .select('*')
+      .eq('project_id', req.params.id)
+      .order('name')
+    if (error) throw error
+    res.json(data || [])
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/:id/work-types', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { name, description, rate, unit, type_key, custom_color } = req.body || {}
+    const { data, error } = await supabase
+      .from('project_work_types')
+      .insert({
+        project_id: req.params.id,
+        name: name ?? '',
+        description: description || null,
+        rate: Number(rate) || 0,
+        unit: unit ?? 'hr',
+        type_key: type_key || null,
+        custom_color: custom_color || null,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    res.status(201).json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/:id/work-types/:wtId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { wtId } = req.params
+    const { name, description, rate, unit, type_key, custom_color } = req.body || {}
+    const updates = {}
+    if (name !== undefined) updates.name = name
+    if (description !== undefined) updates.description = description || null
+    if (rate !== undefined) updates.rate = Number(rate) || 0
+    if (unit !== undefined) updates.unit = unit
+    if (type_key !== undefined) updates.type_key = type_key || null
+    if (custom_color !== undefined) updates.custom_color = custom_color || null
+    const { data, error } = await supabase
+      .from('project_work_types')
+      .update(updates)
+      .eq('id', wtId)
+      .eq('project_id', req.params.id)
+      .select()
+      .single()
+    if (error) throw error
+    res.json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id/work-types/:wtId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { error } = await supabase
+      .from('project_work_types')
+      .delete()
+      .eq('id', req.params.wtId)
+      .eq('project_id', req.params.id)
+    if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
 // --- Bid sheet ---
 router.get('/:id/bid-sheet', loadProject, async (req, res, next) => {
   try {
@@ -789,3 +1091,4 @@ router.get('/:id/takeoffs', loadProject, async (req, res, next) => {
 })
 
 module.exports = router
+module.exports.ensureBuildPlansBucket = ensureBuildPlansBucket

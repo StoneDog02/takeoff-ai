@@ -16,7 +16,7 @@ export function Nav() {
     <nav className="border-b border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3">
       <div className="max-w-5xl mx-auto px-page py-4 flex items-center gap-6">
         <NavLink to="/" className="font-semibold text-accent">
-          Takeoff AI
+          Proj-X
         </NavLink>
         <div className="flex gap-1">
           {navItems.map(({ to, label }) => (

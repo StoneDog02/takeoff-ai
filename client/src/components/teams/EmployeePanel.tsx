@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
+import { ConfirmDialog } from '@/components/settings/ConfirmDialog'
 import type {
   Employee,
   TimeEntry,
@@ -8,7 +9,7 @@ import type {
   JobAssignment,
 } from '@/types/global'
 import { dayjs, formatDate, toISODate } from '@/lib/date'
-import { TeamsAvatar, getInitials } from './TeamsAvatar'
+import { getInitials } from './TeamsAvatar'
 import { WeekBars } from './WeekBars'
 
 const PANEL_TABS = ['overview', 'time', 'attendance', 'pay'] as const
@@ -43,9 +44,17 @@ function getAvatarColor(emp: Employee): string {
 interface EmployeePanelProps {
   emp: Employee | null
   onClose: () => void
+  onEmployeeUpdated?: (updated: Employee) => void
+  onEmployeeDeleted?: () => void
 }
 
-export function EmployeePanel({ emp, onClose }: EmployeePanelProps) {
+const EMPLOYEE_STATUS_OPTIONS = [
+  { value: 'on_site', label: 'On-site' },
+  { value: 'off', label: 'Off' },
+  { value: 'pto', label: 'PTO' },
+] as const
+
+export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDeleted }: EmployeePanelProps) {
   const [panelTab, setPanelTab] = useState<PanelTab>('overview')
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
@@ -54,17 +63,48 @@ export function EmployeePanel({ emp, onClose }: EmployeePanelProps) {
   const [jobNames, setJobNames] = useState<Record<string, string>>({})
   const [ytdEarnings, setYtdEarnings] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState<{
+    name: string
+    role: string
+    email: string
+    phone: string
+    status: 'on_site' | 'off' | 'pto'
+    current_compensation: number | ''
+  }>({
+    name: '',
+    role: '',
+    email: '',
+    phone: '',
+    status: 'off',
+    current_compensation: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [inviting, setInviting] = useState(false)
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteConfirmValue, setDeleteConfirmValue] = useState('')
 
   useEffect(() => {
     if (!emp) return
     setPanelTab('overview')
+    setEditing(false)
+    setInviteLink(null)
+    setInviteMessage(null)
+    setEditForm({
+      name: emp.name ?? '',
+      role: emp.role ?? '',
+      email: emp.email ?? '',
+      phone: emp.phone ?? '',
+      status: (emp.status as 'off' | 'on_site' | 'pto') ?? 'off',
+      current_compensation: emp.current_compensation ?? '',
+    })
     setLoading(true)
     const year = dayjs().year()
     const fiveWeeksAgo = dayjs().subtract(5, 'week').startOf('week').format('YYYY-MM-DD')
-    const monthStart = dayjs().startOf('month').format('YYYY-MM-DD')
-    const monthEnd = dayjs().endOf('month').format('YYYY-MM-DD')
-    const weekStart = dayjs().startOf('week').format('YYYY-MM-DD')
-    const weekEnd = dayjs().endOf('week').format('YYYY-MM-DD')
     const thirtyDaysAgo = dayjs().subtract(30, 'day').format('YYYY-MM-DD')
     const today = dayjs().format('YYYY-MM-DD')
 
@@ -192,7 +232,7 @@ export function EmployeePanel({ emp, onClose }: EmployeePanelProps) {
               { label: 'This Month', val: `${Math.round(hoursThisMonth * 100) / 100}h` },
               { label: 'YTD Earnings', val: fmt(ytdDisplay) },
               { label: 'Attendance', val: `${attRate}%` },
-            ].map((s, i) => (
+            ].map((s) => (
               <div key={s.label} className="teams-panel-stat">
                 <div className="teams-panel-stat-value">{s.val}</div>
                 <div className="teams-panel-stat-label">{s.label}</div>
@@ -259,16 +299,192 @@ export function EmployeePanel({ emp, onClose }: EmployeePanelProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="teams-panel-actions">
-                    {!emp.auth_user_id && (
-                      <button type="button" className="teams-btn teams-btn-primary">
-                        Invite to Portal
+                  {editing ? (
+                    <div className="teams-panel-section">
+                      <div className="teams-panel-section-title">Edit Employee</div>
+                      {editError && (
+                        <div className="teams-muted" style={{ marginBottom: 8, color: 'var(--color-error, #b91c1c)' }}>{editError}</div>
+                      )}
+                      <div className="teams-panel-add-raise">
+                        <div className="teams-form-row">
+                          <label className="teams-label">Name</label>
+                          <input
+                            type="text"
+                            className="teams-input"
+                            value={editForm.name}
+                            onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                          />
+                        </div>
+                        <div className="teams-form-row">
+                          <label className="teams-label">Role</label>
+                          <input
+                            type="text"
+                            className="teams-input"
+                            value={editForm.role}
+                            onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
+                          />
+                        </div>
+                        <div className="teams-form-row">
+                          <label className="teams-label">Email</label>
+                          <input
+                            type="email"
+                            className="teams-input"
+                            value={editForm.email}
+                            onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                          />
+                        </div>
+                        <div className="teams-form-row">
+                          <label className="teams-label">Phone</label>
+                          <input
+                            type="text"
+                            className="teams-input"
+                            value={editForm.phone}
+                            onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                          />
+                        </div>
+                        <div className="teams-form-row">
+                          <label className="teams-label">Status</label>
+                          <select
+                            className="teams-input"
+                            value={editForm.status}
+                            onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value as 'on_site' | 'off' | 'pto' }))}
+                          >
+                            {EMPLOYEE_STATUS_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="teams-form-row">
+                          <label className="teams-label">Current rate ($/hr)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="teams-input"
+                            placeholder="0"
+                            value={editForm.current_compensation === '' ? '' : editForm.current_compensation}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setEditForm((f) => ({ ...f, current_compensation: v === '' ? '' : Number(v) }))
+                            }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button
+                            type="button"
+                            className="teams-btn teams-btn-primary"
+                            disabled={saving || !editForm.name.trim()}
+                            onClick={async () => {
+                              setEditError(null)
+                              setSaving(true)
+                              try {
+                                const payload = {
+                                  name: editForm.name.trim(),
+                                  role: editForm.role.trim(),
+                                  email: editForm.email.trim(),
+                                  phone: editForm.phone.trim() || undefined,
+                                  status: editForm.status,
+                                  current_compensation: editForm.current_compensation === '' ? undefined : Number(editForm.current_compensation),
+                                }
+                                const updated = await teamsApi.employees.update(emp.id, payload)
+                                onEmployeeUpdated?.(updated)
+                                setEditing(false)
+                              } catch (err) {
+                                setEditError(err instanceof Error ? err.message : 'Failed to save')
+                              } finally {
+                                setSaving(false)
+                              }
+                            }}
+                          >
+                            {saving ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            className="teams-btn teams-btn-ghost"
+                            disabled={saving}
+                            onClick={() => {
+                              setEditing(false)
+                              setEditError(null)
+                              setEditForm({
+                                name: emp.name ?? '',
+                                role: emp.role ?? '',
+                                email: emp.email ?? '',
+                                phone: emp.phone ?? '',
+                                status: (emp.status as 'on_site' | 'off' | 'pto') ?? 'off',
+                                current_compensation: emp.current_compensation != null ? emp.current_compensation : '',
+                              })
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {(inviteMessage || inviteLink) && (
+                        <div className="teams-panel-section" style={{ marginBottom: 12 }}>
+                          <div style={{ padding: 12, background: 'var(--color-surface)', borderRadius: 8, fontSize: 14 }}>
+                            {inviteMessage && <div style={{ marginBottom: inviteLink ? 8 : 0 }}>{inviteMessage}</div>}
+                            {inviteLink && (
+                              <div>
+                                <strong>Invite link:</strong>{' '}
+                                {inviteLink.startsWith('http') ? (
+                                  <a href={inviteLink} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{inviteLink}</a>
+                                ) : (
+                                  inviteLink
+                                )}
+                              </div>
+                            )}
+                            <button type="button" className="teams-btn teams-btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => { setInviteLink(null); setInviteMessage(null) }}>Dismiss</button>
+                          </div>
+                        </div>
+                      )}
+                      <div className="teams-panel-actions">
+                        {!emp.auth_user_id && (
+                          <button
+                            type="button"
+                            className="teams-btn teams-btn-primary"
+                            disabled={inviting}
+                            onClick={async () => {
+                              setInviting(true)
+                              setInviteLink(null)
+                              setInviteMessage(null)
+                              try {
+                                const res = await teamsApi.employees.invite(emp.id)
+                                if (res.invite_email_sent && emp.email) {
+                                  setInviteMessage(`Invite email sent to ${emp.email}.`)
+                                }
+                                if (res.invite_link) setInviteLink(res.invite_link)
+                                else if (!res.invite_email_sent) setInviteMessage('Invite created. Set APP_ORIGIN on the server to get a copyable link.')
+                              } catch (err) {
+                                setInviteMessage(err instanceof Error ? err.message : 'Failed to send invite.')
+                              } finally {
+                                setInviting(false)
+                              }
+                            }}
+                          >
+                            {inviting ? 'Sending…' : 'Invite to Portal'}
+                          </button>
+                        )}
+                        <button
+                        type="button"
+                        className="teams-btn teams-btn-ghost"
+                        onClick={() => setEditing(true)}
+                      >
+                        Edit Employee
                       </button>
-                    )}
-                    <button type="button" className="teams-btn teams-btn-ghost">
-                      Edit Employee
-                    </button>
-                  </div>
+                        <button
+                          type="button"
+                          className="teams-btn teams-btn-ghost"
+                          onClick={() => setShowDeleteConfirm(true)}
+                          style={{ color: 'var(--red)' }}
+                        >
+                          Delete profile
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -279,7 +495,7 @@ export function EmployeePanel({ emp, onClose }: EmployeePanelProps) {
                     <div className="teams-panel-empty">No time entries yet</div>
                   ) : (
                     <div className="teams-panel-list">
-                      {recentTimeEntries.map((e, i) => {
+                      {recentTimeEntries.map((e) => {
                         const jobName = jobNames[e.job_id] ?? e.job_id
                         const attRec = attendanceRecords.find(
                           (r) => r.date === e.clock_in.slice(0, 10)
@@ -445,6 +661,42 @@ export function EmployeePanel({ emp, onClose }: EmployeePanelProps) {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Remove employee?"
+        message={
+          <>
+            <strong>{emp?.name}</strong> will be removed from your roster. Time entries, attendance, and job assignments linked to this profile will remain for records, but the employee will no longer appear in your team list. This cannot be undone.
+          </>
+        }
+        confirmLabel={deleting ? 'Removing…' : 'Remove employee'}
+        cancelLabel="Cancel"
+        variant="danger"
+        value={deleteConfirmValue}
+        onValueChange={setDeleteConfirmValue}
+        onConfirm={async () => {
+          if (!emp) return
+          setDeleting(true)
+          try {
+            await teamsApi.employees.delete(emp.id)
+            setShowDeleteConfirm(false)
+            setDeleteConfirmValue('')
+            onClose()
+            onEmployeeDeleted?.()
+          } catch (err) {
+            console.error(err)
+          } finally {
+            setDeleting(false)
+          }
+        }}
+        onCancel={() => {
+          if (!deleting) {
+            setShowDeleteConfirm(false)
+            setDeleteConfirmValue('')
+          }
+        }}
+      />
     </>
   )
 }

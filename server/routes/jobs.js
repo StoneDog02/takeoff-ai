@@ -9,13 +9,15 @@ router.get('/', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('projects')
-      .select('id, name, created_at')
+      .select('id, name, created_at, status, estimated_value')
       .order('created_at', { ascending: false })
     if (error) throw error
     const jobs = (data || []).map((p) => ({
       id: p.id,
       name: p.name,
       created_at: p.created_at,
+      status: p.status ?? 'active',
+      estimated_value: p.estimated_value != null ? Number(p.estimated_value) : null,
     }))
     res.json(jobs)
   } catch (err) {

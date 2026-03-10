@@ -34,8 +34,14 @@ export function SignInPage() {
       try {
         const me = await getMe()
         if (me.type === 'employee') navigate('/employee/clock', { replace: true })
-        else if (me.isAdmin) navigate('/admin', { replace: true })
-        else navigate('/dashboard', { replace: true })
+        else if (me.isAdmin) {
+          try {
+            sessionStorage.removeItem('takeoff-admin-preview')
+          } catch {
+            // ignore
+          }
+          navigate('/admin', { replace: true })
+        } else navigate('/dashboard', { replace: true })
       } catch {
         navigate('/dashboard', { replace: true })
       }

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { MapPin, Clock, CheckCircle, AlertTriangle, ChevronRight, LogOut, Calendar, Wrench } from 'lucide-react'
+import { MapPin, Clock, CheckCircle, AlertTriangle, ChevronRight, LogOut, Calendar } from 'lucide-react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
 import type { JobGeofence, TimeEntry } from '@/types/global'
 import type { Project, ProjectWorkType } from '@/types/global'
+import { WorkTypeIcon } from '@/components/projects/WorkTypeIcon'
 import { dayjs } from '@/lib/date'
 
 /** Default work types shown when a project has none configured (e.g. before API persistence). */
@@ -16,17 +17,7 @@ function getDefaultWorkTypesForProject(projectId: string): ProjectWorkType[] {
   ]
 }
 
-const WORK_TYPE_STYLES: Record<string, { bg: string; rate: string }> = {
-  labor: { bg: '#EFF6FF', rate: '#2563EB' },
-  tile: { bg: '#F0FDF4', rate: '#16A34A' },
-  plumbing: { bg: '#FFF7ED', rate: '#EA580C' },
-  default: { bg: '#F1F5F9', rate: '#475569' },
-}
-
-function getWorkTypeStyle(typeKey?: string) {
-  const key = (typeKey && WORK_TYPE_STYLES[typeKey]) ? typeKey : 'default'
-  return WORK_TYPE_STYLES[key] ?? WORK_TYPE_STYLES.default
-}
+import { getWorkTypeStyle } from '@/components/projects/CustomWorkTypeColorPicker'
 
 function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000
@@ -317,7 +308,7 @@ export function EmployeeClockPage() {
       <div className="w-full max-w-[480px] mx-auto px-4 sm:px-6 py-10">
         <div className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 shadow-card p-6 font-sora">
           <p className="text-muted text-sm">
-            Your account is set up as an employee. Ask your employer to add you to the roster and send an invite so you can clock in.
+            Your employer removed you from their crew. This account can't be used until you're added back and sent a new invite.
           </p>
         </div>
       </div>
@@ -373,7 +364,7 @@ export function EmployeeClockPage() {
             <div className="clock-fade-up mb-2">
               <h2 className="text-xl font-extrabold text-gray-900 dark:text-landing-white">{selectedJob.name}</h2>
               <div className="flex items-center gap-2 text-sm text-muted mt-1">
-                <Wrench size={14} /> {selectedWorkType.name}
+                <WorkTypeIcon typeKey={selectedWorkType.type_key} size={14} customColor={selectedWorkType.custom_color} /> {selectedWorkType.name}
               </div>
             </div>
             <div
@@ -441,7 +432,7 @@ export function EmployeeClockPage() {
             </div>
             <div className="space-y-3">
               {workTypesForJob.map((wt) => {
-                const style = getWorkTypeStyle(wt.type_key)
+                const style = getWorkTypeStyle(wt.type_key, wt.custom_color)
                 return (
                   <button
                     key={wt.id}
@@ -453,9 +444,9 @@ export function EmployeeClockPage() {
                   >
                     <div
                       className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-600 dark:text-gray-400"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.7)' }}
+                      style={{ backgroundColor: 'rgba(255,255,255,0.7)', color: style.rate }}
                     >
-                      <Wrench size={20} strokeWidth={2} />
+                      <WorkTypeIcon typeKey={wt.type_key} size={20} className="shrink-0" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-gray-900 dark:text-landing-white">{wt.name}</div>

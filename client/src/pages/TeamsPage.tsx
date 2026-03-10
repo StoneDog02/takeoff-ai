@@ -20,6 +20,7 @@ const TABS: { id: TeamsTab; label: string }[] = [
 export function TeamsPage() {
   const [tab, setTab] = useState<TeamsTab>('roster')
   const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null)
+  const [rosterRefreshKey, setRosterRefreshKey] = useState(0)
 
   return (
     <div className="dashboard-app teams-page">
@@ -29,9 +30,6 @@ export function TeamsPage() {
             <div className="teams-page-header-label">Workforce</div>
             <h1 className="teams-page-title">Teams</h1>
           </div>
-          <button type="button" className="teams-btn teams-btn-primary teams-btn-add-employee">
-            <span className="teams-btn-add-icon">+</span> Add Employee
-          </button>
         </div>
 
         <div className="teams-tab-bar">
@@ -49,7 +47,7 @@ export function TeamsPage() {
 
         <div className="teams-page-content">
           {tab === 'roster' && (
-            <EmployeeRoster onSelectEmployee={setSelectedEmp} />
+            <EmployeeRoster key={rosterRefreshKey} onSelectEmployee={setSelectedEmp} />
           )}
           {tab === 'man-hours' && (
             <ManHoursTab onSelectEmployee={setSelectedEmp} />
@@ -66,7 +64,15 @@ export function TeamsPage() {
         </div>
       </div>
 
-      <EmployeePanel emp={selectedEmp} onClose={() => setSelectedEmp(null)} />
+      <EmployeePanel
+        emp={selectedEmp}
+        onClose={() => setSelectedEmp(null)}
+        onEmployeeUpdated={setSelectedEmp}
+        onEmployeeDeleted={() => {
+          setSelectedEmp(null)
+          setRosterRefreshKey((k) => k + 1)
+        }}
+      />
     </div>
   )
 }

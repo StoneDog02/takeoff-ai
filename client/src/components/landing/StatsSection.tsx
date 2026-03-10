@@ -95,7 +95,7 @@ export function StatsSection() {
             Trusted by Industry Leaders
           </h2>
           <p className="text-base text-white-dim mt-3">
-            Join hundreds of contractors who trust Takeoff to run their business.
+            Join hundreds of contractors who trust Proj-X to run their business.
           </p>
         </div>
 

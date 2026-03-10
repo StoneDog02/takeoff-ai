@@ -3,6 +3,86 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 
 const router = express.Router()
 
+// ----- Payroll contact (who receives the report) -----
+router.get('/contact', async (req, res, next) => {
+  try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot access payroll contact' })
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { data, error } = await supabase
+      .from('payroll_contact')
+      .select('name, email, phone')
+      .eq('user_id', req.user?.id)
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.json(null)
+    res.json({
+      name: data.name ?? '',
+      email: data.email ?? '',
+      phone: data.phone ?? '',
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/contact', async (req, res, next) => {
+  try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot update payroll contact' })
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { name, email, phone } = req.body || {}
+    const payload = {
+      user_id: req.user?.id,
+      name: typeof name === 'string' ? name.trim() : '',
+      email: typeof email === 'string' ? email.trim() : '',
+      phone: typeof phone === 'string' ? phone.trim() || null : null,
+      updated_at: new Date().toISOString(),
+    }
+    if (!payload.email) return res.status(400).json({ error: 'Email is required' })
+    const { data, error } = await supabase
+      .from('payroll_contact')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select('name, email, phone')
+      .single()
+    if (error) throw error
+    res.json({ name: data.name ?? '', email: data.email ?? '', phone: data.phone ?? '' })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ----- Payroll runs (audit when user confirms Approve & Run) -----
+router.post('/runs', async (req, res, next) => {
+  try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot record payroll runs' })
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { period_from, period_to, recipient_email, recipient_name, employee_count, total_hours, gross_pay } = req.body || {}
+    if (!period_from || !period_to || !recipient_email) {
+      return res.status(400).json({ error: 'period_from, period_to, and recipient_email are required' })
+    }
+    const { data, error } = await supabase
+      .from('payroll_runs')
+      .insert({
+        user_id: req.user?.id,
+        period_from,
+        period_to,
+        recipient_email: recipient_email.trim(),
+        recipient_name: typeof recipient_name === 'string' ? recipient_name.trim() || null : null,
+        employee_count: Number(employee_count) || 0,
+        total_hours: Number(total_hours) || 0,
+        gross_pay: Number(gross_pay) || 0,
+      })
+      .select('id, sent_at')
+      .single()
+    if (error) throw error
+    res.status(201).json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/ytd', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase

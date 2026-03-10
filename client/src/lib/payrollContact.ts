@@ -1,5 +1,6 @@
 /**
- * Payroll contact (who receives the report). Stored in localStorage until backend exists.
+ * Payroll contact (who receives the report).
+ * The Payroll page now uses teamsApi.payroll.getContact / setContact (DB). This module remains for optional localStorage fallback or other consumers.
  */
 export interface PayrollContact {
   name: string

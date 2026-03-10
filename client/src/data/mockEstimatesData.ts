@@ -15,7 +15,7 @@ import type {
 } from '@/types/global'
 import type { EstimateWithLines } from '@/api/estimates'
 
-export const USE_MOCK_ESTIMATES = true
+export const USE_MOCK_ESTIMATES = false
 
 const past = (daysAgo: number) =>
   new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString()

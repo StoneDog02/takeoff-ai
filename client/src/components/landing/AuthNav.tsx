@@ -10,10 +10,10 @@ export function AuthNav({ showSignIn = false }: AuthNavProps) {
     <nav className="fixed top-0 left-0 right-0 z-[999] h-[68px] px-6 md:px-12 flex items-center justify-between bg-dark/85 backdrop-blur-xl border-b border-border-dark">
       <Link to="/" className="flex items-center gap-2.5 no-underline">
         <div className="w-8 h-8 bg-accent flex items-center justify-center [clip-path:polygon(0_0,100%_0,100%_75%,75%_100%,0_100%)]">
-          <span className="font-sora font-extrabold text-sm text-white">T</span>
+          <span className="font-sora font-extrabold text-sm text-white">P</span>
         </div>
         <span className="font-sora font-semibold text-base text-landing-white tracking-tight">
-          Takeoff
+          Proj-X
         </span>
       </Link>
       {showSignIn ? (

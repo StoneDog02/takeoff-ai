@@ -1,19 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import {
-  INITIAL_DIRECTORY_CONTRACTORS,
-  INITIAL_THREAD_MESSAGES,
-} from '@/data/mockDirectoryData'
 import type { DirectoryContractor } from '@/data/mockDirectoryData'
 import type { ThreadMessage } from '@/data/mockDirectoryData'
 import { api } from '@/api/client'
 import type { Contractor } from '@/types/global'
 import { DirectoryTabView } from '@/components/directory/DirectoryTabView'
 import { MessagesTabView } from '@/components/directory/MessagesTabView'
-
-const USE_DIRECTORY_MOCK =
-  import.meta.env.VITE_USE_CONTRACTORS_MOCK === 'true' ||
-  import.meta.env.VITE_USE_DIRECTORY_MOCK === 'true'
 
 type DirectorySubTab = 'directory' | 'messages'
 
@@ -67,21 +59,15 @@ export function DirectoryPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (USE_DIRECTORY_MOCK) {
-      setContractors([...INITIAL_DIRECTORY_CONTRACTORS])
-      setThreads(JSON.parse(JSON.stringify(INITIAL_THREAD_MESSAGES)))
-      setLoading(false)
-    } else {
-      setLoading(true)
-      api.contractors
-        .list()
-        .then((list: Contractor[]) => {
-          setContractors(list.map(contractorsToDirectory))
-          setThreads({})
-        })
-        .catch(() => setContractors([]))
-        .finally(() => setLoading(false))
-    }
+    setLoading(true)
+    api.contractors
+      .list()
+      .then((list: Contractor[]) => {
+        setContractors(list.map(contractorsToDirectory))
+        setThreads({})
+      })
+      .catch(() => setContractors([]))
+      .finally(() => setLoading(false))
   }, [])
 
   // When navigating to Messages with a specific contact (e.g. from "Message" button)
@@ -92,18 +78,33 @@ export function DirectoryPage() {
     }
   }, [messagingContact])
 
-  const handleAdd = (c: Omit<DirectoryContractor, 'id'> & { id: string }) => {
-    setContractors((prev) => [...prev, c])
+  const handleAdd = async (c: Omit<DirectoryContractor, 'id'> & { id: string }) => {
+    try {
+      const created = await api.contractors.create({
+        name: c.name,
+        trade: c.trade,
+        email: c.email,
+        phone: c.phone || undefined,
+      })
+      setContractors((prev) => [...prev, contractorsToDirectory(created)])
+    } catch {
+      // leave state unchanged; caller could show error
+    }
   }
 
-  const handleRemove = (id: string) => {
+  const handleRemove = async (id: string) => {
     if (!window.confirm('Remove this contractor from your directory?')) return
-    setContractors((prev) => prev.filter((x) => x.id !== id))
-    setThreads((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
+    try {
+      await api.contractors.delete(id)
+      setContractors((prev) => prev.filter((x) => x.id !== id))
+      setThreads((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    } catch {
+      // leave state unchanged; could show error
+    }
   }
 
   const handleMessage = (c: DirectoryContractor) => {

@@ -79,6 +79,16 @@ export interface JobWalkMedia {
   caption?: string
 }
 
+/** Build plan file (PDF/drawing) attached to a project for reference. */
+export interface ProjectBuildPlan {
+  id: string
+  project_id: string
+  file_name: string
+  url: string
+  uploaded_at?: string
+  uploader_name: string
+}
+
 export interface BudgetLineItem {
   id: string
   project_id: string
@@ -103,6 +113,15 @@ export interface Subcontractor {
   phone?: string
 }
 
+/** Single item in the project activity feed (Live Activity panel). */
+export interface ProjectActivityItem {
+  at: string
+  tag: 'Media' | 'Time' | 'Budget' | 'Bid' | 'Schedule' | 'Takeoff'
+  who: string
+  action: string
+  detail?: string
+}
+
 /** Work type for a project: clock-in option for crew with name, rate, unit (e.g. General Labor $85/hr). */
 export interface ProjectWorkType {
   id: string
@@ -111,8 +130,10 @@ export interface ProjectWorkType {
   description?: string
   rate: number
   unit: string
-  /** Optional type/category for icon/color (e.g. 'labor', 'tile', 'plumbing'). */
+  /** Optional type/category for icon/color (e.g. 'labor', 'tile', 'plumbing', 'custom'). */
   type_key?: string
+  /** When type_key is 'custom', hex color for the type (e.g. #3B82F6). */
+  custom_color?: string
 }
 
 /** Global contractor contact (Manage > Contractors). Not tied to a project. */
@@ -191,6 +212,8 @@ export interface Job {
   name: string
   client_name?: string
   created_at: string
+  status?: string
+  estimated_value?: number | null
 }
 
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined'

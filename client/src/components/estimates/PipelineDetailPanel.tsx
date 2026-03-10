@@ -137,7 +137,7 @@ export function PipelineDetailPanel({
             <div className="estimates-detail-section-title">Progress Invoicing</div>
             {item.milestones.map((m, i) => {
               const stKey = m.status === 'invoiced' ? 'invoiced' : 'draft'
-              const st = PIPELINE_STAGES.find((s) => s.key === stKey)
+              PIPELINE_STAGES.find((s) => s.key === stKey)
               const dotColor =
                 m.status === 'invoiced' ? 'var(--est-amber)' : 'var(--border-mid)'
               return (
@@ -177,7 +177,7 @@ export function PipelineDetailPanel({
             <div className="estimates-detail-section-title">Job Expenses</div>
             {expenses
               .filter((r) => r.job_id === item.job_id)
-              .map((r, i, arr) => {
+              .map((r) => {
                 const c = CAT_COLORS[r.category] ?? CAT_COLORS.misc
                 return (
                   <div key={r.id} className="estimates-detail-expense">

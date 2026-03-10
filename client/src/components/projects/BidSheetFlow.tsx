@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '@/api/client'
-import type { BidSheet, TradePackage, SubBid, Subcontractor, TakeoffItem } from '@/types/global'
+import type { BidSheet, TradePackage, Subcontractor, TakeoffItem } from '@/types/global'
 import { ProposalViewStage } from './bid-sheet/ProposalViewStage'
 
 export const TRADE_COLORS: Record<string, { bg: string; accent: string; light: string }> = {
@@ -78,7 +78,7 @@ export function BidSheetFlow({
   takeoffCategories = [],
   subcontractors,
   onAddSub,
-  onDeleteSub,
+  onDeleteSub: _onDeleteSub,
   onBulkSend,
   initialBidSheet,
 }: BidSheetFlowProps) {
@@ -205,7 +205,6 @@ export function BidSheetFlow({
     else setSelectedSubs(new Set(subcontractors.map((s) => s.id)))
   }
 
-  const projectLine = project ? [project.name, project.address_line_1, project.city].filter(Boolean).join(' – ') : ''
   const trade = activeTrade ? tradePackages.find((p) => p.trade_tag === activeTrade) : null
   const colors = (t: string) => TRADE_COLORS[t] || TRADE_COLORS.TBD
 
@@ -277,7 +276,7 @@ export function BidSheetFlow({
               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Subcontractors</span>
               <span style={{ fontSize: 11, background: 'var(--bg-base)', color: 'var(--text-muted)', padding: '2px 7px', borderRadius: 8, fontWeight: 600 }}>{allSubs.length}</span>
             </div>
-            {allSubs.map((s, i) => {
+            {allSubs.map((s) => {
               const cfg = STATUS_CONFIG[s.status]
               return (
                 <div
@@ -412,13 +411,20 @@ export function BidSheetFlow({
               <div className="bidsheet-collection-table">
                 {['Subcontractor', 'Trade', 'Phone', 'Email', 'Status'].map((h) => <span key={h}>{h}</span>)}
               </div>
-              {allSubs.map((s, i) => {
+              <button type="button" onClick={selectAllSubs} className="bidsheet-collection-row text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                {selectedSubs.size === allSubs.length ? 'Deselect all' : 'Select all'}
+              </button>
+              {allSubs.map((s) => {
                 const cfg = STATUS_CONFIG[s.status]
+                const checked = selectedSubs.has(s.id)
                 return (
-                  <div key={s.id} className="bidsheet-collection-row">
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</div>
-                      {s.bid != null && <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>{fmt(s.bid)}</div>}
+                  <div key={s.id} role="button" tabIndex={0} onClick={() => toggleSub(s.id)} onKeyDown={(e) => e.key === 'Enter' && toggleSub(s.id)} className={`bidsheet-collection-row ${checked ? 'selected' : ''}`} style={{ cursor: 'pointer' }}>
+                    <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={checked} readOnly style={{ pointerEvents: 'none' }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</div>
+                        {s.bid != null && <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>{fmt(s.bid)}</div>}
+                      </div>
                     </div>
                     <span style={{ fontSize: 11, background: s.tradeColor + '20', color: s.tradeColor, padding: '2px 8px', borderRadius: 6, fontWeight: 600, width: 'fit-content' }}>{s.trade}</span>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.phone || '—'}</span>

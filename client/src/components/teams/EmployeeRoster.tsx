@@ -3,6 +3,7 @@ import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import type { Employee, JobAssignment } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
+import { AddEmployeeWizardModal } from './AddEmployeeWizardModal'
 
 type ViewMode = 'cards' | 'table'
 
@@ -34,42 +35,29 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('cards')
   const [statusFilter, setStatusFilter] = useState<string>('')
-  const [showAdd, setShowAdd] = useState(false)
-  const [addForm, setAddForm] = useState({ name: '', role: '', email: '', phone: '', status: 'off' as const })
-  const [saving, setSaving] = useState(false)
+  const [showAddWizard, setShowAddWizard] = useState(false)
   const [invitingId, setInvitingId] = useState<string | null>(null)
   const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [addSuccessMessage, setAddSuccessMessage] = useState<string | null>(null)
 
   const handleInviteToPortal = async (emp: Employee) => {
     if (emp.auth_user_id) return
     setInvitingId(emp.id)
     setInviteLink(null)
+    setAddSuccessMessage(null)
     try {
       const res = await teamsApi.employees.invite(emp.id)
+      if (res.invite_email_sent && emp.email) {
+        setAddSuccessMessage(`Invite email sent to ${emp.email}.`)
+      }
       if (res.invite_link) setInviteLink(res.invite_link)
-      else setInviteLink('Invite created. Set APP_ORIGIN on the server to get a copyable link.')
+      else if (!res.invite_email_sent) setInviteLink('Invite created. Set APP_ORIGIN on the server to get a copyable link.')
       load()
     } catch (err) {
       console.error(err)
       setInviteLink('Failed to send invite.')
     } finally {
       setInvitingId(null)
-    }
-  }
-
-  const handleAddEmployee = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!addForm.name || !addForm.email) return
-    setSaving(true)
-    try {
-      await teamsApi.employees.create(addForm)
-      setShowAdd(false)
-      setAddForm({ name: '', role: '', email: '', phone: '', status: 'off' })
-      load()
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -128,8 +116,29 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
 
   const filtered = employees
 
+  const handleWizardSuccess = (employee: Employee, inviteSent: boolean) => {
+    setShowAddWizard(false)
+    load()
+    if (inviteSent && employee.email) {
+      setAddSuccessMessage(`Invite email sent to ${employee.email}.`)
+    }
+    onSelectEmployee?.(employee)
+  }
+
   return (
     <div className="teams-tab-body">
+      {showAddWizard && (
+        <AddEmployeeWizardModal
+          onClose={() => setShowAddWizard(false)}
+          onSuccess={handleWizardSuccess}
+        />
+      )}
+      {addSuccessMessage && (
+        <div style={{ marginBottom: 16, padding: 12, background: 'var(--color-surface)', borderRadius: 8, fontSize: 14 }}>
+          {addSuccessMessage}
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => setAddSuccessMessage(null)}>Dismiss</button>
+        </div>
+      )}
       {inviteLink && (
         <div style={{ marginBottom: 16, padding: 12, background: 'var(--color-surface)', borderRadius: 8, fontSize: 14 }}>
           <strong>Invite link:</strong>{' '}
@@ -153,48 +162,8 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
           <option value="off">Off</option>
           <option value="pto">PTO</option>
         </select>
-        {showAdd && (
-          <form
-            onSubmit={handleAddEmployee}
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}
-          >
-            <input
-              placeholder="Name"
-              value={addForm.name}
-              onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
-              className="search-wrap"
-              required
-            />
-            <input
-              placeholder="Role"
-              value={addForm.role}
-              onChange={(e) => setAddForm((f) => ({ ...f, role: e.target.value }))}
-              className="search-wrap"
-            />
-            <input
-              type="email"
-              placeholder="Email"
-              value={addForm.email}
-              onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
-              className="search-wrap"
-              required
-            />
-            <input
-              placeholder="Phone"
-              value={addForm.phone}
-              onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))}
-              className="search-wrap"
-            />
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setShowAdd(false)}>
-              Cancel
-            </button>
-          </form>
-        )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => setShowAddWizard(true)}>
             Add employee
           </button>
           <div className="teams-pill-toggle">
@@ -221,7 +190,7 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
       ) : filtered.length === 0 ? (
         <div className="teams-empty-state">
           <p>No employees yet. Add your first employee to build your roster and assign them to jobs.</p>
-          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => setShowAddWizard(true)}>
             Add employee
           </button>
         </div>

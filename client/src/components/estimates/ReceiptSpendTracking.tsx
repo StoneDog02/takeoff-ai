@@ -495,11 +495,9 @@ function BudgetPanel({
   receipts: JobExpense[]
 }) {
   const budgetEntries = Object.entries(budget)
-  const totalBudget = budgetEntries.reduce((s, [, v]) => s + v.allocated, 0)
+  const totalBudget = budgetEntries.reduce((s, [, v]) => s + (v?.allocated ?? 0), 0)
   const spentByKey: Record<string, number> = {}
   budgetEntries.forEach(([key]) => {
-    const cat = key.toLowerCase() as ExpenseCategory
-    const match = (k: string) => k === key || CAT_TO_BUDGET_KEY[cat] === key
     spentByKey[key] = receipts
       .filter((r) => CAT_TO_BUDGET_KEY[r.category] === key)
       .reduce((s, r) => s + Number(r.amount), 0)
@@ -537,7 +535,10 @@ function BudgetPanel({
           <span className="receipts-kpi__sub">{pctComplete}% of job complete</span>
         </div>
       </div>
-      {budgetEntries.map(([cat, { allocated, color, bg }]) => {
+      {budgetEntries.map(([cat, entry]) => {
+        const allocated = entry?.allocated ?? 0
+        const color = entry?.color ?? 'var(--text-muted)'
+        const bg = entry?.bg ?? 'var(--bg-base)'
         const catSpent = spentByKey[cat] ?? 0
         const catPct = allocated > 0 ? Math.min(100, Math.round((catSpent / allocated) * 100)) : 0
         const over = catSpent > allocated

@@ -151,7 +151,7 @@ function phaseRangeForDisplay(startDate: string, phase: BuilderPhase): { start: 
   }
 }
 
-/** Mock schedule data for previewing the populated list layout (phases with tasks + milestones). */
+/** Mock schedule data for previewing/demo only. Not used by the project Schedule tab — that tab is driven by real data via apiToBuilder(project, phases, tasks, milestones) from ProjectsPage. */
 export function getMockScheduleData(): { phases: BuilderPhase[]; milestones: BuilderMilestone[] } {
   return {
     phases: [

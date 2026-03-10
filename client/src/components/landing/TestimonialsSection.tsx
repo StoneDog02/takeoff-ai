@@ -1,7 +1,7 @@
 const testimonials = [
   {
     quote:
-      'Takeoff cut our estimation time in half. What used to take our estimators two days now takes a couple hours. It\'s a tool that pays for itself every week.',
+      'Proj-X cut our estimation time in half. What used to take our estimators two days now takes a couple hours. It\'s a tool that pays for itself every week.',
     name: 'John Martinez',
     handle: '@johnbuilds · General Contractor',
     avatar: 'JM',

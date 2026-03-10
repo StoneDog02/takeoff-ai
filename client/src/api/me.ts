@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabaseClient'
-
-const API_BASE = '/api'
+import { API_BASE } from '@/api/config'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {}

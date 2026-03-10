@@ -83,11 +83,11 @@ export function EmployeeLayout() {
       <div className="app">
         <nav className={`sidenav ${navCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`} id="sidenav">
           <div className="nav-header">
-            <Link to="/employee/clock" className="logo" aria-label="Takeoff AI home">
+            <Link to="/employee/clock" className="logo" aria-label="Proj-X home">
               <div className="logo-icon">
                 <svg viewBox="0 0 14 14" aria-hidden><path d="M7 1L13 4.5V10.5L7 14L1 10.5V4.5L7 1Z" fill="currentColor" /></svg>
               </div>
-              <span className="logo-text">Takeoff AI</span>
+              <span className="logo-text">Proj-X</span>
             </Link>
             <button type="button" className="collapse-btn" onClick={toggleCollapse} title={navCollapsed ? 'Expand' : 'Collapse'} aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M7.5 2L4 6l3.5 4" /></svg>
@@ -129,7 +129,7 @@ export function EmployeeLayout() {
                 <span className="nav-label">Log out</span>
               </button>
             )}
-            <ThemeToggle />
+            <ThemeToggle className="nav-item" />
           </div>
 
           <div className="nav-footer">

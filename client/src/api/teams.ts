@@ -8,8 +8,7 @@ import type {
   JobGeofence,
 } from '@/types/global'
 import { supabase } from '@/lib/supabaseClient'
-
-const API_BASE = '/api'
+import { API_BASE } from '@/api/config'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {}
@@ -78,14 +77,14 @@ export const teamsApi = {
       const res = await fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE', headers })
       return handleResponse<void>(res)
     },
-    async invite(id: string): Promise<{ ok: boolean; expires_at: string; invite_link?: string | null }> {
+    async invite(id: string): Promise<{ ok: boolean; expires_at: string; invite_link?: string | null; invite_email_sent?: boolean }> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/employees/${id}/invite`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       })
-      return handleResponse<{ ok: boolean; expires_at: string; invite_link?: string | null }>(res)
+      return handleResponse<{ ok: boolean; expires_at: string; invite_link?: string | null; invite_email_sent?: boolean }>(res)
     },
   },
 
@@ -328,6 +327,37 @@ export const teamsApi = {
       const q = year != null ? `?year=${year}` : ''
       const res = await fetch(`${API_BASE}/payroll/ytd${q}`, { headers })
       return handleResponse<YtdPayResponse>(res)
+    },
+    async getContact(): Promise<{ name: string; email: string; phone?: string } | null> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/payroll/contact`, { headers })
+      return handleResponse<{ name: string; email: string; phone?: string } | null>(res)
+    },
+    async setContact(contact: { name: string; email: string; phone?: string }): Promise<{ name: string; email: string; phone?: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/payroll/contact`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(contact),
+      })
+      return handleResponse<{ name: string; email: string; phone?: string }>(res)
+    },
+    async recordRun(params: {
+      period_from: string
+      period_to: string
+      recipient_email: string
+      recipient_name?: string
+      employee_count: number
+      total_hours: number
+      gross_pay: number
+    }): Promise<{ id: string; sent_at: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/payroll/runs`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      })
+      return handleResponse<{ id: string; sent_at: string }>(res)
     },
   },
 }

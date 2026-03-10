@@ -6,7 +6,7 @@ interface WeekBarsProps {
 
 const DEFAULT_LABELS = ['W-4', 'W-3', 'W-2', 'W-1', 'Now']
 
-export function WeekBars({ data, color, labels = DEFAULT_LABELS }: WeekBarsProps) {
+export function WeekBars({ data, color, labels: _labels = DEFAULT_LABELS }: WeekBarsProps) {
   const max = Math.max(...data, 1)
   return (
     <div className="teams-week-bars">

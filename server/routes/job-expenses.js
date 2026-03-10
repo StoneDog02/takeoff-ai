@@ -2,24 +2,24 @@ const express = require('express')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 
-const VALID_CATEGORIES = ['materials', 'labor', 'equipment', 'misc']
+const VALID_CATEGORIES = ['materials', 'labor', 'equipment', 'subs', 'misc']
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
 }
 
-/** GET /api/job-expenses - list by job (?job_id= required) */
+/** GET /api/job-expenses - list by job (?job_id= optional; omit to return all for pipeline) */
 router.get('/', async (req, res) => {
   const supabase = getSupabase(req)
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   const jobId = req.query.job_id
-  if (!jobId) return res.status(400).json({ error: 'job_id required' })
   try {
-    const { data, error } = await supabase
+    let q = supabase
       .from('job_expenses')
       .select('*')
-      .eq('job_id', jobId)
       .order('created_at', { ascending: false })
+    if (jobId) q = q.eq('job_id', jobId)
+    const { data, error } = await q
     if (error) throw error
     res.json(data || [])
   } catch (err) {
@@ -61,21 +61,24 @@ router.post('/', async (req, res) => {
   const supabase = getSupabase(req)
   if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
   try {
-    const { job_id, amount, category, description, receipt_file_url } = req.body
+    const { job_id, amount, category, description, receipt_file_url, billable, vendor } = req.body
     if (!job_id || amount == null) {
       return res.status(400).json({ error: 'job_id and amount required' })
     }
     const cat = category && VALID_CATEGORIES.includes(category) ? category : 'misc'
+    const insertPayload = {
+      job_id,
+      user_id: req.user.id,
+      amount: Number(amount),
+      category: cat,
+      description: description || null,
+      receipt_file_url: receipt_file_url || null,
+    }
+    if (billable !== undefined) insertPayload.billable = Boolean(billable)
+    if (vendor !== undefined) insertPayload.vendor = vendor == null || vendor === '' ? null : String(vendor)
     const { data, error } = await supabase
       .from('job_expenses')
-      .insert({
-        job_id,
-        user_id: req.user.id,
-        amount: Number(amount),
-        category: cat,
-        description: description || null,
-        receipt_file_url: receipt_file_url || null,
-      })
+      .insert(insertPayload)
       .select()
       .single()
     if (error) throw error

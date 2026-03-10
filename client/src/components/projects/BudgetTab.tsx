@@ -21,36 +21,32 @@ const CATEGORY_COLORS: Record<string, string> = {
   Other: '#94a3b8',
 }
 
-/** Mock change orders (no API yet). */
-const MOCK_CHANGE_ORDERS = [
-  { id: 'CO-001', description: 'Added heated floor – tile phase', amount: 1200, status: 'Approved' as const, date: '02/14/2026' },
-  { id: 'CO-002', description: 'Upgraded vanity fixtures', amount: 650, status: 'Pending' as const, date: '03/01/2026' },
-]
-
-/** Mock transactions per line item id (no API yet). */
-function getMockTransactions(itemId: string): { desc: string; date: string; amount: number }[] {
-  const byId: Record<string, { desc: string; date: string; amount: number }[]> = {
-    b1: [
-      { desc: 'Crew A – Demo week', date: '01/27/2026', amount: 4250 },
-      { desc: 'Crew A – Rough plumbing assist', date: '02/12/2026', amount: 6800 },
-      { desc: 'Tile crew – Week 1', date: '03/03/2026', amount: 6150 },
-    ],
-    b2: [
-      { desc: 'Tile – 220sqft porcelain', date: '02/10/2026', amount: 8800 },
-      { desc: 'Plumbing fixtures', date: '02/18/2026', amount: 7400 },
-      { desc: 'Vanity + mirror', date: '02/24/2026', amount: 5600 },
-      { desc: 'Misc materials – PO #1042', date: '03/02/2026', amount: 3300 },
-    ],
-    b3: [
-      { desc: 'ABC Electrical – rough-in', date: '02/08/2026', amount: 4200 },
-      { desc: 'Quality Plumbing Co', date: '02/20/2026', amount: 7600 },
-    ],
-  }
-  return byId[itemId] ?? []
+/** Normalized category key for grouping. Uses item.category when it's a real category; if category is "other" or missing, infers from label so Project Setup categories (Labor, Materials, etc.) display correctly. */
+function normalizeCategoryKey(item: BudgetLineItem): string {
+  const c = (item.category || '').toLowerCase().trim()
+  const realCategories = ['labor', 'materials', 'subs', 'equipment', 'permits', 'overhead'] as const
+  if (realCategories.includes(c as typeof realCategories[number])) return c === 'subcontractors' ? 'subs' : c
+  const label = (item.label || '').toLowerCase()
+  if (label.includes('labor')) return 'labor'
+  if (label.includes('material')) return 'materials'
+  if (label.includes('sub') || label.includes('contractor')) return 'subs'
+  if (label.includes('equipment')) return 'equipment'
+  if (label.includes('permit')) return 'permits'
+  if (label.includes('overhead')) return 'overhead'
+  return 'other'
 }
 
-/** Mock forecast (no API yet). */
-const MOCK_FORECAST = { laborRate: 85, hoursLeft: 24, materialsPending: 1800, subsRemaining: 0 }
+/** Order for "By Category" rows so Labor, Materials, etc. appear consistently. */
+const CATEGORY_ORDER: string[] = ['labor', 'materials', 'subs', 'equipment', 'permits', 'overhead', 'other']
+
+/** Change orders: empty until API/live data exists. Add COs via "+ New CO" when implemented. */
+type ChangeOrder = { id: string; description: string; amount: number; status: 'Approved' | 'Pending'; date: string }
+const EMPTY_CHANGE_ORDERS: ChangeOrder[] = []
+
+/** Transactions per line item: empty until API/live data exists. */
+function getTransactions(_itemId: string): { desc: string; date: string; amount: number }[] {
+  return []
+}
 
 function fmt(n: number): string {
   return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0 })
@@ -75,9 +71,13 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editVal, setEditVal] = useState('')
   const [addingRow, setAddingRow] = useState(false)
+  /** When set, add form is shown after this category in By Item view; null = show at bottom. */
+  const [addingForCategory, setAddingForCategory] = useState<string | null>(null)
   const [newRow, setNewRow] = useState({ description: '', category: 'labor', budgeted: '', actual: '' })
   const [activeSection, setActiveSection] = useState<SectionId>('budget')
-  const [changeOrders] = useState(MOCK_CHANGE_ORDERS)
+  const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>(EMPTY_CHANGE_ORDERS)
+  const [coModalOpen, setCoModalOpen] = useState(false)
+  const [newCO, setNewCO] = useState({ description: '', amount: '', status: 'Pending' as 'Approved' | 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) })
 
   useEffect(() => {
     setList(items)
@@ -90,7 +90,8 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
 
   const approvedCOs = changeOrders.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.amount, 0)
   const pendingCOs = changeOrders.filter((c) => c.status === 'Pending').reduce((s, c) => s + c.amount, 0)
-  const forecastTotal = totalActual + (MOCK_FORECAST.laborRate * MOCK_FORECAST.hoursLeft) + MOCK_FORECAST.materialsPending + MOCK_FORECAST.subsRemaining
+  // Forecast from live data only: projected final = actual to date until forecast inputs (labor/materials/subs remaining) exist
+  const forecastTotal = totalActual
   const forecastVariance = totalBudget - forecastTotal
 
   const getItemColor = useCallback((item: BudgetLineItem): string => {
@@ -125,7 +126,6 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
     const budgeted = parseFloat(newRow.budgeted) || 0
     if (!desc || budgeted <= 0) return
     const category = newRow.category || 'labor'
-    const label = CATEGORY_LABELS[category] || category
     const newItem: BudgetLineItem = {
       id: `new-${Date.now()}`,
       project_id: list[0]?.project_id ?? '',
@@ -139,6 +139,7 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
     onSave(next).catch(() => {})
     setNewRow({ description: '', category: 'labor', budgeted: '', actual: '' })
     setAddingRow(false)
+    setAddingForCategory(null)
   }, [newRow, list, onSave])
 
   const removeItem = useCallback(
@@ -150,6 +151,22 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
     },
     [list, drawerItem, onSave]
   )
+
+  const handleAddChangeOrder = useCallback(() => {
+    const desc = newCO.description.trim()
+    const amount = parseFloat(newCO.amount)
+    if (!desc || Number.isNaN(amount) || amount < 0) return
+    const co: ChangeOrder = {
+      id: `CO-${Date.now()}`,
+      description: desc,
+      amount,
+      status: newCO.status,
+      date: newCO.date,
+    }
+    setChangeOrders((prev) => [...prev, co])
+    setCoModalOpen(false)
+    setNewCO({ description: '', amount: '', status: 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) })
+  }, [newCO])
 
   // Donut segments
   const donutTotal = totalActual || 1
@@ -174,6 +191,116 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
     return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`
   }
 
+  function renderBudgetRow(item: BudgetLineItem, isCategoryView: boolean) {
+    const budgeted = Number(item.predicted || 0)
+    const actual = Number(item.actual || 0)
+    const v = budgeted - actual
+    const pct = budgeted ? Math.round((actual / budgeted) * 100) : 0
+    const over = actual > budgeted
+    const color = getItemColor(item)
+    const isActive = !isCategoryView && drawerItem?.id === item.id
+    const transactions = !isCategoryView ? getTransactions(item.id) : []
+    return (
+      <div key={item.id}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setDrawerItem(isActive ? null : item)}
+          onKeyDown={(e) => e.key === 'Enter' && (setDrawerItem(isActive ? null : item), e.preventDefault())}
+          className={`budget-table-row ${isActive ? 'active' : ''}`}
+          style={{ borderLeftColor: isActive ? color : undefined }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label || 'Untitled'}</div>
+              {!isCategoryView && item.category === 'labor' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Time logs</div>}
+              {!isCategoryView && item.category === 'subs' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Bid sheet</div>}
+            </div>
+          </div>
+          <span style={{ fontSize: 11, background: color + '18', color, padding: '2px 8px', borderRadius: 6, fontWeight: 600, width: 'fit-content' }}>{getItemCategoryLabel(item)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!isCategoryView && editingId === item.id ? (
+              <input
+                autoFocus
+                value={editVal}
+                onChange={(e) => setEditVal(e.target.value)}
+                onBlur={() => commitEdit(item.id)}
+                onKeyDown={(e) => e.key === 'Enter' && (commitEdit(item.id), e.preventDefault())}
+                onClick={(e) => e.stopPropagation()}
+                className="border border-[var(--border)] rounded-md px-1.5 py-0.5 w-20 text-[13px] font-mono outline-none"
+                style={{ borderColor: '#6366f1' }}
+              />
+            ) : (
+              <span className="text-[13px] font-mono text-[var(--text-primary)]">{fmt(budgeted)}</span>
+            )}
+            {!isCategoryView && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); startEdit(item); }} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer">
+                <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: over ? 'var(--red)' : 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(actual)}</div>
+            <div className="budget-kpi-bar" style={{ marginTop: 4, width: 80 }}>
+              <div className="budget-kpi-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: over ? 'var(--red)' : color }} />
+            </div>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: v >= 0 ? 'var(--green, #16a34a)' : 'var(--red)', background: v >= 0 ? '#f0fdf4' : '#fef2f2', padding: '3px 8px', borderRadius: 6, fontVariantNumeric: 'tabular-nums' }}>{fmtSigned(v)}</span>
+          {isCategoryView ? <span /> : <button type="button" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>}
+        </div>
+        {isActive && (
+          <div className="budget-table-drawer">
+            <div className="budget-table-drawer-title">Transactions</div>
+            {transactions.length > 0 ? (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {transactions.map((tx, j) => (
+                    <div key={j} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: j < transactions.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tx.desc}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{tx.date}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(tx.amount)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Total: {fmt(transactions.reduce((s, t) => s + t.amount, 0))}</span>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--text-muted)' }}>No transactions yet. Add live data when available.</div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderAddRowForm() {
+    return (
+      <div className="budget-table-row" style={{ background: 'var(--bg-base)', gridTemplateColumns: '2fr 120px 120px 120px 100px 80px', padding: '12px 20px' }}>
+        <input placeholder="Description" value={newRow.description} onChange={(e) => setNewRow({ ...newRow, description: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] outline-none w-full max-w-[200px]" />
+        <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-[12px] outline-none">
+          {CATEGORY_ORDER.map((key) => (
+            <option key={key} value={key}>{CATEGORY_LABELS[key] ?? key}</option>
+          ))}
+        </select>
+        <input placeholder="Budget" value={newRow.budgeted} onChange={(e) => setNewRow({ ...newRow, budgeted: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-mono outline-none w-20" />
+        <input placeholder="Actual" value={newRow.actual} onChange={(e) => setNewRow({ ...newRow, actual: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-mono outline-none w-20" />
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" onClick={addRow} className="px-3 py-1 rounded-md bg-[var(--text-primary)] text-white text-[12px] font-semibold border-none cursor-pointer">Add</button>
+          <button type="button" onClick={() => { setAddingRow(false); setAddingForCategory(null) }} className="px-2 py-1 rounded-md bg-[var(--bg-base)] text-[var(--text-muted)] text-[12px] border-none cursor-pointer">✕</button>
+        </div>
+        <span />
+      </div>
+    )
+  }
+
   return (
     <div className="budget-tab" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Top KPI Row */}
@@ -181,7 +308,9 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
         <div className="budget-kpi-card">
           <div className="budget-kpi-label">Total Budget</div>
           <div className="budget-kpi-value">{totalBudget ? fmt(totalBudget) : '—'}</div>
-          <div className="budget-kpi-sub" style={{ color: 'var(--green, #16a34a)' }}>+{fmt(approvedCOs)} in approved COs</div>
+          {approvedCOs > 0 && (
+            <div className="budget-kpi-sub" style={{ color: 'var(--green, #16a34a)' }}>+{fmt(approvedCOs)} in approved COs</div>
+          )}
         </div>
         <div className="budget-kpi-card">
           <div className="budget-kpi-label">Actual Spend</div>
@@ -203,11 +332,8 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
           <div className="budget-kpi-sub" style={{ color: variance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{variance >= 0 ? 'Under budget' : 'Over budget'}</div>
         </div>
         <div className="budget-kpi-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-            <span className="budget-kpi-label">Forecast to Complete</span>
-            <span className="budget-kpi-tag" style={{ background: '#fdf4ff', color: '#7e22ce' }}>AI Est.</span>
-          </div>
-          <div className="budget-kpi-value">{fmt(forecastTotal)}</div>
+          <div className="budget-kpi-label">Forecast to Complete</div>
+          <div className="budget-kpi-value">{totalActual > 0 ? fmt(forecastTotal) : '—'}</div>
           <div className="budget-kpi-sub" style={{ color: forecastVariance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{fmtSigned(forecastVariance)} projected variance</div>
         </div>
       </div>
@@ -248,122 +374,56 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
               <div className="budget-table-col-headers">
                 <span>Description</span><span>Category</span><span>Budgeted</span><span>Actual</span><span>Variance</span><span />
               </div>
-              {(viewMode === 'category'
-                ? list.reduce<BudgetLineItem[]>((acc, i) => {
-                    const last = acc.find((x) => (x.category || 'other') === (i.category || 'other'))
-                    if (last) {
-                      const idx = acc.indexOf(last)
-                      acc[idx] = { ...last, predicted: last.predicted + Number(i.predicted || 0), actual: last.actual + Number(i.actual || 0) }
-                      return acc
-                    }
-                    return [...acc, { ...i }]
-                  }, [])
-                : list
-              ).map((item) => {
-                const budgeted = Number(item.predicted || 0)
-                const actual = Number(item.actual || 0)
-                const v = budgeted - actual
-                const pct = budgeted ? Math.round((actual / budgeted) * 100) : 0
-                const over = actual > budgeted
-                const color = getItemColor(item)
-                const isActive = viewMode === 'item' && drawerItem?.id === item.id
-                const transactions = viewMode === 'item' ? getMockTransactions(item.id) : []
-                const isCategoryView = viewMode === 'category'
+              {viewMode === 'category' && (() => {
+                const byCat = new Map<string, { predicted: number; actual: number }>()
+                for (const i of list) {
+                  const key = normalizeCategoryKey(i)
+                  const cur = byCat.get(key) ?? { predicted: 0, actual: 0 }
+                  cur.predicted += Number(i.predicted || 0)
+                  cur.actual += Number(i.actual || 0)
+                  byCat.set(key, cur)
+                }
+                const categoryRows = CATEGORY_ORDER.filter((key) => byCat.has(key)).map((key) => {
+                  const { predicted = 0, actual = 0 } = byCat.get(key)!
+                  return { id: `category-${key}`, project_id: list[0]?.project_id ?? '', label: CATEGORY_LABELS[key] ?? key, category: key, predicted, actual } as BudgetLineItem
+                })
+                return categoryRows.map((item) => renderBudgetRow(item, true))
+              })()}
+              {viewMode === 'item' && (() => {
+                const itemGroups = CATEGORY_ORDER.filter((key) => list.some((i) => normalizeCategoryKey(i) === key)).map((key) => ({ key, items: list.filter((i) => normalizeCategoryKey(i) === key) }))
                 return (
-                  <div key={item.id}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setDrawerItem(isActive ? null : item)}
-                      onKeyDown={(e) => e.key === 'Enter' && (setDrawerItem(isActive ? null : item), e.preventDefault())}
-                      className={`budget-table-row ${isActive ? 'active' : ''}`}
-                      style={{ borderLeftColor: isActive ? color : undefined }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label || 'Untitled'}</div>
-                          {viewMode === 'item' && item.category === 'labor' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Time logs</div>}
-                          {viewMode === 'item' && item.category === 'subs' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Bid sheet</div>}
-                        </div>
-                      </div>
-                      <span style={{ fontSize: 11, background: color + '18', color, padding: '2px 8px', borderRadius: 6, fontWeight: 600, width: 'fit-content' }}>{getItemCategoryLabel(item)}</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {!isCategoryView && editingId === item.id ? (
-                          <input
-                            autoFocus
-                            value={editVal}
-                            onChange={(e) => setEditVal(e.target.value)}
-                            onBlur={() => commitEdit(item.id)}
-                            onKeyDown={(e) => e.key === 'Enter' && (commitEdit(item.id), e.preventDefault())}
-                            onClick={(e) => e.stopPropagation()}
-                            className="border border-[var(--border)] rounded-md px-1.5 py-0.5 w-20 text-[13px] font-mono outline-none"
-                            style={{ borderColor: '#6366f1' }}
-                          />
-                        ) : (
-                          <span className="text-[13px] font-mono text-[var(--text-primary)]">{fmt(budgeted)}</span>
-                        )}
-                        {!isCategoryView && (
-                          <button type="button" onClick={(e) => { e.stopPropagation(); startEdit(item); }} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer">
-                            <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
+                  <>
+                    {itemGroups.map((group) => (
+                      <div key={group.key}>
+                        {group.items.map((item) => renderBudgetRow(item, false))}
+                        {addingRow && addingForCategory === group.key ? renderAddRowForm() : (
+                          <div className="budget-table-add-row">
+                            <button
+                              type="button"
+                              className="budget-table-add-row-btn"
+                              onClick={() => { setNewRow((prev) => ({ ...prev, category: group.key })); setAddingForCategory(group.key); setAddingRow(true) }}
+                            >
+                              + Add line item
+                            </button>
+                          </div>
                         )}
                       </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: over ? 'var(--red)' : 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(actual)}</div>
-                        <div className="budget-kpi-bar" style={{ marginTop: 4, width: 80 }}>
-                          <div className="budget-kpi-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: over ? 'var(--red)' : color }} />
-                        </div>
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: v >= 0 ? 'var(--green, #16a34a)' : 'var(--red)', background: v >= 0 ? '#f0fdf4' : '#fef2f2', padding: '3px 8px', borderRadius: 6, fontVariantNumeric: 'tabular-nums' }}>{fmtSigned(v)}</span>
-                      {isCategoryView ? <span /> : <button type="button" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>}
-                    </div>
-                    {isActive && transactions.length > 0 && (
-                      <div className="budget-table-drawer">
-                        <div className="budget-table-drawer-title">Transactions</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                          {transactions.map((tx, j) => (
-                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: j < transactions.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
-                                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tx.desc}</span>
-                              </div>
-                              <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{tx.date}</span>
-                                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(tx.amount)}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Total: {fmt(transactions.reduce((s, t) => s + t.amount, 0))}</span>
-                        </div>
+                    ))}
+                    {addingRow && addingForCategory === null ? renderAddRowForm() : (
+                      <div className="budget-table-add-row">
+                        <button type="button" className="budget-table-add-row-btn" onClick={() => { setAddingForCategory(null); setAddingRow(true) }}>
+                          + Add line item
+                        </button>
                       </div>
                     )}
-                  </div>
+                  </>
                 )
-              })}
-              {addingRow ? (
-                <div className="budget-table-row" style={{ background: 'var(--bg-base)', gridTemplateColumns: '2fr 120px 120px 120px 100px 80px', padding: '12px 20px' }}>
-                  <input placeholder="Description" value={newRow.description} onChange={(e) => setNewRow({ ...newRow, description: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] outline-none w-full max-w-[200px]" />
-                  <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-[12px] outline-none">
-                    <option value="labor">Labor</option><option value="materials">Materials</option><option value="subs">Subcontractors</option>
-                  </select>
-                  <input placeholder="Budget" value={newRow.budgeted} onChange={(e) => setNewRow({ ...newRow, budgeted: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-mono outline-none w-20" />
-                  <input placeholder="Actual" value={newRow.actual} onChange={(e) => setNewRow({ ...newRow, actual: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-mono outline-none w-20" />
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button type="button" onClick={addRow} className="px-3 py-1 rounded-md bg-[var(--text-primary)] text-white text-[12px] font-semibold border-none cursor-pointer">Add</button>
-                    <button type="button" onClick={() => setAddingRow(false)} className="px-2 py-1 rounded-md bg-[var(--bg-base)] text-[var(--text-muted)] text-[12px] border-none cursor-pointer">✕</button>
-                  </div>
-                  <span />
-                </div>
-              ) : (
+              })()}
+              {viewMode === 'category' && (addingRow ? renderAddRowForm() : (
                 <div className="budget-table-add-row">
-                  <button type="button" onClick={() => setAddingRow(true)} className="budget-table-add-row-btn">
-                    + Add line item
-                  </button>
+                  <button type="button" className="budget-table-add-row-btn" onClick={() => setAddingRow(true)}>+ Add line item</button>
                 </div>
-              )}
+              ))}
               <div className="budget-table-totals">
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>TOTAL</span>
                 <span /><span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalBudget)}</span>
@@ -379,26 +439,32 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
               <div className="budget-co-header">
                 <div>
                   <div className="budget-table-title">Change Orders</div>
-                  <div className="budget-table-sub">Scope changes that adjust the budget baseline</div>
+                  <div className="budget-table-sub">Scope changes that adjust the budget baseline. Add COs when you have them.</div>
                 </div>
-                <button type="button" className="px-3.5 py-1.5 rounded-lg bg-[var(--red)] text-white text-[12px] font-semibold border-none cursor-pointer">+ New CO</button>
+                <button type="button" className="px-3.5 py-1.5 rounded-lg bg-[var(--red)] text-white text-[12px] font-semibold border-none cursor-pointer" onClick={() => setCoModalOpen(true)}>+ New CO</button>
               </div>
               <div style={{ padding: '0 20px' }}>
-                {changeOrders.map((co, i) => (
-                  <div key={co.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: i < changeOrders.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', width: 60 }}>{co.id}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{co.description}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{co.date}</div>
+                {changeOrders.length === 0 ? (
+                  <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No change orders yet. Use “+ New CO” to add one when you have live data.</div>
+                ) : (
+                  changeOrders.map((co, i) => (
+                    <div key={co.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: i < changeOrders.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', width: 60 }}>{co.id}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{co.description}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{co.date}</div>
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>+{fmt(co.amount)}</span>
+                      <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, fontWeight: 600, background: co.status === 'Approved' ? '#f0fdf4' : '#fffbeb', color: co.status === 'Approved' ? '#15803d' : '#a16207' }}>{co.status}</span>
                     </div>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>+{fmt(co.amount)}</span>
-                    <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, fontWeight: 600, background: co.status === 'Approved' ? '#f0fdf4' : '#fffbeb', color: co.status === 'Approved' ? '#15803d' : '#a16207' }}>{co.status}</span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
-              <div className="budget-co-footer" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Approved: <span style={{ fontWeight: 700, color: 'var(--green, #16a34a)', fontVariantNumeric: 'tabular-nums' }}>+{fmt(approvedCOs)}</span> &nbsp;·&nbsp; Pending: <span style={{ fontWeight: 700, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>+{fmt(pendingCOs)}</span></span>
-              </div>
+              {changeOrders.length > 0 && (
+                <div className="budget-co-footer" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Approved: <span style={{ fontWeight: 700, color: 'var(--green, #16a34a)', fontVariantNumeric: 'tabular-nums' }}>+{fmt(approvedCOs)}</span> &nbsp;·&nbsp; Pending: <span style={{ fontWeight: 700, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>+{fmt(pendingCOs)}</span></span>
+                </div>
+              )}
             </div>
           )}
 
@@ -406,30 +472,30 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
             <div className="budget-forecast-card">
               <div className="budget-forecast-header">
                 <div className="budget-table-title">Forecast to Complete</div>
-                <div className="budget-table-sub">Projected final spend based on current burn rate</div>
+                <div className="budget-table-sub">Projected final spend. Add labor/materials/subs remaining when you have live data.</div>
               </div>
               <div style={{ padding: 20 }}>
                 {[
                   { label: 'Actual spend to date', value: totalActual, color: 'var(--text-primary)' },
-                  { label: `Labor remaining (${MOCK_FORECAST.hoursLeft}hrs × $${MOCK_FORECAST.laborRate}/hr)`, value: MOCK_FORECAST.laborRate * MOCK_FORECAST.hoursLeft, color: '#6366f1' },
-                  { label: 'Materials pending (open POs)', value: MOCK_FORECAST.materialsPending, color: '#0ea5e9' },
-                  { label: 'Subcontractors remaining', value: MOCK_FORECAST.subsRemaining, color: '#8b5cf6' },
+                  { label: 'Labor remaining', value: 0, color: '#6366f1' },
+                  { label: 'Materials pending (open POs)', value: 0, color: '#0ea5e9' },
+                  { label: 'Subcontractors remaining', value: 0, color: '#8b5cf6' },
                 ].map((row, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 3 ? '1px solid var(--border)' : 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {i > 0 && <span style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />}
                       <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{row.label}</span>
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: row.color, fontVariantNumeric: 'tabular-nums' }}>{fmt(row.value)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: row.color, fontVariantNumeric: 'tabular-nums' }}>{row.value > 0 ? fmt(row.value) : '—'}</span>
                   </div>
                 ))}
                 <div className="budget-forecast-summary" style={{ background: forecastVariance >= 0 ? '#f0fdf4' : '#fef2f2', borderColor: forecastVariance >= 0 ? '#bbf7d0' : '#fecaca' }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Projected Final Cost</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>vs {fmt(totalBudget)} budget</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>vs {totalBudget ? fmt(totalBudget) : '—'} budget</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(forecastTotal)}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{totalActual > 0 ? fmt(forecastTotal) : '—'}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: forecastVariance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{fmtSigned(forecastVariance)} projected</div>
                   </div>
                 </div>
@@ -486,6 +552,75 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
           </div>
         </div>
       </div>
+
+      {coModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setCoModalOpen(false)} role="dialog" aria-modal="true" aria-labelledby="new-co-title">
+          <div
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-6 shadow-lg max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="new-co-title" className="text-lg font-semibold text-[var(--text-primary)] mb-4">New Change Order</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Description</label>
+                <input
+                  type="text"
+                  value={newCO.description}
+                  onChange={(e) => setNewCO((p) => ({ ...p, description: e.target.value }))}
+                  className="w-full rounded-md px-3 py-2 border border-[var(--border)] bg-[var(--bg-base)] text-[var(--text-primary)]"
+                  placeholder="e.g. Added heated floor – tile phase"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Amount ($)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={newCO.amount}
+                  onChange={(e) => setNewCO((p) => ({ ...p, amount: e.target.value }))}
+                  className="w-full rounded-md px-3 py-2 border border-[var(--border)] bg-[var(--bg-base)] text-[var(--text-primary)]"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Status</label>
+                <select
+                  value={newCO.status}
+                  onChange={(e) => setNewCO((p) => ({ ...p, status: e.target.value as 'Approved' | 'Pending' }))}
+                  className="w-full rounded-md px-3 py-2 border border-[var(--border)] bg-[var(--bg-base)] text-[var(--text-primary)]"
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="Approved">Approved</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Date</label>
+                <input
+                  type="text"
+                  value={newCO.date}
+                  onChange={(e) => setNewCO((p) => ({ ...p, date: e.target.value }))}
+                  className="w-full rounded-md px-3 py-2 border border-[var(--border)] bg-[var(--bg-base)] text-[var(--text-primary)]"
+                  placeholder="MM/DD/YYYY"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button type="button" onClick={() => setCoModalOpen(false)} className="px-3 py-1.5 rounded-md text-[var(--text-secondary)] bg-[var(--bg-base)] border border-[var(--border)] text-sm font-medium">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAddChangeOrder}
+                disabled={!newCO.description.trim() || !newCO.amount || parseFloat(newCO.amount) < 0}
+                className="px-3 py-1.5 rounded-md bg-[var(--red)] text-white text-sm font-semibold border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add change order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
