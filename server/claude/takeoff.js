@@ -158,6 +158,24 @@ function tryCloseTruncatedJson(str) {
 }
 
 /**
+ * Fix common JSON syntax errors from LLM output.
+ * - Trailing commas: JSON disallows , before ] or }; Claude sometimes emits them.
+ * - Missing comma between array/object elements: } { or ] [.
+ * @param {string} str - JSON string
+ * @returns {string}
+ */
+function repairJsonString(str) {
+  if (!str || typeof str !== 'string') return str
+  let out = str
+  // Remove trailing commas before ] or } (e.g. "items": [ { "a": 1 }, ])
+  out = out.replace(/,(\s*[}\]])/g, '$1')
+  // Insert missing comma between array elements: } followed by { (or ] followed by [)
+  out = out.replace(/\}(\s*)\{/g, '},$1{')
+  out = out.replace(/\](\s*)\[/g, '],$1[')
+  return out
+}
+
+/**
  * Parse takeoff response: extract JSON from preamble + fences, normalize to { categories, summary }.
  * Handles: (1) text before JSON, (2) markdown code fences, (3) schema mismatch (categories vs material_takeoff).
  * Our UI expects { categories: [ { name, items: [...] } ], summary? }.
@@ -181,14 +199,15 @@ function parseTakeoffResponse(rawText) {
     jsonStr = end > start ? rawText.slice(start, end + 1) : rawText.slice(start).trim()
   }
 
-  // 3. Parse (try as-is, then try closing truncated JSON)
+  // 3. Repair common issues (trailing commas), then parse; on failure try closing truncated JSON
+  jsonStr = repairJsonString(jsonStr)
   let parsed
   try {
     parsed = JSON.parse(jsonStr)
   } catch (e) {
     const closed = tryCloseTruncatedJson(jsonStr)
     try {
-      parsed = JSON.parse(closed)
+      parsed = JSON.parse(repairJsonString(closed))
     } catch (e2) {
       console.error('[takeoff] Takeoff JSON parse failed:', e.message)
       console.error('[takeoff] Raw string (first 400 chars):', jsonStr.slice(0, 400))
