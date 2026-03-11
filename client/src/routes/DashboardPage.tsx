@@ -284,7 +284,7 @@ function CalendarWidget({
 
 export function DashboardPage() {
   useTheme()
-  const [projectSearch, _setProjectSearch] = useState('')
+  const [projectSearch] = useState('')
   const [chatConversations, setChatConversations] = useState<ConversationListItem[]>([])
   const [chatConversationsLoading, setChatConversationsLoading] = useState(true)
   const [chatSearch, setChatSearch] = useState('')
@@ -482,7 +482,7 @@ export function DashboardPage() {
     if (h < 17) return 'Good afternoon'
     return 'Good evening'
   })()
-  const displayName = authUser?.user_metadata?.full_name ?? authUser?.email?.split('@')[0] ?? 'Kyle'
+  const displayName = authUser?.full_name ?? authUser?.display_name ?? authUser?.email?.split('@')[0] ?? 'Kyle'
   const userName = displayName.trim().split(/\s+/)[0] || 'Kyle'
 
   return (

@@ -112,8 +112,6 @@ const MOCK_CHATS = [
 export function HeroDashboardMock() {
   const now = dayjs()
   const greeting = now.hour() < 12 ? 'Good morning' : now.hour() < 17 ? 'Good afternoon' : 'Good evening'
-  const viewYear = now.year()
-  const viewMonth = now.month()
   const daysInMonth = now.endOf('month').date()
   const firstDay = now.startOf('month').day()
   const todayDay = now.date()
