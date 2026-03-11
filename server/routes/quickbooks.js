@@ -50,7 +50,7 @@ function getOAuthClient(redirectUri) {
   })
 }
 
-/** GET /api/quickbooks/connect — redirect to Intuit OAuth (requires auth) */
+/** GET /api/quickbooks/connect — redirect to Intuit OAuth (requires auth). Use connect-url + client redirect when token is only in fetch headers. */
 router.get('/connect', requireAuth, (req, res, next) => {
   try {
     const redirectUri = getRedirectUri(req)
@@ -61,6 +61,22 @@ router.get('/connect', requireAuth, (req, res, next) => {
     const state = signState(req.user.id)
     const authUri = oauthClient.authorizeUri({ scope: QB_SCOPES, state })
     res.redirect(authUri)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** GET /api/quickbooks/connect-url — return Intuit auth URL as JSON (for client to redirect with auth header) */
+router.get('/connect-url', requireAuth, (req, res, next) => {
+  try {
+    const redirectUri = getRedirectUri(req)
+    const oauthClient = getOAuthClient(redirectUri)
+    if (!oauthClient) {
+      return res.status(503).json({ error: 'QuickBooks integration not configured' })
+    }
+    const state = signState(req.user.id)
+    const authUri = oauthClient.authorizeUri({ scope: QB_SCOPES, state })
+    res.json({ url: authUri })
   } catch (err) {
     next(err)
   }

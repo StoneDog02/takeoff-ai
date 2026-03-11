@@ -60,6 +60,13 @@ export const quickbooksApi = {
     return handleResponse<QuickBooksQueryResponse>(res)
   },
 
+  /** Get Intuit OAuth URL so the client can redirect (avoids sending token via location.href). */
+  async getConnectUrl(): Promise<{ url: string }> {
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/quickbooks/connect-url`, { headers })
+    return handleResponse<{ url: string }>(res)
+  },
+
   async getPayrollStatus(): Promise<{ enabled: boolean; message?: string }> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/quickbooks/payroll/status`, { headers })

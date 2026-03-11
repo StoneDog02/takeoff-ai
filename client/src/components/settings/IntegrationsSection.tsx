@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { BarChart2, CreditCard, PenTool, Map } from 'lucide-react'
 import type { Integration } from '@/types/global'
 import { settingsApi } from '@/api/settings'
-import { API_BASE } from '@/api/config'
+import { quickbooksApi } from '@/api/quickbooks'
 import { SectionHeader, Card, CardBody, Label, Input, Btn } from './SettingsPrimitives'
 
 const INTEGRATIONS: (Omit<Integration, 'connected' | 'config'> & { category: string; desc: string; Icon: typeof BarChart2; apiKey?: boolean })[] = [
@@ -117,10 +117,20 @@ export function IntegrationsSection() {
                 </Btn>
               ) : item.id === 'quickbooks' ? (
                 <Btn
-                  onClick={() => { window.location.href = `${API_BASE}/quickbooks/connect` }}
+                  onClick={async () => {
+                    setUpdating('quickbooks')
+                    setError(null)
+                    try {
+                      const { url } = await quickbooksApi.getConnectUrl()
+                      window.location.href = url
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : 'Connect failed')
+                      setUpdating(null)
+                    }
+                  }}
                   disabled={!!updating}
                 >
-                  Connect
+                  {updating === 'quickbooks' ? 'Connecting…' : 'Connect'}
                 </Btn>
               ) : (
                 <Btn
