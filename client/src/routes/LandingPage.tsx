@@ -2,7 +2,7 @@ import { useScrollReveal } from '@/hooks/useScrollReveal'
 import { LandingNav } from '@/components/landing/LandingNav'
 import { HeroSection } from '@/components/landing/HeroSection'
 import { TrustedBySection } from '@/components/landing/TrustedBySection'
-import { FeaturesSection } from '@/components/landing/FeaturesSection'
+import { InstantTakeoffSection } from '@/components/landing/InstantTakeoffSection'
 import { StatsSection } from '@/components/landing/StatsSection'
 import { PricingSection } from '@/components/landing/PricingSection'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
@@ -19,7 +19,7 @@ export function LandingPage() {
       <LandingNav />
       <HeroSection />
       <TrustedBySection />
-      <FeaturesSection />
+      <InstantTakeoffSection />
       <StatsSection />
       <PricingSection />
       <TestimonialsSection />

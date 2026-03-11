@@ -573,7 +573,6 @@ export function DashboardPage() {
               ? (Math.round(((kpis!.totalExpense / kpis!.totalRevenue) * 100) * 10) / 10).toFixed(1) + '% of revenue'
               : 'YTD'
             const activeJobs = kpis?.activeJobs ?? 0
-            const totalProjects = Math.max(kpis?.totalProjects ?? 0, 1)
             const kpiRows = [
               { label: 'Total Revenue', val: fmt(kpis?.totalRevenue ?? 0), sub: revPct != null ? `↑${revPct}% YTD` : 'YTD', color: '#10B981', spark: (kpis?.revenueTrend?.length ? kpis.revenueTrend : []), sparkColor: '#10B981' as const },
               { label: 'Total Expense', val: fmt(kpis?.totalExpense ?? 0), sub: expenseRevPct, color: '#F59E0B', spark: (kpis?.expenseTrend?.length ? kpis.expenseTrend : []), sparkColor: '#F59E0B' as const },
