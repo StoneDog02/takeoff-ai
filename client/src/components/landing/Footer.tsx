@@ -93,7 +93,7 @@ export function Footer() {
           <ul className="list-none flex flex-col gap-2.5">
             {legalLinks.map((item) => (
               <li key={item.label}>
-                {'to' in item ? (
+                {'to' in item && typeof item.to === 'string' ? (
                   <Link
                     to={item.to}
                     className="text-sm text-white-dim no-underline transition-colors hover:text-landing-white"
@@ -102,7 +102,7 @@ export function Footer() {
                   </Link>
                 ) : (
                   <a
-                    href={item.href}
+                    href={'href' in item ? item.href : '#'}
                     className="text-sm text-white-dim no-underline transition-colors hover:text-landing-white"
                   >
                     {item.label}
