@@ -125,7 +125,7 @@ function stripMarkdown(raw) {
 }
 
 /**
- * Try to close truncated JSON by balancing brackets. Ignores brackets inside strings (simple heuristic).
+ * Try to close truncated JSON by balancing brackets. Ignores brackets inside strings.
  * @param {string} str - Possibly truncated JSON
  * @returns {string}
  */
@@ -158,56 +158,82 @@ function tryCloseTruncatedJson(str) {
 }
 
 /**
- * When Claude returns narrative + JSON, or JSON inside ```json that is truncated,
- * extract and parse the JSON so we don't lose categories.
- * @param {string} raw - Raw response text (may include narrative and/or markdown fences)
- * @returns {{ categories: unknown[], summary?: string } | null}
+ * Parse takeoff response: extract JSON from preamble + fences, normalize to { categories, summary }.
+ * Handles: (1) text before JSON, (2) markdown code fences, (3) schema mismatch (categories vs material_takeoff).
+ * Our UI expects { categories: [ { name, items: [...] } ], summary? }.
+ *
+ * @param {string} rawText - Full raw response from Claude
+ * @returns {{ categories: Array, summary?: string } | null}
  */
-function extractMaterialListFromText(raw) {
-  if (!raw || typeof raw !== 'string') return null
-  const cleaned = stripMarkdown(raw)
+function parseTakeoffResponse(rawText) {
+  if (!rawText || typeof rawText !== 'string') return null
 
-  function tryParse(s) {
+  // 1. Extract JSON from markdown fences if present (```json ... ``` or ``` ... ```)
+  const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/)
+  let jsonStr
+  if (fenceMatch) {
+    jsonStr = fenceMatch[1].trim()
+  } else {
+    // 2. No fences: find first { and take to last } or end of string (handles preamble + truncation)
+    const start = rawText.indexOf('{')
+    if (start === -1) return null
+    const end = rawText.lastIndexOf('}')
+    jsonStr = end > start ? rawText.slice(start, end + 1) : rawText.slice(start).trim()
+  }
+
+  // 3. Parse (try as-is, then try closing truncated JSON)
+  let parsed
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch (e) {
+    const closed = tryCloseTruncatedJson(jsonStr)
     try {
-      const data = JSON.parse(s)
-      if (data && Array.isArray(data.categories) && data.categories.length > 0) return data
-      if (data && Array.isArray(data.categories)) return data
-      return null
-    } catch (_) {
+      parsed = JSON.parse(closed)
+    } catch (e2) {
+      console.error('[takeoff] Takeoff JSON parse failed:', e.message)
+      console.error('[takeoff] Raw string (first 400 chars):', jsonStr.slice(0, 400))
       return null
     }
   }
 
-  // 1) Direct parse (response is pure JSON)
-  const direct = tryParse(cleaned)
-  if (direct) return direct
+  if (!parsed || typeof parsed !== 'object') return null
 
-  // 2) Find JSON object: look for "categories": and parse from the preceding "{"
-  const categoriesKey = '"categories":'
-  const idx = cleaned.indexOf(categoriesKey)
-  if (idx === -1) return null
-  const start = cleaned.lastIndexOf('{', idx)
-  if (start === -1) return null
-  const tail = cleaned.slice(start)
+  // 4. Normalize schema — we always return { categories, summary } for the pipeline
+  if (Array.isArray(parsed.categories)) {
+    return {
+      categories: parsed.categories,
+      summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+    }
+  }
 
-  const fromTail = tryParse(tail)
-  if (fromTail) return fromTail
-
-  // 3) Tail may be truncated (hit max_tokens). Try closing brackets and parse again.
-  const closed = tryCloseTruncatedJson(tail)
-  const repaired = tryParse(closed)
-  if (repaired) return repaired
+  // Claude sometimes returns material_takeoff (flat array); map to categories for our UI
+  if (Array.isArray(parsed.material_takeoff)) {
+    const categories = []
+    const byCategory = new Map()
+    for (const item of parsed.material_takeoff) {
+      const catName = item.category || item.categoryName || 'Uncategorized'
+      if (!byCategory.has(catName)) {
+        byCategory.set(catName, [])
+      }
+      byCategory.get(catName).push(item)
+    }
+    for (const [name, items] of byCategory) {
+      categories.push({ name, items })
+    }
+    return {
+      categories,
+      summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+    }
+  }
 
   return null
 }
 
 /**
- * Parse raw Claude response into normalized material list { categories, summary }.
- * Uses extractMaterialListFromText so narrative + JSON responses still yield categories.
+ * Parse raw Claude response (e.g. per-sheet civil). Same extraction + normalization as parseTakeoffResponse.
  */
 function parseClaudeResponse(raw) {
-  const cleaned = stripMarkdown(raw)
-  return extractMaterialListFromText(cleaned)
+  return parseTakeoffResponse(raw)
 }
 
 /**
@@ -506,9 +532,8 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
 
   const textBlock = response.content?.find((b) => b.type === 'text')
   const rawText = textBlock?.text || ''
-  const cleaned = stripMarkdown(rawText)
 
-  let materialList = extractMaterialListFromText(cleaned)
+  let materialList = parseTakeoffResponse(rawText)
   if (!materialList) {
     materialList = { categories: [], summary: rawText.slice(0, 500) }
   }

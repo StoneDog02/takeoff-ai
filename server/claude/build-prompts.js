@@ -84,16 +84,34 @@ function extractFileContent(filename) {
   return cache[filename] || `[WARNING: ${filename} not found in knowledge cache]`
 }
 
-function getOutputFormatSection() {
-  return (
-    '\n\n---\nOutput format: Respond with a single JSON object matching this structure (no markdown, no code fence). Include trade_tag and cost_estimate when you can:\n' +
-    JSON.stringify(OUTPUT_FORMAT_JSON, null, 2)
-  )
+/** Build the output-format block (always last in the prompt). Must be strict so the parser can find the JSON. */
+function buildOutputFormatBlock() {
+  const divider = '='.repeat(60)
+  return `
+
+${divider}
+OUTPUT FORMAT — CRITICAL
+${divider}
+
+Your response MUST:
+1. Begin with { and end with } — nothing before, nothing after. No preamble, no "Here is the takeoff", no "Analyzed 19 sheets...".
+2. Contain NO markdown code fences (no \`\`\`json or \`\`\`).
+3. Contain NO explanatory text, summaries, or narrative outside the JSON object.
+4. Use the key "categories" (array of { "name", "items" }) and optionally "summary" (string). Do not use "material_takeoff" or other keys for the list.
+
+Any text or markdown outside the JSON will break the parser and cause the takeoff to fail. Return ONLY the JSON object.
+
+Structure (include trade_tag and cost_estimate when you can):
+
+` +
+    JSON.stringify(OUTPUT_FORMAT_JSON, null, 2) +
+    `
+`
 }
 
-/** Build the output-format block (always last in the prompt). */
-function buildOutputFormatBlock() {
-  return getOutputFormatSection()
+/** Alias for default prompt path; same content as buildOutputFormatBlock(). */
+function getOutputFormatSection() {
+  return buildOutputFormatBlock()
 }
 
 /**
