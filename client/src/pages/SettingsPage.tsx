@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Building2,
   Users,
@@ -56,6 +57,13 @@ const NAV: {
 
 export default function SettingsPage() {
   const [active, setActive] = useState<SettingsSectionId>('company')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    if (searchParams.get('quickbooks') === 'connected') {
+      setActive('integrations')
+    }
+  }, [searchParams])
 
   return (
     <div

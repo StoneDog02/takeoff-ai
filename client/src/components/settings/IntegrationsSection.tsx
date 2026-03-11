@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { BarChart2, CreditCard, PenTool, Map } from 'lucide-react'
 import type { Integration } from '@/types/global'
 import { settingsApi } from '@/api/settings'
+import { API_BASE } from '@/api/config'
 import { SectionHeader, Card, CardBody, Label, Input, Btn } from './SettingsPrimitives'
 
 const INTEGRATIONS: (Omit<Integration, 'connected' | 'config'> & { category: string; desc: string; Icon: typeof BarChart2; apiKey?: boolean })[] = [
@@ -18,19 +20,38 @@ export function IntegrationsSection() {
   const [updating, setUpdating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    settingsApi.getSettings().then((res) => {
-      if (cancelled) return
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const fetchIntegrations = () => {
+    return settingsApi.getSettings().then((res) => {
       const map: Record<string, boolean> = {}
       for (const item of INTEGRATIONS) map[item.id] = false
       for (const conn of res.integrations || []) {
         if (conn.integration_id in map) map[conn.integration_id] = conn.connected
       }
       setStates(map)
-    }).catch((e) => { if (!cancelled) setError(e.message) }).finally(() => { if (!cancelled) setLoading(false) })
+    })
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    fetchIntegrations()
+      .catch((e) => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    const qb = searchParams.get('quickbooks')
+    if (qb === 'connected') {
+      setError(null)
+      fetchIntegrations()
+      setSearchParams((p) => { p.delete('quickbooks'); return p }, { replace: true })
+    } else if (qb === 'error') {
+      setError(searchParams.get('message') || 'QuickBooks connection failed')
+      setSearchParams((p) => { p.delete('quickbooks'); p.delete('message'); return p }, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const setConnected = async (integrationId: string, connected: boolean, config?: Record<string, unknown>) => {
     setUpdating(integrationId)
@@ -93,6 +114,13 @@ export function IntegrationsSection() {
               {states[item.id] ? (
                 <Btn variant="ghost" onClick={() => setConnected(item.id, false)} disabled={!!updating}>
                   {updating === item.id ? 'Updating…' : 'Disconnect'}
+                </Btn>
+              ) : item.id === 'quickbooks' ? (
+                <Btn
+                  onClick={() => { window.location.href = `${API_BASE}/quickbooks/connect` }}
+                  disabled={!!updating}
+                >
+                  Connect
                 </Btn>
               ) : (
                 <Btn

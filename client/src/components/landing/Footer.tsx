@@ -15,8 +15,8 @@ const companyLinks = [
 ]
 
 const legalLinks = [
-  { href: '#', label: 'Privacy Policy' },
-  { href: '#', label: 'Terms of Service' },
+  { to: '/privacy', label: 'Privacy Policy' },
+  { to: '/terms', label: 'Terms of Service' },
   { href: '#', label: 'Cookie Policy' },
 ]
 
@@ -91,14 +91,23 @@ export function Footer() {
             Legal
           </div>
           <ul className="list-none flex flex-col gap-2.5">
-            {legalLinks.map(({ href, label }) => (
-              <li key={label}>
-                <a
-                  href={href}
-                  className="text-sm text-white-dim no-underline transition-colors hover:text-landing-white"
-                >
-                  {label}
-                </a>
+            {legalLinks.map((item) => (
+              <li key={item.label}>
+                {'to' in item ? (
+                  <Link
+                    to={item.to}
+                    className="text-sm text-white-dim no-underline transition-colors hover:text-landing-white"
+                  >
+                    {item.label}
+                  </Link>
+                ) : (
+                  <a
+                    href={item.href}
+                    className="text-sm text-white-dim no-underline transition-colors hover:text-landing-white"
+                  >
+                    {item.label}
+                  </a>
+                )}
               </li>
             ))}
           </ul>

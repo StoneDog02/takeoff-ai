@@ -8,6 +8,7 @@ import { BuildListsPage } from '@/routes/BuildListsPage'
 import { BuildListDetailPage } from '@/routes/BuildListDetailPage'
 import { ProjectsPage } from '@/routes/ProjectsPage'
 import { RevenuePage } from '@/pages/RevenuePage'
+import { AccountingPage } from '@/pages/AccountingPage'
 import { EstimatesPage } from '@/pages/EstimatesPage'
 import { TeamsPage } from '@/pages/TeamsPage'
 import { PayrollPage } from '@/pages/PayrollPage'
@@ -16,6 +17,8 @@ import SettingsPage from '@/pages/SettingsPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { AdminGuard } from '@/components/AdminGuard'
 import { LandingPage } from '@/routes/LandingPage'
+import { PrivacyPage } from '@/routes/PrivacyPage'
+import { TermsPage } from '@/routes/TermsPage'
 import { SignInPage } from '@/routes/SignInPage'
 import { SignUpPage } from '@/routes/SignUpPage'
 import { AcceptInvitePage } from '@/routes/AcceptInvitePage'
@@ -31,6 +34,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <LandingPage /> },
       { path: 'landing', element: <LandingPage /> },
+      { path: 'privacy', element: <PrivacyPage /> },
+      { path: 'terms', element: <TermsPage /> },
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
       { path: 'accept-invite', element: <AcceptInvitePage /> },
@@ -52,6 +57,7 @@ export const router = createBrowserRouter([
           { path: 'projects', element: <ProjectsPage /> },
           { path: 'projects/:id', element: <ProjectsPage /> },
           { path: 'revenue', element: <RevenuePage /> },
+          { path: 'accounting', element: <AccountingPage /> },
           { path: 'estimates', element: <EstimatesPage /> },
           { path: 'teams', element: <TeamsPage /> },
           { path: 'payroll', element: <PayrollPage /> },

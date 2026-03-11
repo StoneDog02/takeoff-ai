@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, Fragment } from 'react'
-import { Download, Send, FileText, Search, ChevronDown, ChevronUp, Calendar, AlertTriangle, UserCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Download, Send, FileText, Search, ChevronDown, ChevronUp, Calendar, AlertTriangle, UserCircle, ExternalLink } from 'lucide-react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
+import { quickbooksApi } from '@/api/quickbooks'
 import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { TeamsAvatar, getInitials } from '@/components/teams/TeamsAvatar'
@@ -143,6 +145,7 @@ export function PayrollPage() {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [expandedSummaryIds, setExpandedSummaryIds] = useState<Set<string>>(new Set())
+  const [quickbooksConnected, setQuickbooksConnected] = useState<boolean | null>(null)
 
   const toggleSummaryExpand = (employeeId: string) => {
     setExpandedSummaryIds((prev) => {
@@ -184,6 +187,13 @@ export function PayrollPage() {
       })
       .catch(() => {})
       .finally(() => setContactLoading(false))
+  }, [])
+
+  useEffect(() => {
+    quickbooksApi
+      .getPayrollStatus()
+      .then(() => setQuickbooksConnected(true))
+      .catch(() => setQuickbooksConnected(false))
   }, [])
 
   const jobMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.name])), [jobs])
@@ -362,6 +372,40 @@ export function PayrollPage() {
             <div className="payroll-summary-sub">blended this period</div>
           </div>
         </div>
+
+        {quickbooksConnected !== null && (
+          <div className="payroll-qb-corrections" style={{ marginTop: 24, marginBottom: 24 }}>
+            <div className="payroll-summary-card" style={{ maxWidth: '100%', padding: '20px 24px', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700 }}>QuickBooks payroll corrections</h3>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted, #6b7280)', lineHeight: 1.4 }}>
+                    {quickbooksConnected
+                      ? 'Need to fix a paycheck or submit a payroll amendment? Open QuickBooks to correct payroll. In-app correction submission will be available after Intuit enables the Payroll API for this app.'
+                      : 'Connect QuickBooks in Settings to open payroll corrections from here.'}
+                  </p>
+                </div>
+                {quickbooksConnected ? (
+                  <a
+                    href="https://qbo.intuit.com/app/homepage"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="payroll-btn primary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                  >
+                    <ExternalLink size={16} />
+                    Open QuickBooks to correct payroll
+                  </a>
+                ) : (
+                  <Link to="/settings" className="payroll-btn secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <ExternalLink size={16} />
+                    Connect QuickBooks
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {viewMode === 'detailed' && (
           <div className="payroll-period-bar">

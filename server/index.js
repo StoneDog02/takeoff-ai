@@ -27,6 +27,7 @@ const contractorsRoutes = require('./routes/contractors')
 const meRoutes = require('./routes/me')
 const adminRoutes = require('./routes/admin')
 const settingsRoutes = require('./routes/settings')
+const quickbooksRoutes = require('./routes/quickbooks')
 const { router: invitesRouter } = require('./routes/invites')
 const { requireAdmin } = require('./middleware/admin')
 
@@ -63,6 +64,7 @@ app.use('/api/dashboard', requireAuth, dashboardRoutes)
 app.use('/api/conversations', requireAuth, conversationsRoutes)
 app.use('/api/contractors', requireAuth, contractorsRoutes)
 app.use('/api/settings', requireAuth, settingsRoutes)
+app.use('/api/quickbooks', quickbooksRoutes)
 
 app.use((err, req, res, next) => {
   console.error(err)

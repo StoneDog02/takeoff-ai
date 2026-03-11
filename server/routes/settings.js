@@ -56,12 +56,13 @@ router.get('/', async (req, res, next) => {
           insurance_expiry_date: taxRes.data.insurance_expiry_date || null,
         }
       : null
-    const integrations = (integrationsRes.data || []).map((r) => ({
-      id: r.id,
-      integration_id: r.integration_id,
-      connected: r.connected,
-      config: r.config || {},
-    }))
+    const integrations = (integrationsRes.data || []).map((r) => {
+      let config = r.config || {}
+      if (r.integration_id === 'quickbooks' && typeof config === 'object') {
+        config = { realmId: config.realmId }
+      }
+      return { id: r.id, integration_id: r.integration_id, connected: r.connected, config }
+    })
 
     res.json({
       company,
@@ -265,12 +266,13 @@ router.get('/integrations', async (req, res, next) => {
       .eq('user_id', userId)
       .order('integration_id')
     if (error) throw error
-    res.json((data || []).map((r) => ({
-      id: r.id,
-      integration_id: r.integration_id,
-      connected: r.connected,
-      config: r.config || {},
-    })))
+    res.json((data || []).map((r) => {
+      let config = r.config || {}
+      if (r.integration_id === 'quickbooks' && typeof config === 'object') {
+        config = { realmId: config.realmId }
+      }
+      return { id: r.id, integration_id: r.integration_id, connected: r.connected, config }
+    }))
   } catch (err) {
     next(err)
   }
@@ -299,7 +301,11 @@ router.put('/integrations/:id', async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
-    res.json({ id: data.id, integration_id: data.integration_id, connected: data.connected, config: data.config || {} })
+    let config = data.config || {}
+    if (integrationId === 'quickbooks' && typeof config === 'object') {
+      config = { realmId: config.realmId }
+    }
+    res.json({ id: data.id, integration_id: data.integration_id, connected: data.connected, config })
   } catch (err) {
     next(err)
   }

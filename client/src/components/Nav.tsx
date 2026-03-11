@@ -8,6 +8,7 @@ const navItems = [
   { to: '/estimates', label: 'Estimates' },
   { to: '/teams', label: 'Teams' },
   { to: '/revenue', label: 'Revenue' },
+  { to: '/accounting', label: 'Accounting' },
   { to: '/settings', label: 'Settings' },
 ]
 
