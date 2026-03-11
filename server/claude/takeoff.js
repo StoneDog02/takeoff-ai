@@ -118,35 +118,86 @@ async function callClaudeWithPrompt(fileBuffer, mimeType, systemPrompt, userText
 }
 
 function stripMarkdown(raw) {
-  return raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
+  return raw
+    .replace(/\s*```json\s*/gi, '\n')
+    .replace(/\s*```\s*/g, '\n')
+    .trim()
 }
 
 /**
- * When Claude returns narrative + JSON (e.g. "Analyzed 19 sheets... {\"categories\":[...]}"),
- * try to extract and parse the JSON object so we don't lose categories.
- * @param {string} cleaned - Stripped response text
+ * Try to close truncated JSON by balancing brackets. Ignores brackets inside strings (simple heuristic).
+ * @param {string} str - Possibly truncated JSON
+ * @returns {string}
+ */
+function tryCloseTruncatedJson(str) {
+  const stack = []
+  let inString = false
+  let escape = false
+  let quote = ''
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i]
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (inString) {
+      if (c === '\\') escape = true
+      else if (c === quote) inString = false
+      continue
+    }
+    if (c === '"' || c === "'") {
+      inString = true
+      quote = c
+      continue
+    }
+    if (c === '{') stack.push('}')
+    else if (c === '[') stack.push(']')
+    else if (c === '}' || c === ']') stack.pop()
+  }
+  return str + stack.join('')
+}
+
+/**
+ * When Claude returns narrative + JSON, or JSON inside ```json that is truncated,
+ * extract and parse the JSON so we don't lose categories.
+ * @param {string} raw - Raw response text (may include narrative and/or markdown fences)
  * @returns {{ categories: unknown[], summary?: string } | null}
  */
-function extractMaterialListFromText(cleaned) {
-  if (!cleaned || typeof cleaned !== 'string') return null
-  // Direct parse (response is pure JSON)
-  try {
-    const data = JSON.parse(cleaned)
-    if (data && Array.isArray(data.categories)) return data
-    return null
-  } catch (_) {}
+function extractMaterialListFromText(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  const cleaned = stripMarkdown(raw)
 
-  // Find the JSON object: look for "categories": and parse from the preceding "{"
+  function tryParse(s) {
+    try {
+      const data = JSON.parse(s)
+      if (data && Array.isArray(data.categories) && data.categories.length > 0) return data
+      if (data && Array.isArray(data.categories)) return data
+      return null
+    } catch (_) {
+      return null
+    }
+  }
+
+  // 1) Direct parse (response is pure JSON)
+  const direct = tryParse(cleaned)
+  if (direct) return direct
+
+  // 2) Find JSON object: look for "categories": and parse from the preceding "{"
   const categoriesKey = '"categories":'
   const idx = cleaned.indexOf(categoriesKey)
   if (idx === -1) return null
   const start = cleaned.lastIndexOf('{', idx)
   if (start === -1) return null
   const tail = cleaned.slice(start)
-  try {
-    const data = JSON.parse(tail)
-    if (data && Array.isArray(data.categories)) return data
-  } catch (_) {}
+
+  const fromTail = tryParse(tail)
+  if (fromTail) return fromTail
+
+  // 3) Tail may be truncated (hit max_tokens). Try closing brackets and parse again.
+  const closed = tryCloseTruncatedJson(tail)
+  const repaired = tryParse(closed)
+  if (repaired) return repaired
+
   return null
 }
 
