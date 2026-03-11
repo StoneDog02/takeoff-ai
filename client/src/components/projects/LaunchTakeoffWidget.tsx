@@ -472,7 +472,7 @@ export function LaunchTakeoffWidget({
             Takeoff line items
           </h3>
           {categories.length > 0 ? (
-          <div className="flex rounded-lg overflow-hidden bg-white dark:bg-dark-3 min-h-[320px]">
+          <div className="flex rounded-lg overflow-hidden bg-white dark:bg-dark-3">
             {/* Sidebar: light in light mode, dark in dark mode */}
             <div className="w-[220px] flex-shrink-0 flex flex-col bg-slate-100 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700/80">
               <div className="px-3 py-3 border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2">
@@ -515,7 +515,7 @@ export function LaunchTakeoffWidget({
                   </div>
                 )}
               </div>
-              <div className="flex-1 overflow-y-auto py-2">
+              <div className="py-2">
                 {visibleCategories.map((cat, i) => {
                   const globalIndex = sidebarStart + i
                   const isActive = globalIndex === Math.min(activeCategoryIndex, categories.length - 1)
@@ -544,7 +544,7 @@ export function LaunchTakeoffWidget({
               </div>
             </div>
 
-            {/* Content */}
+            {/* Content: table scrolls internally when many rows */}
             <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-dark-3">
               {(() => {
                 const activeCat = categories[Math.min(activeCategoryIndex, categories.length - 1)]
@@ -561,7 +561,7 @@ export function LaunchTakeoffWidget({
                         </span>
                       </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="max-h-[60vh] overflow-y-auto">
                       <TakeoffTable items={items} />
                     </div>
                   </>
