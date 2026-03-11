@@ -301,11 +301,11 @@ router.put('/integrations/:id', async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
-    let config = data.config || {}
-    if (integrationId === 'quickbooks' && typeof config === 'object') {
-      config = { realmId: config.realmId }
+    let outConfig = data.config || {}
+    if (integrationId === 'quickbooks' && typeof outConfig === 'object') {
+      outConfig = { realmId: outConfig.realmId }
     }
-    res.json({ id: data.id, integration_id: data.integration_id, connected: data.connected, config })
+    res.json({ id: data.id, integration_id: data.integration_id, connected: data.connected, config: outConfig })
   } catch (err) {
     next(err)
   }
