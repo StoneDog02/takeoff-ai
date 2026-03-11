@@ -12,6 +12,53 @@ const MODEL = 'claude-sonnet-4-6'
 /** Max pages per chunk to stay under API limits. Anthropic allows 100; we use 5 for reliability. */
 const PAGES_PER_CHUNK = 5
 
+/** Seconds to wait before retry when rate limited (429). Anthropic limit is per-minute. */
+const RATE_LIMIT_BACKOFF_SEC = 65
+const RATE_LIMIT_MAX_RETRIES = 2
+
+/**
+ * Run one takeoff at a time to stay under org rate limit (e.g. 30k input tokens/min).
+ * New requests wait in line; when the current takeoff finishes, the next starts.
+ */
+let _takeoffTail = Promise.resolve()
+function runSerial(fn) {
+  const prev = _takeoffTail
+  let resolve
+  _takeoffTail = new Promise((r) => { resolve = r })
+  return prev.then(
+    () => fn().then((v) => { resolve(); return v }, (e) => { resolve(); throw e })
+  )
+}
+
+function isRateLimitError(err) {
+  const status = err?.status ?? err?.httpStatus
+  if (status === 429) return true
+  const type = err?.error?.type ?? err?.type
+  const msg = (err?.error?.message ?? err?.message ?? '').toLowerCase()
+  return type === 'rate_limit_error' || msg.includes('rate limit')
+}
+
+/** Call fn(); on 429, wait RATE_LIMIT_BACKOFF_SEC and retry up to RATE_LIMIT_MAX_RETRIES times. */
+async function withRateLimitRetry(fn) {
+  let lastErr
+  for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+    try {
+      return await fn()
+    } catch (e) {
+      lastErr = e
+      if (attempt < RATE_LIMIT_MAX_RETRIES && isRateLimitError(e)) {
+        console.warn(
+          `[takeoff] Rate limited (429), waiting ${RATE_LIMIT_BACKOFF_SEC}s before retry ${attempt + 2}/${RATE_LIMIT_MAX_RETRIES + 1}`
+        )
+        await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_SEC * 1000))
+        continue
+      }
+      throw e
+    }
+  }
+  throw lastErr
+}
+
 // --- PDF helpers (civil sheet-aware flow) ---
 
 async function getPDFPageCount(buffer) {
@@ -65,7 +112,7 @@ async function callClaudeWithPrompt(fileBuffer, mimeType, systemPrompt, userText
     stream: false,
   }
   if (isPdf) params.betas = [PDF_BETA]
-  const response = await anthropic.beta.messages.create(params)
+  const response = await withRateLimitRetry(() => anthropic.beta.messages.create(params))
   const textBlock = response.content?.find((b) => b.type === 'text')
   return textBlock?.text || ''
 }
@@ -75,17 +122,41 @@ function stripMarkdown(raw) {
 }
 
 /**
- * Parse raw Claude response into normalized material list { categories, summary }.
+ * When Claude returns narrative + JSON (e.g. "Analyzed 19 sheets... {\"categories\":[...]}"),
+ * try to extract and parse the JSON object so we don't lose categories.
+ * @param {string} cleaned - Stripped response text
+ * @returns {{ categories: unknown[], summary?: string } | null}
  */
-function parseClaudeResponse(raw) {
+function extractMaterialListFromText(cleaned) {
+  if (!cleaned || typeof cleaned !== 'string') return null
+  // Direct parse (response is pure JSON)
   try {
-    const cleaned = stripMarkdown(raw)
     const data = JSON.parse(cleaned)
     if (data && Array.isArray(data.categories)) return data
     return null
-  } catch (_) {
-    return null
-  }
+  } catch (_) {}
+
+  // Find the JSON object: look for "categories": and parse from the preceding "{"
+  const categoriesKey = '"categories":'
+  const idx = cleaned.indexOf(categoriesKey)
+  if (idx === -1) return null
+  const start = cleaned.lastIndexOf('{', idx)
+  if (start === -1) return null
+  const tail = cleaned.slice(start)
+  try {
+    const data = JSON.parse(tail)
+    if (data && Array.isArray(data.categories)) return data
+  } catch (_) {}
+  return null
+}
+
+/**
+ * Parse raw Claude response into normalized material list { categories, summary }.
+ * Uses extractMaterialListFromText so narrative + JSON responses still yield categories.
+ */
+function parseClaudeResponse(raw) {
+  const cleaned = stripMarkdown(raw)
+  return extractMaterialListFromText(cleaned)
 }
 
 /**
@@ -346,10 +417,17 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
 
   let response
   try {
-    response = await anthropic.beta.messages.create(params)
+    response = await withRateLimitRetry(() => anthropic.beta.messages.create(params))
   } catch (apiErr) {
     const msg = apiErr?.error?.message ?? apiErr?.message ?? ''
     const status = apiErr?.status ?? apiErr?.httpStatus
+    if (isRateLimitError(apiErr)) {
+      const err = new Error(
+        'Takeoff is rate limited. Only one takeoff runs at a time; your request was queued and will retry shortly. If this persists, try again in a minute or contact your admin about increasing the Anthropic rate limit.'
+      )
+      err.status = 429
+      throw err
+    }
     if (status === 400 && (msg.includes('credit') || msg.includes('balance') || msg.includes('billing'))) {
       const err = new Error(
         'Anthropic reports your credit balance is too low for API use. If you have $5 and auto-reload on, try buying more credits once so your balance is above the reload threshold, or wait for auto-reload to complete. Add credits at https://console.anthropic.com (Credit balance / Buy credits).'
@@ -377,13 +455,10 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
 
   const textBlock = response.content?.find((b) => b.type === 'text')
   const rawText = textBlock?.text || ''
+  const cleaned = stripMarkdown(rawText)
 
-  let materialList = { categories: [], summary: '' }
-  try {
-    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
-    materialList = JSON.parse(cleaned)
-    if (!Array.isArray(materialList.categories)) materialList = { categories: [], summary: '' }
-  } catch (_) {
+  let materialList = extractMaterialListFromText(cleaned)
+  if (!materialList) {
     materialList = { categories: [], summary: rawText.slice(0, 500) }
   }
 
@@ -391,14 +466,9 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
 }
 
 /**
- * Run takeoff: send plan (PDF/image) to Claude and return parsed material list.
- * Civil PDFs use sheet-aware flow (keynote register → per-sheet → aggregate). Others use chunked flow.
- * @param {Buffer} fileBuffer - Plan file content
- * @param {string} mimeType - e.g. 'application/pdf', 'image/jpeg'
- * @param {{ useCustomProject?: boolean, planType?: string }} [options]
- * @returns {Promise<{ materialList: object, rawText?: string }>}
+ * Internal: run one takeoff (no queue). Used by runTakeoff after acquiring the serial lock.
  */
-async function runTakeoff(fileBuffer, mimeType, options = {}) {
+async function runTakeoffInternal(fileBuffer, mimeType, options = {}) {
   const isPdf = mimeType === 'application/pdf'
   const planType = options.planType && ['residential', 'commercial', 'civil', 'auto'].includes(options.planType) ? options.planType : 'auto'
 
@@ -431,6 +501,20 @@ async function runTakeoff(fileBuffer, mimeType, options = {}) {
 
   const merged = mergeMaterialLists(results)
   return { materialList: merged, rawText: '' }
+}
+
+/**
+ * Run takeoff: send plan (PDF/image) to Claude and return parsed material list.
+ * Requests run one at a time to stay under the org rate limit (e.g. 30k input tokens/min).
+ * Civil PDFs use sheet-aware flow; others use chunked flow. On 429, retries after a short wait.
+ *
+ * @param {Buffer} fileBuffer - Plan file content
+ * @param {string} mimeType - e.g. 'application/pdf', 'image/jpeg'
+ * @param {{ useCustomProject?: boolean, planType?: string, tradeFilter?: unknown }} [options]
+ * @returns {Promise<{ materialList: object, rawText?: string }>}
+ */
+function runTakeoff(fileBuffer, mimeType, options = {}) {
+  return runSerial(() => runTakeoffInternal(fileBuffer, mimeType, options))
 }
 
 module.exports = { runTakeoff }
