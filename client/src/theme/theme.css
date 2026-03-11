@@ -317,10 +317,16 @@ body {
   transition: box-shadow 0.2s;
 }
 
-.dashboard-app .logo-icon svg {
+.dashboard-app .logo-icon svg,
+.dashboard-app .logo-icon .logo-p {
   width: 13px;
   height: 13px;
-  fill: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  display: block;
+  text-align: center;
 }
 
 .dashboard-app .logo-text {

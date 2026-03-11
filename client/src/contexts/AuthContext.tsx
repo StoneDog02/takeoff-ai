@@ -14,6 +14,7 @@ interface AuthState {
   isAdmin: boolean
   loading: boolean
   type: MeResponse['type']
+  role_label?: string
   employee?: MeResponse['employee']
 }
 
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: false,
         loading: false,
         type: 'contractor',
+        role_label: undefined,
       })
       return
     }
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: me.isAdmin,
         loading: false,
         type: me.type,
+        role_label: me.role_label,
         employee: me.employee,
       })
     } catch {
@@ -62,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: false,
         loading: false,
         type: 'contractor',
+        role_label: undefined,
       })
     }
   }, [])

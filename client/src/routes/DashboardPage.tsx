@@ -42,13 +42,13 @@ const URGENCY_STYLES: Record<'high' | 'medium' | 'low', { color: string; bg: str
   low: { color: '#3B82F6', bg: '#EFF6FF', border: '#BFDBFE' },
 }
 
-const SCHEDULE_TYPE_STYLES: Record<string, { color: string; bg: string }> = {
-  meeting: { color: '#8B5CF6', bg: '#F5F3FF' },
-  delivery: { color: '#3B82F6', bg: '#EFF6FF' },
-  call: { color: '#10B981', bg: '#ECFDF5' },
-  admin: { color: '#9CA3AF', bg: '#F9FAFB' },
-  task: { color: '#3B82F6', bg: '#EFF6FF' },
-  milestone: { color: '#8B5CF6', bg: '#F5F3FF' },
+const SCHEDULE_TYPE_STYLES: Record<string, { color: string; bg: string; label: string }> = {
+  meeting: { color: '#3B82F6', bg: '#EFF6FF', label: 'Meeting' },
+  delivery: { color: '#10B981', bg: '#ECFDF5', label: 'On-site' },
+  call: { color: '#3B82F6', bg: '#EFF6FF', label: 'Meeting' },
+  admin: { color: '#EAB308', bg: '#FEF9C3', label: 'Pending' },
+  task: { color: '#0EA5E9', bg: '#E0F2FE', label: 'Task' },
+  milestone: { color: '#8B5CF6', bg: '#F5F3FF', label: 'Task' },
 }
 
 function toDateKey(d: dayjs.Dayjs) {
@@ -482,7 +482,8 @@ export function DashboardPage() {
     if (h < 17) return 'Good afternoon'
     return 'Good evening'
   })()
-  const userName = 'Kyle'
+  const displayName = authUser?.user_metadata?.full_name ?? authUser?.email?.split('@')[0] ?? 'Kyle'
+  const userName = displayName.trim().split(/\s+/)[0] || 'Kyle'
 
   return (
     <div className="layout">
@@ -495,7 +496,7 @@ export function DashboardPage() {
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 flex-1 min-w-0">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-white-dim mb-0.5">
-                {dayjs().format('dddd, MMMM D, YYYY')}
+                {dayjs().format('dddd, MMMM D, YYYY').toUpperCase()}
               </div>
               <h1 className="dashboard-title text-2xl font-normal tracking-tight m-0">
                 {greeting}, {userName}.
@@ -563,29 +564,54 @@ export function DashboardPage() {
           {kpisLoading ? (
             <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">Loading KPIs…</div>
           ) : (
-          [
-            { label: 'Total Revenue', val: fmt(kpis?.totalRevenue ?? 0), sub: 'YTD', color: '#10B981', spark: (kpis?.revenueTrend?.length ? kpis.revenueTrend : []), sparkColor: '#10B981' as const },
-            { label: 'Total Expense', val: fmt(kpis?.totalExpense ?? 0), sub: 'YTD', color: '#F59E0B', spark: (kpis?.expenseTrend?.length ? kpis.expenseTrend : []), sparkColor: '#F59E0B' as const },
-            { label: 'Outstanding', val: fmt(kpis?.outstanding ?? 0), sub: `${kpis?.openInvoicesCount ?? 0} open invoices`, color: '#EF4444', spark: null, sparkColor: null },
-            { label: 'Active Jobs', val: String(kpis?.activeJobs ?? 0), sub: `of ${kpis?.totalProjects ?? 0} projects`, color: '#3B82F6', spark: null, sparkColor: null },
-          ].map((k, i) => (
-            <div
-              key={i}
-              className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-4 pt-[18px] pb-3 relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-2xl" style={{ background: k.color }} />
-              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-white-dim mb-2">{k.label}</div>
-              <div className="text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1.5">{k.val}</div>
-              {k.spark && k.spark.length >= 2 ? (
-                <div className="flex items-end justify-between gap-2">
-                  <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
-                  <Sparkline data={k.spark} color={k.sparkColor} height={28} width={72} />
-                </div>
-              ) : (
-                <div className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</div>
-              )}
-            </div>
-          ))
+          (() => {
+            const revTrend = kpis?.revenueTrend
+            const revPct = revTrend && revTrend.length >= 2 && revTrend[0] > 0
+              ? Math.round(((revTrend[revTrend.length - 1] - revTrend[0]) / revTrend[0]) * 100)
+              : null
+            const expenseRevPct = (kpis?.totalRevenue ?? 0) > 0 && (kpis?.totalExpense ?? 0) >= 0
+              ? (Math.round(((kpis!.totalExpense / kpis!.totalRevenue) * 100) * 10) / 10).toFixed(1) + '% of revenue'
+              : 'YTD'
+            const activeJobs = kpis?.activeJobs ?? 0
+            const totalProjects = Math.max(kpis?.totalProjects ?? 0, 1)
+            const kpiRows = [
+              { label: 'Total Revenue', val: fmt(kpis?.totalRevenue ?? 0), sub: revPct != null ? `↑${revPct}% YTD` : 'YTD', color: '#10B981', spark: (kpis?.revenueTrend?.length ? kpis.revenueTrend : []), sparkColor: '#10B981' as const },
+              { label: 'Total Expense', val: fmt(kpis?.totalExpense ?? 0), sub: expenseRevPct, color: '#F59E0B', spark: (kpis?.expenseTrend?.length ? kpis.expenseTrend : []), sparkColor: '#F59E0B' as const },
+              { label: 'Outstanding', val: fmt(kpis?.outstanding ?? 0), sub: `${kpis?.openInvoicesCount ?? 0} open invoices`, color: '#EF4444', spark: null, sparkColor: null },
+              { label: 'Active Jobs', val: String(activeJobs), sub: `of ${kpis?.totalProjects ?? 0} projects`, color: '#3B82F6', spark: null, sparkColor: null, isActiveJobs: true },
+            ]
+            return kpiRows.map((k, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-4 pt-[18px] pb-3 relative overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-2xl" style={{ background: k.color }} />
+                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-white-dim mb-2">{k.label}</div>
+                <div className="text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1.5">{k.val}</div>
+                {k.spark && k.spark.length >= 2 ? (
+                  <div className="flex items-end justify-between gap-2">
+                    <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
+                    <Sparkline data={k.spark} color={k.sparkColor!} height={28} width={72} />
+                  </div>
+                ) : k.isActiveJobs ? (
+                  <div className="flex items-end justify-between gap-2">
+                    <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
+                    <div className="flex gap-0.5 items-end h-5" aria-hidden>
+                      {Array.from({ length: 12 }, (_, j) => (
+                        <div
+                          key={j}
+                          className="w-1.5 rounded-sm flex-1 min-w-0 h-full bg-gray-200 dark:bg-dark-4"
+                          style={j < activeJobs ? { background: k.color } : undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</div>
+                )}
+              </div>
+            ))
+          })()
           )}
         </div>
 
@@ -604,6 +630,7 @@ export function DashboardPage() {
           ) : (
             scheduleForDisplay.map((item, i) => {
               const t = SCHEDULE_TYPE_STYLES[item.type] || SCHEDULE_TYPE_STYLES.admin
+              const label = t.label || item.type
               return (
                 <div
                   key={i}
@@ -619,7 +646,7 @@ export function DashboardPage() {
                     <div className="text-[13px] font-medium text-gray-900 dark:text-landing-white">{item.title}</div>
                     <div className="text-[11px] text-gray-500 dark:text-white-dim">{item.job}{item.who ? ` · ${item.who}` : ''}</div>
                   </div>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: t.bg, color: t.color }}>{item.type}</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: t.bg, color: t.color }}>{label}</span>
                 </div>
               )
             })
@@ -682,26 +709,31 @@ export function DashboardPage() {
           <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 dark:border-border flex items-center justify-between">
               <span className="text-xs font-bold text-gray-900 dark:text-landing-white">Clocked In Now</span>
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">● {clockedIn.length} active</span>
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">• {clockedIn.length} active</span>
             </div>
             {clockedInLoading ? (
               <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">Loading…</div>
             ) : clockedIn.length === 0 ? (
               <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">No one clocked in.</div>
             ) : (
-              clockedIn.map((c, i) => (
-                <div key={c.employeeId + c.jobId} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ background: PROJECT_COLORS[i % PROJECT_COLORS.length] + '20', color: PROJECT_COLORS[i % PROJECT_COLORS.length] }}>{c.initials}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.employeeName}</div>
-                    <div className="text-[10px] text-gray-500 dark:text-white-dim truncate">{c.jobName}</div>
+              clockedIn.map((c, i) => {
+                const h = Math.floor(c.hoursSoFar)
+                const m = Math.round((c.hoursSoFar - h) * 60)
+                const duration = m > 0 ? `${h}h ${m}m` : `${h}h`
+                return (
+                  <div key={c.employeeId + c.jobId} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50 dark:border-border/50 last:border-0">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ background: PROJECT_COLORS[i % PROJECT_COLORS.length] + '20', color: PROJECT_COLORS[i % PROJECT_COLORS.length] }}>{c.initials}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.employeeName}</div>
+                      <div className="text-[10px] text-gray-500 dark:text-white-dim truncate">{c.jobName}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{duration}</div>
+                      <div className="text-[10px] text-gray-500 dark:text-white-dim">{c.clockInFormatted}</div>
+                    </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs font-semibold text-gray-900 dark:text-landing-white">{c.hoursSoFar}h</div>
-                    <div className="text-[10px] text-gray-500 dark:text-white-dim">{c.clockInFormatted}</div>
-                  </div>
-                </div>
-              ))
+                )
+              })
             )}
             <div className="px-4 py-2.5 border-t border-gray-100 dark:border-border">
               <button type="button" onClick={() => navigate('/teams')} className="w-full py-1.5 rounded-md text-[11px] font-medium text-gray-500 dark:text-white-dim bg-gray-100 dark:bg-dark-4 hover:bg-gray-200 dark:hover:bg-dark-3">

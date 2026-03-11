@@ -800,7 +800,11 @@ router.post('/:id/launch-takeoff', loadProject, (req, res, next) => {
       planType,
       tradeFilter,
     })
-    const enriched = enrichMaterialList(materialList)
+    // Ensure we always send a valid shape: { categories: array, summary? }
+    const safeList = materialList && Array.isArray(materialList.categories)
+      ? materialList
+      : { categories: [], summary: materialList?.summary || 'Takeoff completed; no categories extracted.' }
+    const enriched = enrichMaterialList(safeList)
 
     let row = null
     if (supabase) {

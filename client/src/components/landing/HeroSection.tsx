@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { HeroDashboardMock } from '@/components/landing/HeroDashboardMock'
 
 export function HeroSection() {
   return (
@@ -37,10 +38,10 @@ export function HeroSection() {
           Trusted by 500+ Contractors
         </div>
         <h1 className="font-sora text-4xl md:text-6xl lg:text-7xl font-extrabold leading-none tracking-tight text-landing-white mb-6 animate-[fadeUp_0.8s_0.1s_ease_both]">
-          Build Smarter with
+          Build Smarter
           <br />
           <em className="not-italic text-accent-hover relative inline-block">
-            Faster Takeoffs
+            with Proj-X
             <span
               className="absolute bottom-1 left-0 right-0 h-0.5 rounded-sm opacity-40 bg-accent-hover"
               aria-hidden
@@ -48,7 +49,7 @@ export function HeroSection() {
           </em>
         </h1>
         <p className="text-lg font-light text-white-dim leading-relaxed max-w-[500px] mx-auto mb-12 animate-[fadeUp_0.8s_0.2s_ease_both]">
-          Upload your plans. Get accurate material lists in minutes. Spend less time estimating and more time building.
+          From takeoffs to payroll, bids to job tracking — everything your crew needs to run jobs and grow revenue, without the chaos.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3.5 mb-20 animate-[fadeUp_0.8s_0.3s_ease_both]">
           <Link
@@ -72,93 +73,50 @@ export function HeroSection() {
         </div>
       </div>
 
-      {/* Dashboard mockup */}
-      <div className="relative z-10 w-full max-w-[900px] animate-[fadeUp_0.8s_0.4s_ease_both]">
+      {/* Dashboard mockup: real dashboard layout with mock data */}
+      <div className="relative z-10 w-full max-w-[1000px] animate-[fadeUp_0.8s_0.4s_ease_both]">
         <div className="bg-dark-3 border border-border-dark rounded-2xl overflow-hidden shadow-[0_0_0_1px_var(--color-border-dark),0_40px_80px_rgba(0,0,0,0.6),0_0_100px_rgba(192,57,43,0.08)]">
           <div className="bg-dark-4 py-3 px-5 flex items-center gap-2 border-b border-border-dark">
             <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F57]" />
             <div className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]" />
             <div className="w-2.5 h-2.5 rounded-full bg-[#28CA41]" />
-            <span className="ml-3 text-xs text-white-dim">dashboard.takeoffai.com</span>
+            <span className="ml-3 text-xs text-white-dim">app.proj-x.com/dashboard</span>
           </div>
-          <div className="p-6 grid grid-cols-3 gap-3 min-h-[200px]">
-            {/* Row 1 */}
-            <div className="bg-dark-4 border border-accent/30 rounded-xl p-4 bg-accent/5">
-              <div className="text-[10px] uppercase tracking-wider text-white-dim mb-2">Active Projects</div>
-              <div className="font-sora text-2xl font-bold text-accent-hover">24</div>
-              <div className="flex items-end gap-1 h-10 mt-2">
-                {[30, 55, 80, 45, 90, 100, 65].map((h, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-sm bg-white-faint"
-                    style={{ height: `${h}%`, background: i === 2 || i === 5 ? 'var(--color-accent)' : undefined }}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="bg-dark-4 border border-border-dark rounded-xl p-4">
-              <div className="text-[10px] uppercase tracking-wider text-white-dim mb-2">Revenue Managed</div>
-              <div className="font-sora text-2xl font-bold text-landing-white">$2.4M</div>
-              <div className="mt-2 text-[10px] text-white-dim">Target: $3M</div>
-              <div className="h-1 bg-white-faint rounded mt-1.5 overflow-hidden">
-                <div className="h-full w-4/5 bg-accent rounded" />
-              </div>
-            </div>
-            <div className="bg-dark-4 border border-border-dark rounded-xl p-4">
-              <div className="text-[10px] uppercase tracking-wider text-white-dim mb-2">Satisfaction</div>
-              <div className="font-sora text-2xl font-bold text-landing-white">98%</div>
-              <div className="h-1 bg-white-faint rounded mt-3 overflow-hidden">
-                <div className="h-full w-[98%] bg-accent rounded" />
-              </div>
-            </div>
-            {/* Row 2: Recent Takeoffs (span 2) + Team Online */}
-            <div className="bg-dark-4 border border-border-dark rounded-xl p-4 col-span-2">
-              <div className="text-[10px] uppercase tracking-wider text-white-dim mb-2">Recent Takeoffs</div>
-              <div className="flex flex-col gap-1.5 mt-2">
-                <div className="flex items-center justify-between px-2 py-1.5 bg-white-faint/40 rounded">
-                  <span className="text-[11px] text-white-dim">Riverside Commercial — Floor 3</span>
-                  <span className="text-[10px] text-accent-hover bg-accent-hover/10 px-2 py-0.5 rounded">Complete</span>
-                </div>
-                <div className="flex items-center justify-between px-2 py-1.5 bg-white-faint/40 rounded">
-                  <span className="text-[11px] text-white-dim">Harbor View Residences — Unit 12</span>
-                  <span className="text-[10px] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">In Progress</span>
-                </div>
-              </div>
-            </div>
-            <div className="bg-dark-4 border border-border-dark rounded-xl p-4">
-              <div className="text-[10px] uppercase tracking-wider text-white-dim mb-2">Team Online</div>
-              <div className="font-sora text-2xl font-bold text-landing-white">7</div>
-              <div className="flex gap-1 mt-2">
-                <div className="w-2 h-2 rounded-full bg-[#28CA41]" />
-                <div className="w-2 h-2 rounded-full bg-[#28CA41]" />
-                <div className="w-2 h-2 rounded-full bg-[#28CA41]" />
-                <div className="w-2 h-2 rounded-full bg-white-faint" />
-              </div>
-            </div>
+          <div className="dark bg-[#0f172a] p-0 overflow-x-auto max-h-[70vh] overflow-y-auto">
+            <HeroDashboardMock />
           </div>
         </div>
       </div>
 
-      {/* Hero stats */}
-      <div className="relative z-10 flex items-center justify-center gap-0 mt-12 animate-[fadeUp_0.8s_0.5s_ease_both]">
-        {[
-          { num: '500+', label: 'Active Contractors' },
-          { num: '10K+', label: 'Projects Completed' },
-          { num: '24/7', label: 'Support Available' },
-        ].map((s, i) => (
-          <div key={s.label} className="text-center py-0 px-14 relative">
-            {i < 2 && (
-              <div
-                className="absolute right-0 top-1/2 -translate-y-1/2 w-px h-8 bg-border-dark"
-                aria-hidden
-              />
-            )}
-            <span className="font-sora text-4xl font-extrabold text-accent-hover tracking-tight block">
-              {s.num}
+      {/* Feature badges — 12-col grid: top 6 badges (2 cols each), bottom 3 same-size in gaps */}
+      <div className="relative z-10 w-full max-w-[1000px] mt-10 animate-[fadeUp_0.8s_0.5s_ease_both] px-2">
+        <div className="grid grid-cols-12 gap-x-3 gap-y-3">
+          {[
+            'Material Takeoffs',
+            'Bid Sheets',
+            'Job Tracking',
+            'Invoicing',
+            'Crew Management',
+            'Timeclock',
+          ].map((label) => (
+            <span
+              key={label}
+              className="col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white"
+            >
+              <span className="truncate">{label}</span>
             </span>
-            <span className="text-xs text-white-dim uppercase tracking-wider mt-1 block">{s.label}</span>
-          </div>
-        ))}
+          ))}
+          {/* Bottom row: same-size badges in the three middle gaps (between top badges) */}
+          <span className="col-start-4 col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white">
+            <span className="truncate">Client Messaging</span>
+          </span>
+          <span className="col-start-6 col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white">
+            <span className="truncate">Sub Bids</span>
+          </span>
+          <span className="col-start-8 col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white">
+            <span className="truncate">Scheduling</span>
+          </span>
+        </div>
       </div>
     </section>
   )

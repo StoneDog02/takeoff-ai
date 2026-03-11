@@ -19,7 +19,25 @@ export function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const { isAdmin, type } = useAuth()
+  const { user, isAdmin, type, role_label, employee } = useAuth()
+
+  const displayName =
+    employee?.name ??
+    user?.display_name ??
+    user?.full_name ??
+    (user?.email ? user.email.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : null) ??
+    'User'
+  const roleLabel = employee?.role ?? role_label ?? (isAdmin ? 'Admin' : 'Project Manager')
+  const initials =
+    displayName !== 'User'
+      ? displayName
+          .trim()
+          .split(/\s+/)
+          .map((w) => w[0])
+          .slice(0, 2)
+          .join('')
+          .toUpperCase() || displayName.slice(0, 2).toUpperCase()
+      : 'U'
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -73,7 +91,7 @@ export function AppLayout() {
           <div className="nav-header">
             <Link to="/" className="logo" aria-label="Proj-X home">
               <div className="logo-icon">
-                <svg viewBox="0 0 14 14" aria-hidden><path d="M7 1L13 4.5V10.5L7 14L1 10.5V4.5L7 1Z" fill="currentColor" /></svg>
+                <span className="logo-p" aria-hidden>P</span>
               </div>
               <span className="logo-text">Proj-X</span>
             </Link>
@@ -175,10 +193,10 @@ export function AppLayout() {
               aria-label="Open profile menu"
             >
               <div className="user-row">
-                <div className="user-avatar">KR</div>
+                <div className="user-avatar" aria-hidden>{initials}</div>
                 <div className="user-info">
-                  <div className="user-name">Kyle Reynolds</div>
-                  <div className="user-role">Project Manager</div>
+                  <div className="user-name">{displayName}</div>
+                  <div className="user-role">{roleLabel}</div>
                 </div>
               </div>
             </button>

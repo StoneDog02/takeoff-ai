@@ -12,9 +12,15 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 }
 
 export interface MeResponse {
-  user: { id: string; email: string } | null
+  user: {
+    id: string
+    email: string
+    full_name?: string | null
+    display_name?: string
+  } | null
   isAdmin: boolean
   type: 'contractor' | 'employee'
+  role_label?: string
   employee_id?: string
   employee?: {
     id: string

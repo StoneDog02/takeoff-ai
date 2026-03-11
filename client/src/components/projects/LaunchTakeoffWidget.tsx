@@ -281,6 +281,19 @@ export function LaunchTakeoffWidget({
     }
   }, [processing])
 
+  /** Normalize API material_list so we always have { categories: array, summary? } for the UI. */
+  const normalizeMaterialList = (raw: unknown): MaterialList => {
+    if (raw && typeof raw === 'object' && Array.isArray((raw as MaterialList).categories)) {
+      return raw as MaterialList
+    }
+    const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    const summary = typeof obj.summary === 'string' ? obj.summary : ''
+    return {
+      categories: Array.isArray(obj.categories) ? obj.categories : [],
+      summary: summary || undefined,
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!file) {
@@ -297,7 +310,7 @@ export function LaunchTakeoffWidget({
       }
       setProgress(100)
       setProgressMessage('Complete')
-      setLastResult(material_list)
+      setLastResult(normalizeMaterialList(material_list))
       await new Promise((r) => setTimeout(r, 600))
     } catch (err) {
       if (progressIntervalRef.current) {
@@ -439,23 +452,26 @@ export function LaunchTakeoffWidget({
           <p className="text-xs text-muted dark:text-white-dim mt-2">{progress}%</p>
         </div>
       )}
-      {categories.length > 0 && (
+      {lastResult !== null && (
         <div className="border-t border-border dark:border-border-dark pt-4 mt-4">
           <div className="flex items-center justify-end gap-2 mb-3">
-            <button
-              type="button"
-              onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Download PDF
-            </button>
+            {categories.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Download PDF
+              </button>
+            )}
           </div>
           <h3 className="text-sm font-medium text-gray-700 dark:text-white-dim mb-0 sr-only">
             Takeoff line items
           </h3>
+          {categories.length > 0 ? (
           <div className="flex rounded-lg overflow-hidden bg-white dark:bg-dark-3 min-h-[320px]">
             {/* Sidebar: light in light mode, dark in dark mode */}
             <div className="w-[220px] flex-shrink-0 flex flex-col bg-slate-100 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700/80">
@@ -553,6 +569,19 @@ export function LaunchTakeoffWidget({
               })()}
             </div>
           </div>
+          ) : (
+            <div className="rounded-lg border border-border dark:border-border-dark bg-muted/20 dark:bg-dark-4 p-6 text-center">
+              <p className="text-sm font-medium text-gray-700 dark:text-landing-white mb-1">Takeoff complete</p>
+              <p className="text-sm text-muted dark:text-white-dim mb-3">
+                No line items were extracted. Try a different trade scope, or check that the plan contains measurable materials.
+              </p>
+              {lastResult?.summary && (
+                <p className="text-xs text-left text-muted dark:text-white-dim bg-white dark:bg-dark-3 rounded p-3 mt-2">
+                  {lastResult.summary}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
