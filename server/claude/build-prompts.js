@@ -93,13 +93,16 @@ ${divider}
 OUTPUT FORMAT — CRITICAL
 ${divider}
 
-Your response MUST:
-1. Begin with { and end with } — nothing before, nothing after. No preamble, no "Here is the takeoff", no "Analyzed 19 sheets...".
-2. Contain NO markdown code fences (no \`\`\`json or \`\`\`).
-3. Contain NO explanatory text, summaries, or narrative outside the JSON object.
-4. Use the key "categories" (array of { "name", "items" }) and optionally "summary" (string). Do not use "material_takeoff" or other keys for the list.
+Your response MUST begin with { and end with }. No markdown fences. No preamble. No text outside the JSON.
 
-Any text or markdown outside the JSON will break the parser and cause the takeoff to fail. Return ONLY the JSON object.
+JSON SAFETY RULES — violations break the parser:
+- Use "in" or "inch" instead of the inch symbol (") inside any string value (e.g. "20 in wide" not "20\\" wide").
+- Use "ft" or "foot" instead of the foot symbol (') inside any string value.
+- Use "--" instead of em dashes (—) inside strings.
+- Never put unescaped double quotes inside a string value (e.g. write "2-#4 rebar continuous" not "2-#4 rebar \\"continuous\\"").
+- No newlines inside description, notes, or other string fields — use a single line per value.
+
+Use the key "categories" (array of { "name", "items" }) and optionally "summary" (string).
 
 Structure (include trade_tag and cost_estimate when you can):
 

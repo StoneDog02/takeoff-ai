@@ -1,5 +1,6 @@
 const { PDFDocument } = require('pdf-lib')
 const Anthropic = require('@anthropic-ai/sdk')
+const { jsonrepair } = require('jsonrepair')
 const {
   buildSystemPrompt,
   buildCustomProjectSystemPrompt,
@@ -199,19 +200,25 @@ function parseTakeoffResponse(rawText) {
     jsonStr = end > start ? rawText.slice(start, end + 1) : rawText.slice(start).trim()
   }
 
-  // 3. Repair common issues (trailing commas), then parse; on failure try closing truncated JSON
-  jsonStr = repairJsonString(jsonStr)
+  // 3. Try clean parse (with light repair), then jsonrepair for unescaped quotes / inch marks / etc., then truncation close
+  jsonStr = repairJsonString(jsonStr.trim())
   let parsed
   try {
     parsed = JSON.parse(jsonStr)
   } catch (e) {
-    const closed = tryCloseTruncatedJson(jsonStr)
     try {
-      parsed = JSON.parse(repairJsonString(closed))
+      const repaired = jsonrepair(jsonStr)
+      parsed = JSON.parse(repaired)
+      console.warn('[takeoff] JSON repaired successfully (unescaped quotes, inch marks, or similar)')
     } catch (e2) {
-      console.error('[takeoff] Takeoff JSON parse failed:', e.message)
-      console.error('[takeoff] Raw string (first 400 chars):', jsonStr.slice(0, 400))
-      return null
+      const closed = tryCloseTruncatedJson(jsonStr)
+      try {
+        parsed = JSON.parse(repairJsonString(closed))
+      } catch (e3) {
+        console.error('[takeoff] Takeoff JSON parse failed:', e.message)
+        console.error('[takeoff] Raw string (first 400 chars):', jsonStr.slice(0, 400))
+        return null
+      }
     }
   }
 
