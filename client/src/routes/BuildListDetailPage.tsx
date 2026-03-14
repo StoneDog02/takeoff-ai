@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link, useLocation } from 'react-router-dom'
 import { api, type BuildListDetail, type MaterialList } from '@/api/client'
 import { formatDateTime } from '@/lib/date'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 function MaterialListView({ materialList }: { materialList: MaterialList }) {
   const { categories, summary } = materialList
@@ -69,8 +70,8 @@ export function BuildListDetailPage() {
 
   if (loading) {
     return (
-      <div>
-        <p className="text-muted">Loading build list…</p>
+      <div className="max-w-4xl">
+        <LoadingSkeleton variant="page" className="min-h-[40vh]" />
       </div>
     )
   }

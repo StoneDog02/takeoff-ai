@@ -206,6 +206,12 @@ export const estimatesApi = {
     return handleResponse<Invoice>(res)
   },
 
+  async deleteInvoice(id: string): Promise<void> {
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/invoices/${id}`, { method: 'DELETE', headers })
+    return handleResponse<void>(res)
+  },
+
   async sendInvoice(
     invoiceId: string,
     recipient_emails: string[]

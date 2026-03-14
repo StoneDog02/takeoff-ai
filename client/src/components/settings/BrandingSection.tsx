@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { SectionHeader, Card, CardHeader, CardBody, Field, FieldRow, Input, Select, Btn, SaveRow } from './SettingsPrimitives'
 import { settingsApi } from '@/api/settings'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const TEMPLATE_OPTIONS = [
   { value: 'standard', label: 'Standard' },
@@ -65,7 +66,7 @@ export function BrandingSection() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

@@ -6,6 +6,7 @@ import { PipelineTab } from '@/components/estimates/PipelineTab'
 import { EstimateBuilderModal, type NewEstimatePayload } from '@/components/estimates/EstimateBuilderModal'
 import { CustomProductLibrary } from '@/components/estimates/CustomProductLibrary'
 import { ReceiptSpendTracking } from '@/components/estimates/ReceiptSpendTracking'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import {
   USE_MOCK_ESTIMATES,
   MOCK_JOBS,
@@ -18,6 +19,7 @@ import {
 type Tab = 'pipeline' | 'receipts'
 
 export function EstimatesPage() {
+  const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('pipeline')
   const [jobs, setJobs] = useState<Job[]>([])
   const [pipeline, setPipeline] = useState<PipelineItem[]>([])
@@ -37,6 +39,7 @@ export function EstimatesPage() {
           MOCK_ESTIMATE_MILESTONES
         )
       )
+      setLoading(false)
       return
     }
     Promise.all([
@@ -57,9 +60,37 @@ export function EstimatesPage() {
         setPipeline([])
         setAllExpenses([])
       })
+      .finally(() => setLoading(false))
   }, [])
 
   const expenses = USE_MOCK_ESTIMATES ? MOCK_JOB_EXPENSES : allExpenses
+
+  const refreshPipeline = async () => {
+    if (USE_MOCK_ESTIMATES) return
+    try {
+      const [jobsList, estimates, invoices, expensesList] = await Promise.all([
+        estimatesApi.getJobs(),
+        estimatesApi.getEstimates(),
+        estimatesApi.getInvoices(),
+        estimatesApi.getJobExpenses(),
+      ])
+      setJobs(jobsList)
+      setPipeline(buildPipelineItems(estimates, invoices, jobsList))
+      setAllExpenses(expensesList ?? [])
+    } catch {
+      // keep current state on error
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="dashboard-app estimates-page flex flex-col min-h-0 flex-1">
+        <div className="estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0">
+          <LoadingSkeleton variant="page" className="min-h-[30vh]" />
+        </div>
+      </div>
+    )
+  }
 
   const handleSaveEstimate = async (
     _estimateId: string,
@@ -118,7 +149,7 @@ export function EstimatesPage() {
           className="estimates-detail-panel"
           role="dialog"
           aria-modal="true"
-          aria-label="Products & Services settings"
+          aria-label="Products & Services library"
           onClick={() => setShowSettings(false)}
         >
           <div
@@ -128,7 +159,7 @@ export function EstimatesPage() {
             <div className="estimates-detail-panel__header">
               <div className="estimates-detail-panel__meta">
                 <div>
-                  <div className="estimates-detail-panel__type-id">Settings</div>
+                  <div className="estimates-detail-panel__type-id">Library</div>
                   <h3 className="estimates-detail-panel__title">Products & Services</h3>
                 </div>
                 <button
@@ -157,7 +188,7 @@ export function EstimatesPage() {
               className="btn btn-ghost"
               onClick={() => setShowSettings(true)}
             >
-              Settings
+              Products & Services
             </button>
             <button
               type="button"
@@ -220,6 +251,8 @@ export function EstimatesPage() {
                 setPipeline={setPipeline}
                 expenses={expenses}
                 jobFilterId={pipelineJobFilterId}
+                jobs={jobs}
+                onPipelineRefresh={refreshPipeline}
               />
             )}
             {tab === 'receipts' && (

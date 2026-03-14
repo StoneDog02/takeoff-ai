@@ -59,7 +59,7 @@ function WizardField({
 function StepBar({ current }: { current: number }) {
   return (
     <div
-      className="flex items-center justify-center gap-1 border-b border-[var(--border)]"
+      className="flex items-center justify-center gap-1 border-b border-[var(--border)] flex-shrink-0"
       style={{ padding: '20px 32px 24px', flexWrap: 'wrap' }}
     >
       {STEPS.map((step, i) => {
@@ -408,10 +408,11 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
       aria-labelledby="add-employee-wizard-title"
     >
       <div
-        className="dashboard-app rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] shadow-xl w-full max-w-[720px] my-8 overflow-hidden"
+        className="dashboard-app rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] shadow-xl w-full max-w-[720px] my-8 overflow-hidden flex flex-col"
+        style={{ maxHeight: '90vh' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 pt-5 pb-2 border-b border-[var(--border)]">
+        <div className="flex items-center justify-between px-6 pt-5 pb-2 border-b border-[var(--border)] flex-shrink-0">
           <h1 id="add-employee-wizard-title" className="teams-section-heading text-lg m-0">
             Add New Employee
           </h1>
@@ -427,7 +428,7 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
 
         <StepBar current={step} />
 
-        <div style={{ padding: '32px 40px', maxHeight: '70vh', overflowY: 'auto' }}>
+        <div className="flex-1 min-h-0 overflow-y-auto" style={{ padding: '32px 40px' }}>
           {submitError && (
             <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: 'var(--red-glow-soft)', color: 'var(--red)' }}>
               {submitError}
@@ -1000,11 +1001,13 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
               </ReviewSection>
             </div>
           )}
+        </div>
 
-          {/* Footer buttons */}
-          <div
-            className="flex justify-between items-center pt-5 mt-6 border-t border-[var(--border)]"
-          >
+        {/* Footer buttons — always visible, outside scroll */}
+        <div
+          className="flex justify-between items-center flex-shrink-0 border-t border-[var(--border)]"
+          style={{ padding: '20px 40px 32px' }}
+        >
             <button
               type="button"
               onClick={back}
@@ -1045,6 +1048,5 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
           </div>
         </div>
       </div>
-    </div>
   )
 }

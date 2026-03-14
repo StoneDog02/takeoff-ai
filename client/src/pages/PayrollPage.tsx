@@ -6,6 +6,7 @@ import { quickbooksApi } from '@/api/quickbooks'
 import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { TeamsAvatar, getInitials } from '@/components/teams/TeamsAvatar'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 interface PayrollContact {
   name: string
@@ -416,7 +417,9 @@ export function PayrollPage() {
 
         <div className="payroll-content">
           {loading ? (
-            <div className="payroll-loading">Loading…</div>
+            <div className="payroll-content py-8">
+              <LoadingSkeleton variant="inline" lines={6} className="max-w-md" />
+            </div>
           ) : viewMode === 'summary' ? (
             <div className="payroll-summary-list">
               {payrollRows.length === 0 ? (

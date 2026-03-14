@@ -7,6 +7,7 @@ import { dayjs, formatDate } from '@/lib/date'
 import { api } from '@/api/client'
 import type { ScheduleItem } from '@/types/global'
 import type { ConversationListItem } from '@/api/client'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 // --- Icons (inline SVGs) ---
 function IconPlus({ className, style }: { className?: string; style?: React.CSSProperties }) {
@@ -129,7 +130,7 @@ function ProjectHealthCard({
           </div>
           <div className="min-w-0">
             <div className="text-[13px] font-semibold text-gray-900 dark:text-landing-white truncate">{project.name}</div>
-            <div className="text-[11px] text-gray-500 dark:text-white-dim">{project.id} · {project.client}</div>
+            <div className="text-[11px] text-gray-500 dark:text-white-dim">{project.client || '—'}</div>
           </div>
         </div>
         <span
@@ -562,7 +563,9 @@ export function DashboardPage() {
         {/* KPI cards: 4 columns */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           {kpisLoading ? (
-            <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">Loading KPIs…</div>
+            <div className="col-span-full">
+              <LoadingSkeleton variant="cards" className="mb-6" />
+            </div>
           ) : (
           (() => {
             const revTrend = kpis?.revenueTrend
@@ -577,7 +580,7 @@ export function DashboardPage() {
               { label: 'Total Revenue', val: fmt(kpis?.totalRevenue ?? 0), sub: revPct != null ? `↑${revPct}% YTD` : 'YTD', color: '#10B981', spark: (kpis?.revenueTrend?.length ? kpis.revenueTrend : []), sparkColor: '#10B981' as const },
               { label: 'Total Expense', val: fmt(kpis?.totalExpense ?? 0), sub: expenseRevPct, color: '#F59E0B', spark: (kpis?.expenseTrend?.length ? kpis.expenseTrend : []), sparkColor: '#F59E0B' as const },
               { label: 'Outstanding', val: fmt(kpis?.outstanding ?? 0), sub: `${kpis?.openInvoicesCount ?? 0} open invoices`, color: '#EF4444', spark: null, sparkColor: null },
-              { label: 'Active Jobs', val: String(activeJobs), sub: `of ${kpis?.totalProjects ?? 0} projects`, color: '#3B82F6', spark: null, sparkColor: null, isActiveJobs: true },
+              { label: 'Active Jobs', val: String(activeJobs), sub: '', color: '#3B82F6', spark: null, sparkColor: null, isActiveJobs: true },
             ]
             return kpiRows.map((k, i) => (
               <div
@@ -592,20 +595,7 @@ export function DashboardPage() {
                     <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
                     <Sparkline data={k.spark} color={k.sparkColor!} height={28} width={72} />
                   </div>
-                ) : k.isActiveJobs ? (
-                  <div className="flex items-end justify-between gap-2">
-                    <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
-                    <div className="flex gap-0.5 items-end h-5" aria-hidden>
-                      {Array.from({ length: 12 }, (_, j) => (
-                        <div
-                          key={j}
-                          className="w-1.5 rounded-sm flex-1 min-w-0 h-full bg-gray-200 dark:bg-dark-4"
-                          style={j < activeJobs ? { background: k.color } : undefined}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : (
+                ) : k.isActiveJobs ? null : (
                   <div className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</div>
                 )}
               </div>
@@ -623,7 +613,9 @@ export function DashboardPage() {
             </button>
           </div>
           {scheduleLoading ? (
-            <div className="px-5 py-4 text-sm text-gray-500 dark:text-white-dim">Loading schedule…</div>
+            <div className="px-5 py-4">
+              <LoadingSkeleton variant="inline" lines={4} />
+            </div>
           ) : scheduleForDisplay.length === 0 ? (
             <div className="px-5 py-4 text-sm text-gray-500 dark:text-white-dim">No schedule items for this day.</div>
           ) : (
@@ -667,7 +659,9 @@ export function DashboardPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
             {projectsLoading ? (
-              <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">Loading projects…</div>
+              <div className="col-span-full py-6">
+                <LoadingSkeleton variant="inline" lines={5} className="max-w-md" />
+              </div>
             ) : filteredProjects.length === 0 ? (
               <div className="col-span-full py-8 text-center text-sm text-gray-500 dark:text-white-dim">No projects yet.</div>
             ) : (
@@ -711,7 +705,9 @@ export function DashboardPage() {
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">• {clockedIn.length} active</span>
             </div>
             {clockedInLoading ? (
-              <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">Loading…</div>
+              <div className="px-4 py-3">
+                <LoadingSkeleton variant="inline" lines={3} />
+              </div>
             ) : clockedIn.length === 0 ? (
               <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">No one clocked in.</div>
             ) : (
@@ -755,7 +751,9 @@ export function DashboardPage() {
             </div>
             <div className="flex flex-col overflow-y-auto min-h-0">
               {chatConversationsLoading ? (
-                <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">Loading…</div>
+                <div className="px-4 py-3">
+                  <LoadingSkeleton variant="inline" lines={4} />
+                </div>
               ) : filteredChatConversations.length === 0 ? (
                 <div className="px-4 py-3 text-sm text-gray-500 dark:text-white-dim">No conversations yet.</div>
               ) : (

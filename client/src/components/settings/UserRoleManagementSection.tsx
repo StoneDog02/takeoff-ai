@@ -11,6 +11,7 @@ import {
   Select,
   Btn,
 } from './SettingsPrimitives'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const ROLES_DATA: { role: UserRole; label: string; color: string; perms: string[] }[] = [
   { role: 'admin', label: 'Admin', color: '#b91c1c', perms: ['Full access', 'Manage users', 'Billing', 'All settings'] },
@@ -81,7 +82,7 @@ export function UserRoleManagementSection() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

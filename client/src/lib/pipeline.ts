@@ -56,7 +56,12 @@ export function buildPipelineItems(
   const jobMap = new Map(jobs.map((j) => [j.id, j.name]))
   const items: PipelineItem[] = []
 
+  const estimateIdsWithInvoices = new Set(
+    invoices.map((i) => i.estimate_id).filter(Boolean) as string[]
+  )
+
   estimates.forEach((e) => {
+    if (estimateIdsWithInvoices.has(e.id)) return
     const stage = estimateStatusToStage(e.status)
     const jobName = jobMap.get(e.job_id) ?? e.job_id
     const client = e.recipient_emails?.[0] ?? null

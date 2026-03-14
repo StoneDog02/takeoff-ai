@@ -93,6 +93,16 @@ export interface ProjectBuildPlan {
   uploader_name: string
 }
 
+/** Bid document (PDF/file) uploaded for reference — bids received from subs. */
+export interface BidDocument {
+  id: string
+  project_id: string
+  file_name: string
+  url: string
+  uploaded_at?: string
+  uploader_name: string
+}
+
 export interface BudgetLineItem {
   id: string
   project_id: string
@@ -100,6 +110,17 @@ export interface BudgetLineItem {
   predicted: number
   actual: number
   category: string
+}
+
+export interface ChangeOrder {
+  id: string
+  project_id: string
+  description: string
+  amount: number
+  status: 'Approved' | 'Pending'
+  date: string
+  category: string
+  created_at?: string
 }
 
 export interface BudgetSummary {

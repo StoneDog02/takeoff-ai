@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { BarChart2, Link2 } from 'lucide-react'
 import { quickbooksApi } from '@/api/quickbooks'
 import type { QuickBooksCompanyInfo } from '@/api/quickbooks'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const fmt = (n: number) =>
   '$' + Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -79,8 +80,8 @@ export function AccountingPage() {
             <div className="text-sm text-gray-500 dark:text-gray-400">Finance</div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Accounting</h1>
           </div>
-          <div className="py-12 text-center text-gray-500 dark:text-gray-400">
-            Loading QuickBooks data…
+          <div className="py-12">
+            <LoadingSkeleton variant="page" className="min-h-[30vh]" />
           </div>
         </div>
       </div>

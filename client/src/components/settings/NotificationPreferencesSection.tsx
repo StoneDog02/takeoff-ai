@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import type { NotificationPreferences } from '@/types/global'
 import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, Btn, Toggle } from './SettingsPrimitives'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const defaultPrefs: NotificationPreferences = {
   newBids: { email: true, sms: false, push: true },
@@ -61,7 +62,7 @@ export function NotificationPreferencesSection() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

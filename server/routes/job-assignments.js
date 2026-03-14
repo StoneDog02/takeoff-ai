@@ -5,10 +5,11 @@ const router = express.Router()
 
 router.get('/', async (req, res, next) => {
   try {
-    const supabase = req.supabase || defaultSupabase
+    const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, active_only } = req.query
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
+    if (!effectiveEmployeeId && !job_id) return res.json([])
     let q = supabase.from('job_assignments').select('*').order('assigned_at', { ascending: false })
     if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     if (job_id) q = q.eq('job_id', job_id)

@@ -66,8 +66,8 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
   const healthStyle = HEALTH_CONFIG[health]
   const budget = cardData?.value ?? project.estimated_value ?? 0
   const completedCount = phases.filter((p) => p.completed).length
-  const pct = phases.length ? Math.min(100, Math.round((completedCount / phases.length) * 100)) : 0
-  const spent = phases.length ? Math.round((budget * completedCount) / phases.length) : 0
+  const pct = phases.length ? Math.min(100, Math.round((completedCount / phases.length) * 100)) : budget > 0 && cardData?.valueUsed != null ? Math.min(100, Math.round((cardData.valueUsed / budget) * 100)) : 0
+  const spent = cardData?.valueUsed != null ? cardData.valueUsed : phases.length ? Math.round((budget * completedCount) / phases.length) : 0
   const overBudget = budget > 0 && spent > budget
   const address = [project.address_line_1, project.city].filter(Boolean).join(', ') || '—'
 
@@ -79,9 +79,6 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
         <div className="projects-card-top">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-0.5">
-              <span className="projects-card-id font-mono">
-                {cardData?.projectId ?? project.id?.slice(0, 8) ?? '—'}
-              </span>
               {isDemo && (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
                   Demo
@@ -135,7 +132,9 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
         <div className="projects-card-phase-section">
           <div className="flex justify-between items-center mb-1.5">
             <span className="projects-card-phase-label">Phase</span>
-            <span className="projects-card-phase-name">{currentPhase?.name ?? '—'}</span>
+            <span className="projects-card-phase-name">
+              {currentPhase?.name ?? (phases.length === 0 && cardData ? 'No schedule' : '—')}
+            </span>
           </div>
           {phases.length > 0 && (
             <div className="projects-card-phase-steps">
@@ -177,7 +176,15 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <polyline points="9 18 15 12 9 6" />
           </svg>
-          <span>{cardData?.nextStep ?? (cardData?.isComplete ? 'All phases complete – closed out' : '—')}</span>
+          <span>
+            {cardData?.nextStep && cardData.nextStep !== '—'
+              ? cardData.nextStep
+              : cardData?.isComplete
+                ? 'All phases complete – closed out'
+                : cardData && phases.length === 0
+                  ? 'Add schedule in Schedule tab'
+                  : '—'}
+          </span>
         </div>
 
         {/* Bottom stats */}
@@ -186,12 +193,14 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
             <div className="projects-card-stat-label">Budget</div>
             <div
               className="projects-card-stat-value"
-              style={{ color: overBudget ? 'var(--red)' : undefined }}
+              style={{ color: overBudget ? 'var(--red)' : undefined, display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}
             >
               {fmt(spent)}
-            </div>
-            <div className="projects-card-stat-sub">
-              {budget > 0 ? `${pct}% of ${fmt(budget)}` : '—'}
+              {budget > 0 && (
+                <span className="projects-card-stat-sub" style={{ fontWeight: 400, marginTop: 0 }}>
+                  of {fmt(budget)}
+                </span>
+              )}
             </div>
             <div className="projects-card-budget-bar">
               <div
@@ -206,8 +215,14 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
           </div>
           <div>
             <div className="projects-card-stat-label">Days Left</div>
-            <div className="projects-card-stat-value">–</div>
-            <div className="projects-card-stat-sub">—</div>
+            <div className="projects-card-stat-value">
+              {cardData?.daysLeft != null ? cardData.daysLeft : '–'}
+            </div>
+            <div className="projects-card-stat-sub">
+              {cardData?.daysLeft != null
+                ? (cardData.daysLeft === 0 ? 'Due' : `${cardData.daysLeft}d remaining`)
+                : (cardData && 'Set end date in Overview') || '—'}
+            </div>
           </div>
           <div>
             <div className="projects-card-stat-label mb-1">PM</div>

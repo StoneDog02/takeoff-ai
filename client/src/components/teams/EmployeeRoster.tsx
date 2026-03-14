@@ -4,6 +4,7 @@ import type { Employee, JobAssignment } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
 import { AddEmployeeWizardModal } from './AddEmployeeWizardModal'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 type ViewMode = 'cards' | 'table'
 
@@ -186,7 +187,7 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--text-muted)', margin: 0 }}>Loading roster…</p>
+        <div className="py-6"><LoadingSkeleton variant="inline" lines={5} className="max-w-sm" /></div>
       ) : filtered.length === 0 ? (
         <div className="teams-empty-state">
           <p>No employees yet. Add your first employee to build your roster and assign them to jobs.</p>

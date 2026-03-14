@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
+import type { DashboardProject } from '@/api/client'
+import type { ProjectCardData } from '@/data/mockProjectsData'
 import type { Project, Phase, Milestone, ProjectTask, JobWalkMedia, ProjectBuildPlan, Subcontractor, MaterialList, ProjectWorkType, ProjectActivityItem, JobAssignment, Employee } from '@/types/global'
 import { teamsApi } from '@/api/teamsClient'
 import { ProjectCard } from '@/components/projects/ProjectCard'
@@ -8,6 +10,7 @@ import { HealthRing } from '@/components/projects/HealthRing'
 import { JobWalkGallery } from '@/components/projects/JobWalkGallery'
 import { BudgetTab } from '@/components/projects/BudgetTab'
 import { LaunchTakeoffWidget, type TakeoffPlanType } from '@/components/projects/LaunchTakeoffWidget'
+import { TakeoffProgressPopup } from '@/components/projects/TakeoffProgressPopup'
 import { BulkSendModal } from '@/components/projects/BulkSendModal'
 import { BidSheetFlow } from '@/components/projects/BidSheetFlow'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
@@ -37,17 +40,21 @@ export interface NewProjectFormData {
 const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
 
+if (typeof window !== 'undefined') {
+  console.log('[ProjectsPage] module loaded')
+}
+
 export function ProjectsPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<DashboardProject[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [phases, setPhases] = useState<Phase[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [media, setMedia] = useState<JobWalkMedia[]>([])
-  const [budget, setBudget] = useState<{ items: { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[]; summary: { predicted_total: number; actual_total: number; profitability: number } } | null>(null)
+  const [budget, setBudget] = useState<{ items: { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[]; summary: { predicted_total: number; actual_total: number; profitability: number }; labor_actual_from_time_entries?: number; subs_actual_from_bid_sheet?: number; approved_change_orders_total?: number } | null>(null)
   const [takeoffs, setTakeoffs] = useState<{ id: string; material_list: { categories: { name: string; items: { description: string; quantity: number; unit: string; trade_tag?: string; cost_estimate?: number | null }[] }[] }; created_at: string }[]>([])
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([])
   const [jobAssignments, setJobAssignments] = useState<JobAssignment[]>([])
@@ -77,9 +84,36 @@ export function ProjectsPage() {
   const [buildPlans, setBuildPlans] = useState<ProjectBuildPlan[]>([])
   const [heroMenuOpen, setHeroMenuOpen] = useState(false)
   const heroMenuRef = useRef<HTMLDivElement>(null)
+  /** Takeoff in progress (lives in parent so progress continues when user leaves Takeoff tab). */
+  const [takeoffInProgress, setTakeoffInProgress] = useState(false)
+  const [takeoffProgress, setTakeoffProgress] = useState(0)
+  const [takeoffMessage, setTakeoffMessage] = useState('')
+  const [takeoffStartTime, setTakeoffStartTime] = useState(0)
+  const [takeoffResult, setTakeoffResult] = useState<{
+    material_list: MaterialList
+    id?: string
+    created_at?: string
+    truncated?: boolean
+  } | null>(null)
+  const [takeoffError, setTakeoffError] = useState<string | null>(null)
+  const takeoffIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const takeoffMessageIndexRef = useRef(0)
   /** Work types from wizard onComplete; applied again when detail refetch finishes so banner never loses them. */
   const pendingWizardWorkTypes = useRef<ProjectWorkType[] | undefined>(undefined)
   const tabFromUrl = searchParams.get('tab')
+  /** Budget tab: show skeleton until refetch completes so variance/actual don't flash. */
+  const [budgetTabLoading, setBudgetTabLoading] = useState(false)
+
+  const TAKEOFF_PROGRESS_MESSAGES = [
+    'Uploading plan…',
+    'Analyzing drawings…',
+    'Extracting dimensions…',
+    'Identifying materials…',
+    'Building material list…',
+  ]
+  const TAKEOFF_PROGRESS_CAP = 90
+  const TAKEOFF_PROGRESS_INTERVAL_MS = 800
+  const TAKEOFF_PROGRESS_STEP = 4
 
   // Open New Project modal after the page has loaded and grid slide-in animation has finished (?new=1)
   useEffect(() => {
@@ -150,23 +184,39 @@ export function ProjectsPage() {
   }, [id])
 
   useEffect(() => {
-    api.projects
-      .list()
-      .then(setProjects)
+    if (id !== undefined) return
+    setLoading(true)
+    api.dashboard
+      .getProjects()
+      .then((list) => {
+        setProjects(list)
+      })
       .catch(() => setProjects([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [id])
 
   useEffect(() => {
     if (!id) return
     setLoading(true)
     setError(null)
+    setProject(null)
+    setBudget(null)
+    setPhases([])
+    setMilestones([])
+    setTasks([])
+    setMedia([])
+    setTakeoffs([])
+    setSubcontractors([])
     setOverviewSetupReady(false)
     setActivity([])
     setBuildPlans([])
-    // Keep previous crew list until refetch completes so Crew tab doesn't flash "No employees" when adding/removing
-    setJobAssignments((prev) => (id && project?.id && id !== project.id ? [] : prev))
-    setRosterEmployees((prev) => (id && project?.id && id !== project.id ? [] : prev))
+    setTakeoffResult(null)
+    setTakeoffError(null)
+    setJobAssignments([])
+    setRosterEmployees([])
+    setBuilderPhases([])
+    setBuilderMilestones([])
+    setBuilderMeta({ projectName: '', startDate: '', gcOwner: '' })
 
     const emptyBudget = { items: [] as { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[], summary: { predicted_total: 0, actual_total: 0, profitability: 0 } }
     Promise.all([
@@ -241,6 +291,20 @@ export function ProjectsPage() {
       .finally(() => setLoading(false))
   }, [id, detailRefreshTrigger])
 
+  // Refetch budget when opening Budget tab so variance/actual don't show stale data; show skeleton until done
+  useEffect(() => {
+    if (activeTab !== 'budget' || !id) return
+    setBudgetTabLoading(true)
+    api.projects
+      .getBudget(id)
+      .then((bud) => {
+        const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
+        setBudget(bud?.items?.length ? bud : { items: [], summary: bud?.summary ?? emptySummary })
+      })
+      .catch(() => {})
+      .finally(() => setBudgetTabLoading(false))
+  }, [activeTab, id])
+
   const refreshMedia = () => {
     if (id) {
       api.projects.getMedia(id).then(setMedia)
@@ -270,14 +334,118 @@ export function ProjectsPage() {
 
   const takeoffCategories = takeoffs[0]?.material_list?.categories ?? []
 
+  /** Start takeoff in the background (fire-and-forget). Keeps running when user leaves Takeoff tab; popup shows progress. */
+  const startTakeoff = useCallback(
+    (file: File, planType: TakeoffPlanType, tradeFilter: null | string | string[] | undefined) => {
+      const projectId = project?.id
+      if (!projectId) return
+      setTakeoffError(null)
+      setTakeoffResult(null)
+      setTakeoffInProgress(true)
+      setTakeoffStartTime(Date.now())
+      setTakeoffProgress(0)
+      setTakeoffMessage(TAKEOFF_PROGRESS_MESSAGES[0])
+      takeoffMessageIndexRef.current = 0
+      takeoffIntervalRef.current = setInterval(() => {
+        setTakeoffProgress((p) => {
+          const next = Math.min(p + TAKEOFF_PROGRESS_STEP, TAKEOFF_PROGRESS_CAP)
+          const idx = Math.min(
+            Math.floor(next / 20),
+            TAKEOFF_PROGRESS_MESSAGES.length - 1
+          )
+          if (idx !== takeoffMessageIndexRef.current) {
+            takeoffMessageIndexRef.current = idx
+            setTakeoffMessage(TAKEOFF_PROGRESS_MESSAGES[idx])
+          }
+          return next
+        })
+      }, TAKEOFF_PROGRESS_INTERVAL_MS)
+      ;(async () => {
+        try {
+          const result = await api.projects.launchTakeoff(
+            projectId,
+            file,
+            planType,
+            tradeFilter ?? undefined
+          )
+          const list = await api.projects.getTakeoffs(projectId)
+          setTakeoffs(list)
+          const saved = list[0]
+          setTakeoffResult({
+            material_list: result.material_list as MaterialList,
+            id: saved?.id,
+            created_at: saved?.created_at,
+            truncated: result.truncated,
+          })
+        } catch (err) {
+          setTakeoffError(err instanceof Error ? err.message : 'Takeoff failed')
+        } finally {
+          if (takeoffIntervalRef.current) {
+            clearInterval(takeoffIntervalRef.current)
+            takeoffIntervalRef.current = null
+          }
+          setTakeoffProgress(100)
+          setTakeoffMessage('Complete')
+          setTakeoffInProgress(false)
+        }
+      })()
+    },
+    [project?.id]
+  )
+
+  /** Build Project shape from dashboard item (for delete modal and ProjectCard). */
+  function toProject(d: DashboardProject): Project {
+    return {
+      id: d.id,
+      name: d.name,
+      status: d.status,
+      address_line_1: d.address_line_1 ?? undefined,
+      address_line_2: d.address_line_2 ?? undefined,
+      city: d.city ?? undefined,
+      state: d.state ?? undefined,
+      postal_code: d.postal_code ?? undefined,
+      assigned_to_name: d.client || undefined,
+      estimated_value: d.budget_total,
+    }
+  }
+
+  /** Build card data from list item (enriched or plain) so ProjectCard always shows phase, budget, days left, PM. */
+  function toCardData(d: DashboardProject): ProjectCardData {
+    const phases = d.phases ?? []
+    const allComplete = phases.length > 0 && phases.every((p) => p.completed)
+    const budgetTotal = d.budget_total ?? d.estimated_value ?? 0
+    const spentTotal = d.spent_total ?? 0
+    let daysLeft = d.days_left
+    if (daysLeft == null) {
+      const endDate = d.timeline_end ?? d.expected_end_date
+      if (endDate) {
+        const endTime = new Date(endDate).getTime()
+        const now = Date.now()
+        daysLeft = Math.max(0, Math.ceil((endTime - now) / (24 * 60 * 60 * 1000)))
+      }
+    }
+    const clientName = d.client ?? d.assigned_to_name ?? '—'
+    const initials = d.initials ?? (clientName !== '—' ? clientName.split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 2) : '—')
+    return {
+      projectId: d.id,
+      phaseProgress: phases,
+      nextStep: d.next_step ?? (phases.length === 0 ? 'Add schedule in Schedule tab' : '—'),
+      isComplete: allComplete,
+      assignedTo: { initials, name: clientName },
+      value: budgetTotal,
+      valueUsed: spentTotal,
+      daysLeft: daysLeft ?? undefined,
+    }
+  }
+
   if (id === undefined) {
-    const filterMatch = (p: Project) => {
+    const filterMatch = (p: DashboardProject) => {
       if (filter === 'all') return true
       const s = (p.status ?? '').toLowerCase().replace(' ', '_')
       return s === filter
     }
     const searchLower = search.trim().toLowerCase()
-    const searchMatch = (p: Project) =>
+    const searchMatch = (p: DashboardProject) =>
       !searchLower || p.name.toLowerCase().includes(searchLower)
     const displayedProjects = projects.filter(filterMatch).filter(searchMatch)
     const activeCount = displayedProjects.filter((p) => (p.status ?? 'active').toLowerCase() === 'active').length
@@ -357,7 +525,13 @@ export function ProjectsPage() {
           </div>
 
           {loading ? (
-            <p className="text-muted dark:text-white-dim">Loading…</p>
+            <div className="page-loading" style={{ minHeight: '40vh' }}>
+              <div className="page-loading-skeleton">
+                <div className="skeleton" />
+                <div className="skeleton" />
+                <div className="skeleton" />
+              </div>
+            </div>
             ) : listView === 'table' ? (
             displayedProjects.length === 0 ? (
               <p className="text-muted dark:text-white-dim py-8 text-center">
@@ -368,10 +542,13 @@ export function ProjectsPage() {
             ) : (
               <div className="projects-list-table">
                 <div className="projects-list-table-head" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px' }}>
-                  <span>Project</span><span>Status</span><span>Phase</span><span>Budget</span><span>Days Left</span><span>PM</span><span></span>
+                  <span>Project</span><span>Status</span><span>Phase</span><span>Budget (Actual)</span><span>Days Left</span><span>PM</span><span></span>
                 </div>
                 {displayedProjects.map((p) => {
-                  const budgetVal = Number(p.estimated_value) || 0
+                  const budgetTotal = p.budget_total ?? 0
+                  const spentTotal = p.spent_total ?? 0
+                  const budgetPct = budgetTotal > 0 ? Math.round((spentTotal / budgetTotal) * 100) : 0
+                  const currentPhase = p.phases?.find((ph) => !ph.completed)?.name ?? (p.phases?.length ? p.phases[p.phases.length - 1]?.name : null)
                   const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
                     (p.status ?? '') === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } :
                     (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
@@ -390,26 +567,26 @@ export function ProjectsPage() {
                       <div>
                         <div className="font-semibold text-[14px] text-gray-900 dark:text-landing-white">{p.name}</div>
                         <div className="text-xs text-muted dark:text-white-dim">
-                          {p.address_line_1 || p.city || '—'} · <span className="font-mono text-[11px]">{p.id?.slice(0, 8) ?? '—'}</span>
+                          {p.address_line_1 || p.city || '—'}
                         </div>
                       </div>
                       <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
                         {p.status === 'on_hold' ? 'On Hold' : (p.status ?? 'Active').charAt(0).toUpperCase() + (p.status ?? 'active').slice(1)}
                       </span>
-                      <span className="text-sm text-gray-600 dark:text-white-dim font-medium">—</span>
+                      <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{currentPhase ?? '—'}</span>
                       <div>
-                        <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${budgetVal.toLocaleString()}</div>
-                        <div className="text-[10px] text-muted dark:text-white-dim">—</div>
+                        <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${spentTotal.toLocaleString()}</div>
+                        <div className="text-[10px] text-muted dark:text-white-dim">{budgetTotal > 0 ? `${budgetPct}% of $${budgetTotal.toLocaleString()} budget` : '—'}</div>
                       </div>
-                      <span className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">—</span>
+                      <span className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">{p.days_left != null ? String(p.days_left) : '—'}</span>
                       <div className="projects-card-pm">
-                        {p.assigned_to_name ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.assigned_to_name}</span> : <span className="text-xs text-muted">—</span>}
+                        {p.client ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.client}</span> : <span className="text-xs text-muted">—</span>}
                       </div>
                       <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => setDeleteConfirmProject(p)}
+                          onClick={() => setDeleteConfirmProject(toProject(p))}
                           className="p-2 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20"
                           title="Delete project"
                           aria-label="Delete project"
@@ -430,7 +607,12 @@ export function ProjectsPage() {
           ) : (
             <div className="projects-list-grid">
               {displayedProjects.map((p) => (
-                <ProjectCard key={p.id} project={p} onDelete={(proj) => setDeleteConfirmProject(proj)} />
+                <ProjectCard
+                  key={p.id}
+                  project={toProject(p)}
+                  cardData={toCardData(p)}
+                  onDelete={(proj) => setDeleteConfirmProject(proj)}
+                />
               ))}
               {displayedProjects.length === 0 && (
                 <p className="text-muted dark:text-white-dim col-span-full py-8 text-center">
@@ -459,7 +641,6 @@ export function ProjectsPage() {
               onClose={() => setNewProjectOpen(false)}
               onComplete={(createdProject, extras) => {
                 setNewProjectOpen(false)
-                setProjects((prev) => [createdProject, ...prev])
                 if (extras?.workTypes?.length) setWorkTypesByProject((prev) => ({ ...prev, [createdProject.id]: extras.workTypes! }))
                 navigate(`/projects/${createdProject.id}`)
               }}
@@ -474,6 +655,13 @@ export function ProjectsPage() {
               error={deleteError}
             />
           )}
+          {takeoffInProgress && (
+            <TakeoffProgressPopup
+              progress={takeoffProgress}
+              message={takeoffMessage}
+              startTime={takeoffStartTime}
+            />
+          )}
         </div>
       </div>
     )
@@ -482,7 +670,20 @@ export function ProjectsPage() {
   if (id && !project) {
     return (
       <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
-        <p className="text-muted dark:text-white-dim">Loading project…</p>
+        <div className="page-loading">
+          <div className="page-loading-skeleton">
+            <div className="skeleton" />
+            <div className="skeleton" />
+            <div className="skeleton" />
+          </div>
+        </div>
+        {takeoffInProgress && (
+          <TakeoffProgressPopup
+            progress={takeoffProgress}
+            message={takeoffMessage}
+            startTime={takeoffStartTime}
+          />
+        )}
       </div>
     )
   }
@@ -496,13 +697,21 @@ export function ProjectsPage() {
         <Link to="/projects" className="mt-2 inline-block text-accent hover:underline">
           Back to projects
         </Link>
+        {takeoffInProgress && (
+          <TakeoffProgressPopup
+            progress={takeoffProgress}
+            message={takeoffMessage}
+            startTime={takeoffStartTime}
+          />
+        )}
       </div>
     )
   }
 
-  const projectIdDisplay = project?.id?.slice(0, 8) ?? '—'
   const budgetSummary = budget?.summary ?? { predicted_total: 0, actual_total: 0, profitability: 0 }
-  const isUnderBudget = (budgetSummary.actual_total <= budgetSummary.predicted_total)
+  const approvedCOTotal = budget?.approved_change_orders_total ?? 0
+  const revisedBudget = budgetSummary.predicted_total + approvedCOTotal
+  const isUnderBudget = revisedBudget > 0 && budgetSummary.actual_total <= revisedBudget
   const timelineStart = phases.length
     ? phases.reduce((min, p) => (p.start_date < min ? p.start_date : min), phases[0].start_date)
     : project?.expected_start_date
@@ -523,8 +732,8 @@ export function ProjectsPage() {
   const timelinePct = totalDays != null && totalDays > 0 && daysLeft != null
     ? Math.round(((totalDays - daysLeft) / totalDays) * 100)
     : 0
-  const budgetPct = budgetSummary.predicted_total > 0
-    ? Math.round((budgetSummary.actual_total / budgetSummary.predicted_total) * 100)
+  const budgetPct = revisedBudget > 0
+    ? Math.round((budgetSummary.actual_total / revisedBudget) * 100)
     : 0
   const healthScore = Math.min(100, Math.max(0,
     (isUnderBudget ? 40 : 20) +
@@ -596,7 +805,6 @@ export function ProjectsPage() {
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusPillStyle.dot }} />
                 {project?.status === 'on_hold' ? 'On Hold' : (project?.status ?? 'Active').charAt(0).toUpperCase() + (project?.status ?? 'active').slice(1).replace('_', ' ')}
               </span>
-              <span className="text-[11px] text-[var(--text-muted)] font-mono">{projectIdDisplay}</span>
             </div>
             <h1 className="project-overview-title">
               {project?.name} <span className="project-overview-title-muted">– {addressDisplay}</span>
@@ -673,7 +881,7 @@ export function ProjectsPage() {
               Budget vs Actual
             </div>
             <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
-              ${budgetSummary.actual_total.toLocaleString()} <span className="text-xs font-normal font-sans text-[var(--text-primary)]">/ ${budgetSummary.predicted_total.toLocaleString()}</span>
+              ${budgetSummary.actual_total.toLocaleString()} <span className="text-xs font-normal font-sans text-[var(--text-primary)]">/ ${revisedBudget.toLocaleString()}</span>
             </div>
             <div className="mt-1.5">
               <div className="text-[11px] text-[var(--text-primary)] mb-0.5">{budgetPct}% used</div>
@@ -732,7 +940,7 @@ export function ProjectsPage() {
               project={{
                 assigned_to_name: project.assigned_to_name,
                 phases,
-                budget: budgetSummary.predicted_total,
+                budget: revisedBudget,
                 budgetItemsCount: budget?.items?.length ?? 0,
                 team: subcontractors,
                 workTypes,
@@ -803,7 +1011,7 @@ export function ProjectsPage() {
                   <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
                     ${budgetSummary.actual_total.toLocaleString()}
                   </div>
-                  <div className="text-xs text-[var(--text-muted)]">of ${budgetSummary.predicted_total.toLocaleString()} budget</div>
+                  <div className="text-xs text-[var(--text-muted)]">of ${revisedBudget.toLocaleString()} budget</div>
                 </div>
               </div>
               {(budget?.items ?? []).map((item) => {
@@ -1070,16 +1278,34 @@ export function ProjectsPage() {
         </section>
       )}
 
-      {activeTab === 'budget' && (
+      {activeTab === 'budget' && project && (
         <section className="w-full min-w-0 px-8 py-6">
-          <BudgetTab
-            items={budget?.items ?? []}
-            schedulePhases={builderPhases}
-            onSave={async (items) => {
-              const result = await api.projects.updateBudget(project!.id, items)
-              setBudget(result)
+          {budgetTabLoading ? (
+            <div className="budget-tab-skeleton">
+              <div className="budget-tab-skeleton-kpis">
+                {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton" />)}
+              </div>
+              <div className="budget-tab-skeleton-table">
+                {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton" />)}
+              </div>
+            </div>
+          ) : (
+            <BudgetTab
+              projectId={project.id}
+              items={budget?.items ?? []}
+              schedulePhases={builderPhases}
+              laborActualFromTimeEntries={budget?.labor_actual_from_time_entries}
+              subsActualFromBidSheet={budget?.subs_actual_from_bid_sheet}
+              approvedChangeOrdersTotal={budget?.approved_change_orders_total}
+              onSave={async (items) => {
+              await api.projects.updateBudget(project.id, items)
+              // Refetch so we get merged actuals (awarded bids, time entries) instead of raw DB rows
+              const fresh = await api.projects.getBudget(project.id)
+              const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
+              setBudget(fresh?.items?.length ? fresh : { items: [], summary: fresh?.summary ?? emptySummary })
             }}
-          />
+            />
+          )}
         </section>
       )}
 
@@ -1105,15 +1331,24 @@ export function ProjectsPage() {
           <LaunchTakeoffWidget
             projectId={project.id}
             planType={(project.plan_type as TakeoffPlanType) ?? 'residential'}
-            onUpload={async (file, planType, tradeFilter) => {
-              const result = await api.projects.launchTakeoff(project.id, file, planType, tradeFilter)
-              const list = await api.projects.getTakeoffs(project.id)
-              setTakeoffs(list)
-              return { material_list: result.material_list as MaterialList }
-            }}
+            onStartTakeoff={startTakeoff}
             existingTakeoffs={takeoffs}
+            takeoffResult={takeoffResult}
+            takeoffError={takeoffError}
+            takeoffInProgress={takeoffInProgress}
+            takeoffProgress={takeoffProgress}
+            takeoffMessage={takeoffMessage}
+            takeoffStartTime={takeoffStartTime}
           />
         </section>
+      )}
+
+      {id && takeoffInProgress && (
+        <TakeoffProgressPopup
+          progress={takeoffProgress}
+          message={takeoffMessage}
+          startTime={takeoffStartTime}
+        />
       )}
 
       {activeTab === 'bidsheet' && project && (
@@ -1131,6 +1366,7 @@ export function ProjectsPage() {
             subcontractors={subcontractors}
             onAddSub={async (row) => {
               await api.projects.createSubcontractor(project.id, row)
+              await api.contractors.create({ name: row.name, trade: row.trade, email: row.email, phone: row.phone || '' }).catch(() => {})
               refreshSubcontractors()
             }}
             onDeleteSub={async (subId) => {
@@ -1140,6 +1376,14 @@ export function ProjectsPage() {
             onBulkSend={(subIds) => {
               setBulkSendIds(subIds)
               setBulkSendOpen(true)
+            }}
+            onAwardedChange={() => {
+              if (project.id) {
+                const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
+                api.projects.getBudget(project.id).then((bud) => {
+                  setBudget(bud?.items?.length ? bud : { items: [], summary: bud?.summary ?? emptySummary })
+                }).catch(() => {})
+              }
             }}
           />
         </section>

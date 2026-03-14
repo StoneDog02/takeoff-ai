@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
@@ -225,7 +226,9 @@ export function AppLayout() {
               <div className="notifications-panel-section">
                 <h3 className="notifications-panel-section-title">Closed alerts</h3>
                 {dismissedAlertsLoading ? (
-                  <div className="notifications-panel-loading">Loading…</div>
+                  <div className="px-4 py-3">
+                    <LoadingSkeleton variant="inline" lines={3} />
+                  </div>
                 ) : dismissedAlerts.length > 0 ? (
                   <ul className="notifications-panel-alerts" role="list">
                     {dismissedAlerts.map((a) => {

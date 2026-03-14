@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import type { JobAssignment } from '@/types/global'
 import type { Project } from '@/types/global'
 import { dayjs } from '@/lib/date'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const formatDateShort = (iso: string | null | undefined) =>
   iso ? dayjs(iso).format('MMM D, YYYY') : '—'
@@ -203,22 +204,26 @@ function JobCard({
         <div className="border-t border-border dark:border-border-dark bg-black/5 dark:bg-black/20 px-5 sm:px-6 py-4">
           <div className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3">Full crew</div>
           <div className="flex flex-col gap-2">
-            {job.crew.map((name, i) => (
-              <div key={name} className="flex items-center gap-2.5">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-                  style={{ background: CREW_AVATAR_COLORS[i % CREW_AVATAR_COLORS.length] }}
-                >
-                  {name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2)}
+            {job.crew.map((name, i) => {
+              const isMe = currentUserName != null && name === currentUserName
+              const displayLabel = isMe ? 'Me' : name
+              return (
+                <div key={name} className="flex items-center gap-2.5">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                    style={{ background: CREW_AVATAR_COLORS[i % CREW_AVATAR_COLORS.length] }}
+                  >
+                    {isMe ? 'Me' : name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2)}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900 dark:text-landing-white">{displayLabel}</div>
+                    {name === job.supervisor && (
+                      <div className="text-[11px] text-muted">Supervisor</div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900 dark:text-landing-white">{name}</div>
-                  {name === job.supervisor && (
-                    <div className="text-[11px] text-muted">Supervisor</div>
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -366,7 +371,9 @@ export function EmployeeJobsPage() {
         </div>
 
         {loading ? (
-          <div className="jobs-fade-up py-12 text-center text-muted text-sm">Loading…</div>
+          <div className="jobs-fade-up py-12">
+            <LoadingSkeleton variant="inline" lines={5} className="max-w-sm mx-auto" />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="jobs-fade-up flex flex-col items-center justify-center py-16 text-muted" style={{ animationDelay: '0.08s' }}>
             <Briefcase size={32} className="mb-3 opacity-40" />

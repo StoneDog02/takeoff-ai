@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { api } from '@/api/client'
-import type { BidSheet, TradePackage, Subcontractor, TakeoffItem } from '@/types/global'
+import type { BidDocument, BidSheet, CostBuckets, TradePackage, Subcontractor, SubBid, TakeoffItem } from '@/types/global'
+import { BidCollectionStage } from './bid-sheet/BidCollectionStage'
 import { ProposalViewStage } from './bid-sheet/ProposalViewStage'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 export const TRADE_COLORS: Record<string, { bg: string; accent: string; light: string }> = {
   Framing: { bg: '#FFF7ED', accent: '#f59e0b', light: '#FED7AA' },
@@ -14,13 +16,6 @@ export const TRADE_COLORS: Record<string, { bg: string; accent: string; light: s
   TBD: { bg: '#F9FAFB', accent: '#374151', light: '#E5E7EB' },
 }
 
-const PIPELINE_STEPS = [
-  { key: 'takeoff', label: 'Takeoff', icon: '📐' },
-  { key: 'packages', label: 'Trade Packages', icon: '📦' },
-  { key: 'sent', label: 'Bids Sent', icon: '📤' },
-  { key: 'received', label: 'Bids Received', icon: '📥' },
-  { key: 'awarded', label: 'Awarded', icon: '✅' },
-] as const
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; border: string }> = {
   Awarded: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
@@ -32,13 +27,59 @@ const STATUS_CONFIG: Record<string, { bg: string; text: string; border: string }
 const SUB_TABS = [
   { key: 'packages', label: 'Trade Packages' },
   { key: 'collection', label: 'Bid Collection' },
-  { key: 'compare', label: 'Bid Compare' },
   { key: 'summary', label: 'GC Summary' },
   { key: 'proposal', label: 'Homeowner Proposal' },
 ] as const
 
 function fmt(n: number | null | undefined): string {
   return n != null ? '$' + n.toLocaleString() : '—'
+}
+
+function CostBucketsEditor({
+  costBuckets,
+  onSave,
+  saving,
+}: {
+  costBuckets: CostBuckets
+  onSave: (next: CostBuckets) => Promise<void>
+  saving: boolean
+}) {
+  const [materials, setMaterials] = useState(String(costBuckets.self_supplied_materials ?? ''))
+  const [labor, setLabor] = useState(String(costBuckets.own_labor ?? ''))
+  const [overhead, setOverhead] = useState(String(costBuckets.overhead_margin ?? ''))
+  useEffect(() => {
+    setMaterials(String(costBuckets.self_supplied_materials ?? ''))
+    setLabor(String(costBuckets.own_labor ?? ''))
+    setOverhead(String(costBuckets.overhead_margin ?? ''))
+  }, [costBuckets.self_supplied_materials, costBuckets.own_labor, costBuckets.overhead_margin])
+  const handleSave = () => {
+    onSave({
+      ...costBuckets,
+      self_supplied_materials: Number(materials) || 0,
+      own_labor: Number(labor) || 0,
+      overhead_margin: Number(overhead) || 0,
+    })
+  }
+  return (
+    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginRight: 8 }}>Add-ons (included in proposal total):</span>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Materials</span>
+        <input type="number" min={0} step={1} value={materials} onChange={(e) => setMaterials(e.target.value)} className="w-28 px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-base)] text-sm font-medium text-right" placeholder="0" />
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Labor</span>
+        <input type="number" min={0} step={1} value={labor} onChange={(e) => setLabor(e.target.value)} className="w-28 px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-base)] text-sm font-medium text-right" placeholder="0" />
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Overhead & margin</span>
+        <input type="number" min={0} step={1} value={overhead} onChange={(e) => setOverhead(e.target.value)} className="w-28 px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-base)] text-sm font-medium text-right" placeholder="0" />
+      </label>
+      <button type="button" onClick={handleSave} disabled={saving} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--text-primary)', color: '#fff', border: 'none', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        {saving ? 'Saving…' : 'Update'}
+      </button>
+    </div>
+  )
 }
 
 function groupTakeoffByTrade(categories: { name: string; items: TakeoffItem[] }[]): TradePackage[] {
@@ -66,11 +107,12 @@ export interface BidSheetFlowProps {
   onAddSub?: (row: { name: string; trade: string; email: string; phone: string }) => Promise<void>
   onDeleteSub?: (id: string) => Promise<void>
   onBulkSend?: (subIds: string[]) => void
+  /** Called after bid sheet is saved with an award change so Budget tab can refetch actuals. */
+  onAwardedChange?: () => void
   initialBidSheet?: BidSheet
 }
 
 type SubTabKey = (typeof SUB_TABS)[number]['key']
-type PipelineKey = (typeof PIPELINE_STEPS)[number]['key']
 
 export function BidSheetFlow({
   projectId,
@@ -80,21 +122,29 @@ export function BidSheetFlow({
   onAddSub,
   onDeleteSub: _onDeleteSub,
   onBulkSend,
+  onAwardedChange,
   initialBidSheet,
 }: BidSheetFlowProps) {
   const [bidSheet, setBidSheet] = useState<BidSheet | null>(initialBidSheet ?? null)
   const [loading, setLoading] = useState(!initialBidSheet)
   const [saving, setSaving] = useState(false)
-  const [activePipelineStep, setActivePipelineStep] = useState<PipelineKey>('packages')
   const [activeSubTab, setActiveSubTab] = useState<SubTabKey>('packages')
   const [activeTrade, setActiveTrade] = useState<string | null>(null)
   const [addSubOpen, setAddSubOpen] = useState(false)
   const [newSub, setNewSub] = useState({ name: '', trade: 'Framing', email: '', phone: '' })
   const [expandedSub, setExpandedSub] = useState<string | null>(null)
-  const [selectedSubs, setSelectedSubs] = useState<Set<string>>(new Set())
+  /** When set, the "Send scope to subs" modal is open for this trade; user picks subs then continues to email. */
+  const [sendToSubsTrade, setSendToSubsTrade] = useState<string | null>(null)
+  const [sendToSubsSelected, setSendToSubsSelected] = useState<Set<string>>(new Set())
+  const [bidDocuments, setBidDocuments] = useState<BidDocument[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [documentUploading, setDocumentUploading] = useState(false)
+  const [bidDocsModalOpen, setBidDocsModalOpen] = useState(false)
 
   const tradePackages = bidSheet?.trade_packages ?? []
   const subBids = bidSheet?.sub_bids ?? []
+  /** True if bid sheet has been generated from takeoff at least once (we have packages). */
+  const hasGeneratedFromTakeoff = tradePackages.length > 0
   const subsById = useMemo(() => Object.fromEntries(subcontractors.map((s) => [s.id, s])), [subcontractors])
 
   const allSubs = useMemo(() => {
@@ -118,6 +168,16 @@ export function BidSheetFlow({
   }, [subcontractors, subBids])
 
   const awardedTotal = useMemo(() => subBids.filter((b) => b.awarded).reduce((s, b) => s + (b.amount || 0), 0), [subBids])
+
+  /** When proposal_lines is empty, show one line per awarded bid (trade name + amount) so the proposal isn’t blank. */
+  const derivedProposalLines = useMemo(() => {
+    const awarded = subBids.filter((b) => b.awarded)
+    return awarded.map((b) => {
+      const pkg = tradePackages.find((p) => p.id === b.trade_package_id)
+      return { id: b.id, label: pkg?.trade_tag ?? 'Trade', amount: b.amount }
+    })
+  }, [subBids, tradePackages])
+  const proposalLinesToShow = (bidSheet?.proposal_lines?.length ?? 0) > 0 ? bidSheet!.proposal_lines : derivedProposalLines
 
   const pipelineCounts = useMemo(() => {
     const takeoff = takeoffCategories?.length ?? 0
@@ -149,6 +209,18 @@ export function BidSheetFlow({
       )
       .finally(() => setLoading(false))
   }, [projectId, initialBidSheet])
+
+  const loadBidDocuments = useCallback(() => {
+    setDocumentsLoading(true)
+    api.projects
+      .getBidDocuments(projectId)
+      .then(setBidDocuments)
+      .catch(() => setBidDocuments([]))
+      .finally(() => setDocumentsLoading(false))
+  }, [projectId])
+  useEffect(() => {
+    if (bidDocsModalOpen) loadBidDocuments()
+  }, [projectId, bidDocsModalOpen, loadBidDocuments])
 
   useEffect(() => {
     if (tradePackages.length > 0 && !activeTrade) setActiveTrade(tradePackages[0].trade_tag)
@@ -182,6 +254,19 @@ export function BidSheetFlow({
       return b
     })
     await saveBidSheet({ ...bidSheet!, sub_bids: bidsCorrected })
+    onAwardedChange?.()
+  }
+
+  const handleAddBid = async (tradePackageId: string, subcontractorId: string, amount: number, notes?: string) => {
+    const newBid: SubBid = {
+      id: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      trade_package_id: tradePackageId,
+      subcontractor_id: subcontractorId,
+      amount,
+      notes: notes || undefined,
+      awarded: false,
+    }
+    await saveBidSheet({ ...bidSheet!, sub_bids: [...subBids, newBid] })
   }
 
   const handleAddSub = async () => {
@@ -191,18 +276,26 @@ export function BidSheetFlow({
     setAddSubOpen(false)
   }
 
-  const toggleSub = (id: string) => {
-    setSelectedSubs((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const bidDocInputRef = useRef<HTMLInputElement>(null)
+  const handleBidDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setDocumentUploading(true)
+    try {
+      const doc = await api.projects.uploadBidDocument(projectId, file)
+      setBidDocuments((prev) => [doc, ...prev])
+    } finally {
+      setDocumentUploading(false)
+    }
   }
-
-  const selectAllSubs = () => {
-    if (selectedSubs.size === subcontractors.length) setSelectedSubs(new Set())
-    else setSelectedSubs(new Set(subcontractors.map((s) => s.id)))
+  const openBidDoc = async (doc: BidDocument) => {
+    const { url } = await api.projects.getBidDocumentViewUrl(projectId, doc.id)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+  const deleteBidDoc = async (doc: BidDocument) => {
+    await api.projects.deleteBidDocument(projectId, doc.id)
+    setBidDocuments((prev) => prev.filter((d) => d.id !== doc.id))
   }
 
   const trade = activeTrade ? tradePackages.find((p) => p.trade_tag === activeTrade) : null
@@ -211,59 +304,53 @@ export function BidSheetFlow({
   if (loading || !bidSheet) {
     return (
       <div className="bidsheet-tab">
-        <p className="text-sm text-muted">Loading bid sheet…</p>
+        <div className="py-6">
+          <LoadingSkeleton variant="inline" lines={4} className="max-w-sm" />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="bidsheet-tab">
-      {/* Pipeline Banner */}
-      <div className="bidsheet-pipeline">
-        <div className="bidsheet-pipeline-title">
-          <span>Bid Pipeline</span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>
-            Awarded total: <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--green, #16a34a)' }}>{fmt(awardedTotal)}</span>
-          </span>
+      {/* Compact status line + primary tabs */}
+      <div className="bidsheet-top-bar">
+        <div className="bidsheet-status-line">
+          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('packages')} title="Go to Trade Packages">
+            {pipelineCounts.takeoff ? '✓ Takeoff' : 'Takeoff'}
+          </button>
+          <span className="bidsheet-status-sep" />
+          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('packages')} title="Go to Trade Packages">
+            {pipelineCounts.packages} packages
+          </button>
+          <span className="bidsheet-status-sep" />
+          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('collection')} title="Go to Bid Collection">
+            {pipelineCounts.sent} sent
+          </button>
+          <span className="bidsheet-status-sep" />
+          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('collection')} title="Go to Bid Collection">
+            {pipelineCounts.received} received
+          </button>
+          <span className="bidsheet-status-sep" />
+          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('collection')} title="Go to Bid Collection">
+            {pipelineCounts.awarded} awarded
+          </button>
+          <span className="bidsheet-status-sep" />
+          <button type="button" className="bidsheet-status-btn bidsheet-status-awarded" onClick={() => setActiveSubTab('summary')} title="Go to GC Summary">
+            Awarded total: <strong style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--green, #16a34a)' }}>{fmt(awardedTotal)}</strong>
+          </button>
         </div>
-        <div className="bidsheet-pipeline-steps">
-          {PIPELINE_STEPS.map((step, i) => {
-            const active = activePipelineStep === step.key
-            const past = PIPELINE_STEPS.findIndex((s) => s.key === activePipelineStep) > i
-            const count = pipelineCounts[step.key as keyof typeof pipelineCounts] ?? 0
-            return (
-              <div key={step.key} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActivePipelineStep(step.key)
-                    if (step.key === 'packages') setActiveSubTab('packages')
-                    else if (step.key === 'sent' || step.key === 'received' || step.key === 'awarded') setActiveSubTab('collection')
-                  }}
-                  className={`bidsheet-pipeline-step ${active ? 'active' : ''} ${past ? 'past' : ''}`}
-                >
-                  <div className="step-icon">{step.icon}</div>
-                  <div className="step-label" style={{ color: active ? '#fff' : past ? '#15803d' : 'var(--text-secondary)' }}>{step.label}</div>
-                  <span
-                    className="step-count"
-                    style={{
-                      background: active ? 'rgba(255,255,255,0.15)' : past ? '#dcfce7' : 'var(--bg-base)',
-                      color: active ? '#fff' : past ? '#16a34a' : 'var(--text-muted)',
-                    }}
-                  >
-                    {count}
-                  </span>
-                </button>
-                {i < PIPELINE_STEPS.length - 1 && (
-                  <div className="bidsheet-pipeline-connector" style={{ background: past ? '#16a34a' : 'var(--border)' }}>
-                    <svg style={{ position: 'absolute', right: -5, top: '50%', transform: 'translateY(-50%)' }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={past ? '#16a34a' : 'var(--border)'} strokeWidth="2.5">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        <div className="bidsheet-primary-tabs">
+          {SUB_TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveSubTab(key)}
+              className={`bidsheet-primary-tab ${activeSubTab === key ? 'active' : ''}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -335,20 +422,16 @@ export function BidSheetFlow({
           )}
         </div>
 
-        {/* Right: Sub-tabs + Content */}
+        {/* Right: Content */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="bidsheet-subtabs">
-            {SUB_TABS.map(({ key, label }) => (
-              <button key={key} type="button" onClick={() => setActiveSubTab(key)} className={`bidsheet-subtab ${activeSubTab === key ? 'active' : ''}`}>{label}</button>
-            ))}
-          </div>
-
           {activeSubTab === 'packages' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="bidsheet-packages-card">
               <div className="bidsheet-info-bar">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-                Auto-generated from takeoff. Each sub sees only their scope — no pricing visible.
-                <button type="button" onClick={generateTradePackages} disabled={saving} className="ml-auto text-[11px] py-1 px-2.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] cursor-pointer text-[var(--text-secondary)] font-medium whitespace-nowrap">Re-generate from Takeoff</button>
+                {hasGeneratedFromTakeoff ? 'Auto-generated from takeoff. Each sub sees only their scope — no pricing visible.' : 'Build trade packages from your takeoff so you can send scopes to subs.'}
+                <button type="button" onClick={generateTradePackages} disabled={saving || takeoffCategories.length === 0} className="ml-auto text-[11px] py-1 px-2.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] cursor-pointer text-[var(--text-secondary)] font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed" title={takeoffCategories.length === 0 ? 'Run Launch Takeoff first' : undefined}>
+                  {hasGeneratedFromTakeoff ? 'Re-generate from Takeoff' : 'Generate from Takeoff'}
+                </button>
               </div>
               <div className="bidsheet-trade-btns">
                 {tradePackages.map((pkg) => {
@@ -378,7 +461,17 @@ export function BidSheetFlow({
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Scope for subs — no pricing shown</div>
                     </div>
-                    <button type="button" style={{ padding: '8px 16px', background: colors(trade.trade_tag).accent, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Send to Subs →</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const matchingIds = new Set(subcontractors.filter((s) => (s.trade || 'TBD') === trade.trade_tag).map((s) => s.id))
+                        setSendToSubsSelected(matchingIds)
+                        setSendToSubsTrade(trade.trade_tag)
+                      }}
+                      style={{ padding: '8px 16px', background: colors(trade.trade_tag).accent, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Send to Subs →
+                    </button>
                   </div>
                   <div style={{ padding: '0 20px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 100px 80px', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
@@ -395,110 +488,39 @@ export function BidSheetFlow({
                   </div>
                 </div>
               )}
-              {tradePackages.length === 0 && <p className="text-sm text-muted">No trade packages yet. Run takeoff and Re-generate from Takeoff.</p>}
+              {tradePackages.length === 0 && (
+                <p className="text-sm text-muted">
+                  {takeoffCategories.length > 0
+                    ? 'No trade packages yet. Use "Generate from Takeoff" above to build the bid sheet from your takeoff.'
+                    : 'No trade packages yet. Run Launch Takeoff first, then use "Generate from Takeoff" to build the bid sheet.'}
+                </p>
+              )}
             </div>
           )}
 
           {activeSubTab === 'collection' && (
-            <div className="bidsheet-compare-card">
-              <div className="bidsheet-collection-header">
+            <div className="bidsheet-collection-layout">
+              <div className="bidsheet-collection-page-header">
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Bid Collection</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>Track sent & received bids across all trades</div>
+                  <div className="bidsheet-collection-page-title">Bid Collection</div>
+                  <div className="bidsheet-collection-page-desc">Add bids per trade below. Award winners in Bid Compare — GC Summary and Homeowner Proposal update automatically.</div>
                 </div>
-                <button type="button" onClick={() => onBulkSend?.(Array.from(selectedSubs))} disabled={selectedSubs.size === 0} className="py-1.5 px-3.5 rounded-lg bg-[var(--red)] text-white text-[12px] font-semibold border-none cursor-pointer">Bulk Send</button>
+                <button
+                  type="button"
+                  onClick={() => setBidDocsModalOpen(true)}
+                  className="bidsheet-collection-docs-btn"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  Bid Documents
+                </button>
               </div>
-              <div className="bidsheet-collection-table">
-                {['Subcontractor', 'Trade', 'Phone', 'Email', 'Status'].map((h) => <span key={h}>{h}</span>)}
-              </div>
-              <button type="button" onClick={selectAllSubs} className="bidsheet-collection-row text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-                {selectedSubs.size === allSubs.length ? 'Deselect all' : 'Select all'}
-              </button>
-              {allSubs.map((s) => {
-                const cfg = STATUS_CONFIG[s.status]
-                const checked = selectedSubs.has(s.id)
-                return (
-                  <div key={s.id} role="button" tabIndex={0} onClick={() => toggleSub(s.id)} onKeyDown={(e) => e.key === 'Enter' && toggleSub(s.id)} className={`bidsheet-collection-row ${checked ? 'selected' : ''}`} style={{ cursor: 'pointer' }}>
-                    <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="checkbox" checked={checked} readOnly style={{ pointerEvents: 'none' }} />
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</div>
-                        {s.bid != null && <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>{fmt(s.bid)}</div>}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: 11, background: s.tradeColor + '20', color: s.tradeColor, padding: '2px 8px', borderRadius: 6, fontWeight: 600, width: 'fit-content' }}>{s.trade}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.phone || '—'}</span>
-                    <span className="bidsheet-collection-email" style={{ fontSize: 12, color: 'var(--text-muted)' }} title={s.email || undefined}>{s.email || '—'}</span>
-                    <span className="bidsheet-collection-status" style={{ fontSize: 11, background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}`, padding: '3px 8px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>{s.status}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {activeSubTab === 'compare' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {tradePackages.filter((pkg) => subBids.some((b) => b.trade_package_id === pkg.id)).map((pkg) => {
-                const bids = subBids.filter((b) => b.trade_package_id === pkg.id).map((b) => ({ ...b, subName: subsById[b.subcontractor_id]?.name ?? b.subcontractor_id }))
-                if (bids.length === 0) return null
-                const sorted = [...bids].sort((a, b) => a.amount - b.amount)
-                const lowest = sorted[0].amount
-                const c = colors(pkg.trade_tag)
-                return (
-                  <div key={pkg.id} className="bidsheet-compare-card">
-                    <div className="bidsheet-compare-head">
-                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.accent }} />
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{pkg.trade_tag}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{bids.length} bids received</span>
-                    </div>
-                    <div>
-                      {sorted.map((bid, i) => {
-                        const cfg = STATUS_CONFIG[bid.awarded ? 'Awarded' : 'Received']
-                        const isLowest = bid.amount === lowest
-                        const diff = bid.amount - lowest
-                        return (
-                          <div key={bid.id} className="bidsheet-compare-row" style={{ background: isLowest ? '#f0fdf4' : 'transparent' }}>
-                            <div style={{ width: 24, height: 24, borderRadius: '50%', background: isLowest ? '#16a34a' : 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: isLowest ? '#fff' : 'var(--text-muted)' }}>{i + 1}</span>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{bid.subName}</div>
-                              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{subsById[bid.subcontractor_id]?.email ?? '—'}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: isLowest ? '#16a34a' : 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(bid.amount)}</div>
-                              {!isLowest && <div style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600 }}>+{fmt(diff)} vs lowest</div>}
-                              {isLowest && <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>Lowest bid</div>}
-                            </div>
-                            <div style={{ width: 100 }}>
-                              <div style={{ height: 6, background: 'var(--bg-base)', borderRadius: 3, overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${(lowest / bid.amount) * 100}%`, background: isLowest ? '#16a34a' : '#f59e0b', borderRadius: 3 }} />
-                              </div>
-                            </div>
-                            <span style={{ fontSize: 11, background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}`, padding: '3px 9px', borderRadius: 20, fontWeight: 600 }}>{bid.awarded ? 'Awarded' : 'Received'}</span>
-                            {!bid.awarded && (
-                              <button type="button" onClick={() => setAwarded(bid.id, true)} className="py-1.5 px-3 rounded-md bg-[var(--text-primary)] text-white text-[11px] font-semibold border-none cursor-pointer whitespace-nowrap">Award</button>
-                            )}
-                            {bid.awarded && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#16a34a' }}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                                <span style={{ fontSize: 11, fontWeight: 700 }}>Awarded</span>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                    {bids.length > 1 && (
-                      <div style={{ padding: '10px 20px', background: '#f0fdf4', borderTop: '1px solid #dcfce7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: '#15803d' }}>Potential savings vs highest bid</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{fmt(Math.max(...bids.map((b) => b.amount)) - lowest)}</span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              {tradePackages.every((pkg) => !subBids.some((b) => b.trade_package_id === pkg.id)) && <p className="text-sm text-muted">No bids received yet. Add bids in Bid Collection.</p>}
+              <BidCollectionStage
+                tradePackages={tradePackages}
+                subBids={subBids}
+                subcontractors={subcontractors}
+                onAddBid={handleAddBid}
+                onSetAwarded={setAwarded}
+              />
             </div>
           )}
 
@@ -506,7 +528,7 @@ export function BidSheetFlow({
             <div className="bidsheet-gc-summary-card">
               <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>GC Summary</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>Awarded subcontractor breakdown for internal review</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>Awarded subcontractor breakdown for internal review. Award bids in Bid Collection to fill this in.</div>
               </div>
               <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {tradePackages.map((pkg) => {
@@ -545,9 +567,14 @@ export function BidSheetFlow({
                   Export PDF
                 </button>
               </div>
+              <CostBucketsEditor
+                costBuckets={bidSheet.cost_buckets}
+                onSave={(next) => saveBidSheet({ ...bidSheet, cost_buckets: next })}
+                saving={saving}
+              />
               <div style={{ padding: '24px 28px' }}>
                 <ProposalViewStage
-                  proposalLines={bidSheet.proposal_lines}
+                  proposalLines={proposalLinesToShow}
                   projectName={project?.name}
                   projectAddress={project ? [project.address_line_1, [project.city, project.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ') : undefined}
                   total={awardedTotal + (bidSheet.cost_buckets?.self_supplied_materials ?? 0) + (bidSheet.cost_buckets?.own_labor ?? 0) + (bidSheet.cost_buckets?.overhead_margin ?? 0)}
@@ -555,8 +582,197 @@ export function BidSheetFlow({
               </div>
             </div>
           )}
+
         </div>
       </div>
+
+      {/* Bid Documents modal: upload and view stored bid files */}
+      {bidDocsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setBidDocsModalOpen(false)}>
+          <div
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg-base)] shadow-lg max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Bid Documents</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Upload and view bids you’ve received from subs</div>
+              </div>
+              <button type="button" onClick={() => setBidDocsModalOpen(false)} style={{ padding: 6, borderRadius: 6, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }} aria-label="Close">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            <div style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+              <input
+                ref={bidDocInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                onChange={handleBidDocUpload}
+                className="sr-only"
+                aria-hidden
+              />
+              <button
+                type="button"
+                onClick={() => bidDocInputRef.current?.click()}
+                disabled={documentUploading}
+                style={{
+                  padding: '14px 20px',
+                  borderRadius: 10,
+                  border: '2px dashed var(--border)',
+                  background: 'var(--bg-base)',
+                  color: 'var(--text-secondary)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: documentUploading ? 'wait' : 'pointer',
+                  width: '100%',
+                  marginBottom: 16,
+                }}
+              >
+                {documentUploading ? 'Uploading…' : '+ Upload bid document (PDF, image, or spreadsheet)'}
+              </button>
+              {documentsLoading ? (
+                <div className="py-2">
+                  <LoadingSkeleton variant="inline" lines={3} />
+                </div>
+              ) : bidDocuments.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)]">No bid documents yet. Upload PDFs or files you received from subs to keep them here for reference.</p>
+              ) : (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {bidDocuments.map((doc) => (
+                    <li
+                      key={doc.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '12px 14px',
+                        borderRadius: 8,
+                        background: 'var(--bg-base)',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openBidDoc(doc)}
+                        style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        title={`View ${doc.file_name}`}
+                      >
+                        {doc.file_name}
+                      </button>
+                      {doc.uploaded_at && (
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                          {new Date(doc.uploaded_at).toLocaleDateString()}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); deleteBidDoc(doc) }}
+                        style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border)', cursor: 'pointer' }}
+                        title="Remove"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send scope to subs: pick which subs to email, then parent opens email modal */}
+      {sendToSubsTrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setSendToSubsTrade(null)}>
+          <div
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg-base)] p-6 shadow-lg max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">Send {sendToSubsTrade} scope to subcontractors</h2>
+            <p className="text-sm text-[var(--text-muted)] mb-4">Choose who receives this scope. You’ll compose the email next.</p>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const matching = new Set(subcontractors.filter((s) => (s.trade || 'TBD') === sendToSubsTrade).map((s) => s.id))
+                  setSendToSubsSelected(matching)
+                }}
+                className="text-[11px] py-1 px-2.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] cursor-pointer text-[var(--text-secondary)] font-medium"
+              >
+                Select all {sendToSubsTrade}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSendToSubsSelected(new Set(subcontractors.map((s) => s.id)))}
+                className="text-[11px] py-1 px-2.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] cursor-pointer text-[var(--text-secondary)] font-medium"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setSendToSubsSelected(new Set())}
+                className="text-[11px] py-1 px-2.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] cursor-pointer text-[var(--text-secondary)] font-medium"
+              >
+                Deselect all
+              </button>
+            </div>
+            <ul className="overflow-y-auto flex-1 min-h-0 space-y-1 pr-1">
+              {subcontractors.map((s) => {
+                const checked = sendToSubsSelected.has(s.id)
+                const isMatching = (s.trade || 'TBD') === sendToSubsTrade
+                return (
+                  <li key={s.id}>
+                    <label className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-[var(--bg-surface)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setSendToSubsSelected((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(s.id)) next.delete(s.id)
+                            else next.add(s.id)
+                            return next
+                          })
+                        }}
+                        className="rounded border-[var(--border)]"
+                      />
+                      <span className="font-medium text-[var(--text-primary)]">{s.name}</span>
+                      <span className="text-[11px] text-[var(--text-muted)]" style={{ background: (TRADE_COLORS[s.trade || 'TBD'] || TRADE_COLORS.TBD).accent + '20', color: (TRADE_COLORS[s.trade || 'TBD'] || TRADE_COLORS.TBD).accent, padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                        {s.trade || 'TBD'}
+                      </span>
+                      {isMatching && <span className="text-[10px] text-[var(--text-muted)]">(matches)</span>}
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+            {subcontractors.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)] py-4">No subcontractors on this project. Add subs in Team & Crew or the Bid Collection tab.</p>
+            )}
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => setSendToSubsTrade(null)}
+                className="px-4 py-2 rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const ids = Array.from(sendToSubsSelected)
+                  if (ids.length > 0 && onBulkSend) onBulkSend(ids)
+                  setSendToSubsTrade(null)
+                }}
+                disabled={sendToSubsSelected.size === 0 || !onBulkSend}
+                className="px-4 py-2 rounded-md bg-[var(--red)] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continue to email ({sendToSubsSelected.size})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

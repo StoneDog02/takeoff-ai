@@ -5,6 +5,7 @@ import type { Integration } from '@/types/global'
 import { settingsApi } from '@/api/settings'
 import { quickbooksApi } from '@/api/quickbooks'
 import { SectionHeader, Card, CardBody, Label, Input, Btn } from './SettingsPrimitives'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const INTEGRATIONS: (Omit<Integration, 'connected' | 'config'> & { category: string; desc: string; Icon: typeof BarChart2; apiKey?: boolean })[] = [
   { id: 'quickbooks', name: 'QuickBooks', category: 'Accounting', desc: 'Sync invoices and expenses', Icon: BarChart2 },
@@ -66,7 +67,7 @@ export function IntegrationsSection() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

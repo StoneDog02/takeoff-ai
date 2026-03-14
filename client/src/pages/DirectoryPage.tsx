@@ -6,12 +6,22 @@ import { api } from '@/api/client'
 import type { Contractor } from '@/types/global'
 import { DirectoryTabView } from '@/components/directory/DirectoryTabView'
 import { MessagesTabView } from '@/components/directory/MessagesTabView'
+import { EmployeesTabView } from '@/components/directory/EmployeesTabView'
+import { TeamChatView } from '@/components/directory/TeamChatView'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 type DirectorySubTab = 'directory' | 'messages'
+type DirectoryContentTab = 'contractors' | 'employees' | 'team'
 
 const SUB_TABS: { id: DirectorySubTab; label: string }[] = [
   { id: 'directory', label: 'Directory' },
   { id: 'messages', label: 'Messages' },
+]
+
+const DIRECTORY_CONTENT_TABS: { id: DirectoryContentTab; label: string }[] = [
+  { id: 'contractors', label: 'Contractors' },
+  { id: 'employees', label: 'Employees' },
+  { id: 'team', label: 'Team' },
 ]
 
 function contractorsToDirectory(c: Contractor): DirectoryContractor {
@@ -52,6 +62,7 @@ export function DirectoryPage() {
   const [subTab, setSubTab] = useState<DirectorySubTab>(
     location.pathname === '/messages' ? 'messages' : 'directory'
   )
+  const [contentTab, setContentTab] = useState<DirectoryContentTab>('contractors')
   const [contractors, setContractors] = useState<DirectoryContractor[]>([])
   const [threads, setThreads] = useState<Record<string, ThreadMessage[]>>({})
   const [messagingContact, setMessagingContact] =
@@ -124,32 +135,52 @@ export function DirectoryPage() {
           <h1 className="dashboard-title">Directory</h1>
         </div>
 
-        {/* Sub-tabs: Directory | Messages (same style as Teams/Estimates, with icons) */}
-        <div className="teams-tab-bar">
-          {SUB_TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`teams-tab-btn directory-sub-tab ${subTab === t.id ? 'active' : ''}`}
-              onClick={() => setSubTab(t.id)}
-              aria-current={subTab === t.id ? 'true' : undefined}
-            >
-              <span className="directory-sub-tab-icon" aria-hidden>
-                {t.id === 'directory' && (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                )}
-                {t.id === 'messages' && (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                )}
-              </span>
-              {t.label}
-            </button>
-          ))}
+        {/* Main tabs + contacts sub-tabs in one block so no gap between them */}
+        <div className="directory-tabs-wrap">
+          <div className="teams-tab-bar">
+            {SUB_TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`teams-tab-btn directory-sub-tab ${subTab === t.id ? 'active' : ''}`}
+                onClick={() => setSubTab(t.id)}
+                aria-current={subTab === t.id ? 'true' : undefined}
+              >
+                <span className="directory-sub-tab-icon" aria-hidden>
+                  {t.id === 'directory' && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                  )}
+                  {t.id === 'messages' && (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                  )}
+                </span>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {/* When Messages is selected: Contractors | Employees | Team (directly below main tabs) */}
+          {subTab === 'messages' && (
+            <div className="teams-tab-bar directory-contacts-tab-bar border-t border-border dark:border-border-dark/50">
+              {DIRECTORY_CONTENT_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`teams-tab-btn directory-sub-tab ${contentTab === t.id ? 'active' : ''}`}
+                  onClick={() => setContentTab(t.id)}
+                  aria-current={contentTab === t.id ? 'true' : undefined}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="teams-page-content flex-1 min-h-0 flex flex-col">
-          {loading ? (
-            <p className="text-sm text-[var(--text-muted)] py-8">Loading…</p>
+          {loading && subTab === 'directory' ? (
+            <div className="py-8">
+              <LoadingSkeleton variant="inline" lines={6} className="max-w-md mx-auto" />
+            </div>
           ) : subTab === 'directory' ? (
             <DirectoryTabView
               contractors={contractors}
@@ -158,12 +189,18 @@ export function DirectoryPage() {
               onMessage={handleMessage}
             />
           ) : (
-            <MessagesTabView
-              contractors={contractors}
-              threads={threads}
-              onThreadsChange={setThreads}
-              initialContact={messagingContact || undefined}
-            />
+            contentTab === 'contractors' ? (
+              <MessagesTabView
+                contractors={contractors}
+                threads={threads}
+                onThreadsChange={setThreads}
+                initialContact={messagingContact || undefined}
+              />
+            ) : contentTab === 'employees' ? (
+              <EmployeesTabView />
+            ) : (
+              <TeamChatView />
+            )
           )}
         </div>
       </div>

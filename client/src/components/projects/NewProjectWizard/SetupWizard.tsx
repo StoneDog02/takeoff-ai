@@ -168,6 +168,7 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
             email: (m.email || '').trim() || '',
             phone: '',
           })
+          await api.contractors.create({ name: m.name.trim(), trade: (m.role || 'Crew').trim(), email: (m.email || '').trim() || '', phone: '' }).catch(() => {})
         }
         const existingWTs = await api.projects.getWorkTypes(projectId)
         for (const w of existingWTs) await api.projects.deleteWorkType(projectId, w.id)
@@ -238,6 +239,7 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
             email: (m.email || '').trim() || '',
             phone: '',
           })
+          await api.contractors.create({ name: m.name.trim(), trade: (m.role || 'Crew').trim(), email: (m.email || '').trim() || '', phone: '' }).catch(() => {})
         }
         const budgetItems = (data.budgetCategories || []).map((c) => ({
           id: 'wizard-' + c.id,

@@ -9,7 +9,6 @@ const router = express.Router()
 const QB_SCOPES = [
   'com.intuit.quickbooks.accounting',
   'com.intuit.quickbooks.payment',
-  'com.intuit.quickbooks.payroll',
 ]
 const STATE_SECRET = process.env.QUICKBOOKS_STATE_SECRET || process.env.SUPABASE_JWT_SECRET || 'quickbooks-state-secret'
 

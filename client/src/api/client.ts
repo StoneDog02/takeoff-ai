@@ -7,8 +7,10 @@ import type {
   ProjectTask,
   JobWalkMedia,
   ProjectBuildPlan,
+  BidDocument,
   BudgetLineItem,
   BudgetSummary,
+  ChangeOrder,
   Subcontractor,
   ProjectWorkType,
   ProjectActivityItem,
@@ -32,9 +34,10 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
+    const serverError = (data as { error?: string }).error
     const msg =
-      (data as { error?: string }).error ||
-      (res.status === 404 ? 'Project or resource not found.' : null) ||
+      serverError ||
+      (res.status === 404 ? 'Project not found. Try refreshing the page and opening the project again.' : null) ||
       res.statusText ||
       'Request failed'
     throw new Error(msg)
@@ -131,13 +134,27 @@ export interface DashboardProject {
   id: string
   name: string
   status: string
-  client: string
-  initials: string
-  budget_total: number
-  spent_total: number
-  timeline_start: string | null
-  timeline_end: string | null
-  timeline_pct: number | null
+  client?: string
+  initials?: string
+  budget_total?: number
+  spent_total?: number
+  timeline_start?: string | null
+  timeline_end?: string | null
+  timeline_pct?: number | null
+  /** Phase list for project cards (from setup/overview). */
+  phases?: { name: string; completed: boolean }[]
+  next_step?: string
+  days_left?: number | null
+  address_line_1?: string | null
+  address_line_2?: string | null
+  city?: string | null
+  state?: string | null
+  postal_code?: string | null
+  /** From projects table when list returns raw project shape. */
+  expected_start_date?: string | null
+  expected_end_date?: string | null
+  estimated_value?: number | null
+  assigned_to_name?: string | null
 }
 
 export interface Message {
@@ -151,6 +168,9 @@ export interface Message {
 export interface ConversationListItem {
   id: string
   updated_at: string
+  /** When set, this conversation is the group chat for this job (project). */
+  job_id?: string | null
+  job_name?: string | null
   last_message: {
     id: string
     sender_id: string
@@ -159,6 +179,8 @@ export interface ConversationListItem {
   } | null
   unread_count: number
   other_participant_ids: string[]
+  /** Resolved display names for other participants (from API). */
+  other_participants?: { id: string; name: string }[]
 }
 
 export const api = {
@@ -189,10 +211,11 @@ export const api = {
 
   // --- Projects ---
   projects: {
-    async list(): Promise<Project[]> {
+    /** List projects with summary for cards (phases, budget actual, days left). Used by Teams and other flows. */
+    async list(): Promise<DashboardProject[]> {
       const headers = await getAuthHeaders()
-      const res = await fetch(`${API_BASE}/projects`, { headers })
-      return handleResponse<Project[]>(res)
+      const res = await fetch(`${API_BASE}/projects?_=${Date.now()}`, { headers, cache: 'no-store' })
+      return handleResponse<DashboardProject[]>(res)
     },
     async get(id: string): Promise<Project> {
       const headers = await getAuthHeaders()
@@ -392,10 +415,55 @@ export const api = {
         throw new Error((data as { error?: string }).error || res.statusText)
       }
     },
-    async getBudget(projectId: string): Promise<{ items: BudgetLineItem[]; summary: BudgetSummary }> {
+    async getBidDocuments(projectId: string): Promise<BidDocument[]> {
       const headers = await getAuthHeaders()
-      const res = await fetch(`${API_BASE}/projects/${projectId}/budget`, { headers })
-      return handleResponse<{ items: BudgetLineItem[]; summary: BudgetSummary }>(res)
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents`, { headers })
+      return handleResponse<BidDocument[]>(res)
+    },
+    async uploadBidDocument(projectId: string, file: File, uploader_name?: string): Promise<BidDocument> {
+      const allHeaders = await getAuthHeaders()
+      const form = new FormData()
+      form.append('file', file)
+      if (uploader_name) form.append('uploader_name', uploader_name)
+      const headers: Record<string, string> = {}
+      const auth = (allHeaders as Record<string, string> | undefined)?.Authorization
+      if (auth) headers['Authorization'] = auth
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents`, {
+        method: 'POST',
+        body: form,
+        headers,
+      })
+      return handleResponse<BidDocument>(res)
+    },
+    async getBidDocumentViewUrl(projectId: string, docId: string): Promise<{ url: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents/${docId}/view`, { headers })
+      return handleResponse<{ url: string }>(res)
+    },
+    async deleteBidDocument(projectId: string, docId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents/${docId}`, { method: 'DELETE', headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
+    },
+    async getBudget(projectId: string): Promise<{
+      items: BudgetLineItem[]
+      summary: BudgetSummary
+      labor_actual_from_time_entries?: number
+      subs_actual_from_bid_sheet?: number
+      approved_change_orders_total?: number
+    }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/budget?_=${Date.now()}`, { headers, cache: 'no-store' })
+      return handleResponse<{
+        items: BudgetLineItem[]
+        summary: BudgetSummary
+        labor_actual_from_time_entries?: number
+        subs_actual_from_bid_sheet?: number
+        approved_change_orders_total?: number
+      }>(res)
     },
     async updateBudget(projectId: string, items: BudgetLineItem[]): Promise<{ items: BudgetLineItem[]; summary: BudgetSummary }> {
       const headers = await getAuthHeaders()
@@ -405,6 +473,37 @@ export const api = {
         body: JSON.stringify({ items }),
       })
       return handleResponse<{ items: BudgetLineItem[]; summary: BudgetSummary }>(res)
+    },
+    async getChangeOrders(projectId: string): Promise<ChangeOrder[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders?_=${Date.now()}`, { headers, cache: 'no-store' })
+      return handleResponse<ChangeOrder[]>(res)
+    },
+    async createChangeOrder(projectId: string, body: { description: string; amount: number; status: 'Approved' | 'Pending'; date: string; category: string }): Promise<ChangeOrder> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<ChangeOrder>(res)
+    },
+    async updateChangeOrder(projectId: string, coId: string, body: Partial<{ description: string; amount: number; status: 'Approved' | 'Pending'; date: string; category: string }>): Promise<ChangeOrder> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders/${coId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<ChangeOrder>(res)
+    },
+    async deleteChangeOrder(projectId: string, coId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders/${coId}`, { method: 'DELETE', headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
     },
     async getTrades(): Promise<{ key: string; label: string; csiDivision: string }[]> {
       const headers = await getAuthHeaders()
@@ -416,7 +515,7 @@ export const api = {
       file: File,
       planType?: string,
       tradeFilter?: null | string | string[]
-    ): Promise<{ id: string; material_list: GlobalMaterialList; created_at?: string }> {
+    ): Promise<{ id: string; material_list: GlobalMaterialList; created_at?: string; truncated?: boolean }> {
       const headers = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
@@ -429,7 +528,7 @@ export const api = {
         body: form,
         headers,
       })
-      return handleResponse<{ id: string; material_list: GlobalMaterialList; created_at?: string }>(res)
+      return handleResponse<{ id: string; material_list: GlobalMaterialList; created_at?: string; truncated?: boolean }>(res)
     },
     async getTakeoffs(projectId: string): Promise<{ id: string; material_list: GlobalMaterialList; created_at: string }[]> {
       const headers = await getAuthHeaders()
@@ -578,7 +677,10 @@ export const api = {
     },
     async getProjects(): Promise<DashboardProject[]> {
       const headers = await getAuthHeaders()
-      const res = await fetch(`${API_BASE}/dashboard/projects`, { headers })
+      const res = await fetch(`${API_BASE}/dashboard/projects?_=${Date.now()}`, {
+        headers,
+        cache: 'no-store',
+      })
       return handleResponse<DashboardProject[]>(res)
     },
   },
@@ -594,6 +696,26 @@ export const api = {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations/find-or-create?other_user_id=${encodeURIComponent(otherUserId)}`, { headers })
       return handleResponse<{ id: string; created_at: string; updated_at: string }>(res)
+    },
+    /** Create a group conversation (e.g. team chat) with given participant user IDs. Current user is always included. */
+    async create(participantIds: string[]): Promise<{ id: string; created_at: string; updated_at: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/conversations`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ participant_ids: participantIds }),
+      })
+      return handleResponse<{ id: string; created_at: string; updated_at: string }>(res)
+    },
+    /** Get or create the group conversation for a job. Returns conversation + job_name. */
+    async getOrCreateForJob(jobId: string): Promise<{ id: string; created_at: string; updated_at: string; job_id: string; job_name: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/conversations/for-job`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ job_id: jobId }),
+      })
+      return handleResponse<{ id: string; created_at: string; updated_at: string; job_id: string; job_name: string }>(res)
     },
     async getMessages(conversationId: string, opts?: { limit?: number; before?: string }): Promise<{ messages: Message[]; has_more: boolean }> {
       const headers = await getAuthHeaders()

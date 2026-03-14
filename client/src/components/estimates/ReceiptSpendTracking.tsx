@@ -12,6 +12,7 @@ import {
   MOCK_JOB_RECEIPTS_META,
   MOCK_INVOICES,
 } from '@/data/mockEstimatesData'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const CATEGORY_OPTIONS: { value: ExpenseCategory | 'All'; label: string }[] = [
   { value: 'All', label: 'All' },
@@ -322,7 +323,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
 
             {loading ? (
               <div className="estimates-ledger__empty" style={{ padding: 48 }}>
-                Loading…
+                <LoadingSkeleton variant="inline" lines={4} />
               </div>
             ) : filtered.length === 0 ? (
               <div className="estimates-ledger__empty" style={{ padding: 48 }}>

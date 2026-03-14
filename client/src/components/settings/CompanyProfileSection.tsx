@@ -12,6 +12,7 @@ import {
   Btn,
   SaveRow,
 } from './SettingsPrimitives'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const defaultAddress: CompanyAddress = {
   line1: '',
@@ -99,7 +100,7 @@ export function CompanyProfileSection() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

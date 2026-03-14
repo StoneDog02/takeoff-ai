@@ -6,6 +6,7 @@ import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const NOTIF_PREFS = [
   { id: 'shift_start', label: 'Shift reminders', desc: 'Reminder 15 min before scheduled start', defaultOn: true },
@@ -182,7 +183,7 @@ export function EmployeeProfilePage() {
     return (
       <div className="w-full max-w-[580px] mx-auto px-4 sm:px-6 py-10">
         <div className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 shadow-card p-6 font-sora">
-          <p className="text-muted text-sm">Loading…</p>
+          <LoadingSkeleton variant="inline" lines={4} />
         </div>
       </div>
     )

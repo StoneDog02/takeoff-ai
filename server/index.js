@@ -66,6 +66,11 @@ app.use('/api/contractors', requireAuth, contractorsRoutes)
 app.use('/api/settings', requireAuth, settingsRoutes)
 app.use('/api/quickbooks', quickbooksRoutes)
 
+// Unmatched API routes -> JSON 404 (avoids HTML "Cannot POST ...")
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` })
+})
+
 app.use((err, req, res, next) => {
   console.error(err)
   res.status(err.status || 500).json({ error: err.message || 'Server error' })

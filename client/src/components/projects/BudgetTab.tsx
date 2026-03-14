@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import type { BudgetLineItem } from '@/types/global'
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { api } from '@/api/client'
+import type { BudgetLineItem, ChangeOrder } from '@/types/global'
 
 const CATEGORY_LABELS: Record<string, string> = {
   labor: 'Labor',
@@ -39,10 +41,6 @@ function normalizeCategoryKey(item: BudgetLineItem): string {
 /** Order for "By Category" rows so Labor, Materials, etc. appear consistently. */
 const CATEGORY_ORDER: string[] = ['labor', 'materials', 'subs', 'equipment', 'permits', 'overhead', 'other']
 
-/** Change orders: empty until API/live data exists. Add COs via "+ New CO" when implemented. */
-type ChangeOrder = { id: string; description: string; amount: number; status: 'Approved' | 'Pending'; date: string }
-const EMPTY_CHANGE_ORDERS: ChangeOrder[] = []
-
 /** Transactions per line item: empty until API/live data exists. */
 function getTransactions(_itemId: string): { desc: string; date: string; amount: number }[] {
   return []
@@ -57,41 +55,70 @@ function fmtSigned(n: number): string {
 }
 
 export interface BudgetTabProps {
+  projectId: string
   items: BudgetLineItem[]
   onSave: (items: BudgetLineItem[]) => Promise<void>
   schedulePhases?: unknown[]
+  /** When set, labor actual is auto-pulled from time entries; show hint in UI. */
+  laborActualFromTimeEntries?: number
+  /** When set, subs actual is auto-pulled from bid sheet awarded; show hint in UI. */
+  subsActualFromBidSheet?: number
+  /** From GET budget; use for KPIs so totals don't flash 0 before change orders list loads. */
+  approvedChangeOrdersTotal?: number
 }
 
 type SectionId = 'budget' | 'changeorders' | 'forecast'
 
-export function BudgetTab({ items, onSave }: BudgetTabProps) {
+export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries, subsActualFromBidSheet, approvedChangeOrdersTotal }: BudgetTabProps) {
   const [list, setList] = useState<BudgetLineItem[]>(() => items)
   const [viewMode, setViewMode] = useState<'category' | 'item'>('category')
   const [drawerItem, setDrawerItem] = useState<BudgetLineItem | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editVal, setEditVal] = useState('')
+  const [editingActualId, setEditingActualId] = useState<string | null>(null)
+  const [editActualVal, setEditActualVal] = useState('')
   const [addingRow, setAddingRow] = useState(false)
   /** When set, add form is shown after this category in By Item view; null = show at bottom. */
   const [addingForCategory, setAddingForCategory] = useState<string | null>(null)
   const [newRow, setNewRow] = useState({ description: '', category: 'labor', budgeted: '', actual: '' })
   const [activeSection, setActiveSection] = useState<SectionId>('budget')
-  const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>(EMPTY_CHANGE_ORDERS)
+  const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   const [coModalOpen, setCoModalOpen] = useState(false)
-  const [newCO, setNewCO] = useState({ description: '', amount: '', status: 'Pending' as 'Approved' | 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) })
+  const [editingCoId, setEditingCoId] = useState<string | null>(null)
+  const [coSaving, setCoSaving] = useState(false)
+  const [coError, setCoError] = useState<string | null>(null)
+  const [coMenuOpenId, setCoMenuOpenId] = useState<string | null>(null)
+  const [coMenuAnchor, setCoMenuAnchor] = useState<{ top: number; right: number } | null>(null)
+  const coMenuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [newCO, setNewCO] = useState({ description: '', amount: '', status: 'Pending' as 'Approved' | 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), category: 'other' })
 
   useEffect(() => {
     setList(items)
   }, [items])
 
-  const totalBudget = useMemo(() => list.reduce((s, i) => s + Number(i.predicted || 0), 0), [list])
+  useEffect(() => {
+    if (!projectId) return
+    api.projects.getChangeOrders(projectId).then(setChangeOrders).catch(() => setChangeOrders([]))
+  }, [projectId])
+
+  useLayoutEffect(() => {
+    if (!coMenuOpenId) {
+      setCoMenuAnchor(null)
+      return
+    }
+    const rect = coMenuButtonRef.current?.getBoundingClientRect()
+    if (rect) setCoMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+  }, [coMenuOpenId])
+
+  const baselineBudget = useMemo(() => list.reduce((s, i) => s + Number(i.predicted || 0), 0), [list])
   const totalActual = useMemo(() => list.reduce((s, i) => s + Number(i.actual || 0), 0), [list])
+  const approvedCOsFromList = useMemo(() => changeOrders.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.amount, 0), [changeOrders])
+  const approvedCOs = approvedChangeOrdersTotal ?? approvedCOsFromList
+  const pendingCOs = useMemo(() => changeOrders.filter((c) => c.status === 'Pending').reduce((s, c) => s + c.amount, 0), [changeOrders])
+  const totalBudget = baselineBudget + approvedCOs
   const variance = totalBudget - totalActual
   const budgetPct = totalBudget ? Math.round((totalActual / totalBudget) * 100) : 0
-
-  const approvedCOs = changeOrders.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.amount, 0)
-  const pendingCOs = changeOrders.filter((c) => c.status === 'Pending').reduce((s, c) => s + c.amount, 0)
-  // Forecast from live data only: projected final = actual to date until forecast inputs (labor/materials/subs remaining) exist
-  const forecastTotal = totalActual
+  const forecastTotal = totalActual + approvedCOs
   const forecastVariance = totalBudget - forecastTotal
 
   const getItemColor = useCallback((item: BudgetLineItem): string => {
@@ -119,6 +146,24 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
       setEditingId(null)
     },
     [editVal, list, onSave]
+  )
+
+  const startEditActual = useCallback((item: BudgetLineItem) => {
+    setEditingActualId(item.id)
+    setEditActualVal(String(item.actual ?? 0))
+  }, [])
+
+  const commitEditActual = useCallback(
+    (id: string) => {
+      const val = parseFloat(editActualVal)
+      if (!Number.isNaN(val) && val >= 0) {
+        const next = list.map((i) => (i.id === id ? { ...i, actual: val } : i))
+        setList(next)
+        onSave(next).catch(() => {})
+      }
+      setEditingActualId(null)
+    },
+    [editActualVal, list, onSave]
   )
 
   const addRow = useCallback(() => {
@@ -152,21 +197,59 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
     [list, drawerItem, onSave]
   )
 
-  const handleAddChangeOrder = useCallback(() => {
+  const defaultCOForm = useCallback(() => ({ description: '', amount: '', status: 'Pending' as const, date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), category: 'other' }), [])
+
+  const handleSaveChangeOrder = useCallback(async () => {
+    if (!projectId) {
+      setCoError('Project not loaded. Please refresh and try again.')
+      return
+    }
     const desc = newCO.description.trim()
     const amount = parseFloat(newCO.amount)
     if (!desc || Number.isNaN(amount) || amount < 0) return
-    const co: ChangeOrder = {
-      id: `CO-${Date.now()}`,
-      description: desc,
-      amount,
-      status: newCO.status,
-      date: newCO.date,
+    setCoError(null)
+    setCoSaving(true)
+    try {
+      const category = (newCO.category && CATEGORY_ORDER.includes(newCO.category)) ? newCO.category : 'other'
+      const payload = { description: desc, amount, status: newCO.status, date: newCO.date, category }
+      if (editingCoId) {
+        const updated = await api.projects.updateChangeOrder(projectId, editingCoId, payload)
+        setChangeOrders((prev) => prev.map((c) => (c.id === editingCoId ? updated : c)))
+        setEditingCoId(null)
+      } else {
+        const created = await api.projects.createChangeOrder(projectId, payload)
+        setChangeOrders((prev) => [created, ...prev])
+      }
+      setCoModalOpen(false)
+      setNewCO(defaultCOForm())
+    } catch (err) {
+      setCoError(err instanceof Error ? err.message : 'Failed to save change order')
+    } finally {
+      setCoSaving(false)
     }
-    setChangeOrders((prev) => [...prev, co])
-    setCoModalOpen(false)
-    setNewCO({ description: '', amount: '', status: 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) })
-  }, [newCO])
+  }, [newCO, editingCoId, projectId, defaultCOForm])
+
+  const openEditCO = useCallback((co: ChangeOrder) => {
+    setNewCO({ description: co.description, amount: String(co.amount), status: co.status, date: co.date, category: co.category || 'other' })
+    setEditingCoId(co.id)
+    setCoModalOpen(true)
+  }, [])
+
+  const handleDeleteChangeOrder = useCallback(async (coId: string) => {
+    setCoMenuOpenId(null)
+    await api.projects.deleteChangeOrder(projectId, coId)
+    setChangeOrders((prev) => prev.filter((c) => c.id !== coId))
+  }, [projectId])
+
+  const handleApproveChangeOrder = useCallback(async (coId: string) => {
+    setCoMenuOpenId(null)
+    try {
+      const updated = await api.projects.updateChangeOrder(projectId, coId, { status: 'Approved' })
+      setChangeOrders((prev) => prev.map((c) => (c.id === coId ? updated : c)))
+    } catch {
+      // leave state unchanged on error
+    }
+  }, [projectId])
 
   // Donut segments
   const donutTotal = totalActual || 1
@@ -191,36 +274,43 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
     return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`
   }
 
-  function renderBudgetRow(item: BudgetLineItem, isCategoryView: boolean) {
+  function renderBudgetRow(item: BudgetLineItem, isCategoryView: boolean, isChangeOrder = false, coId?: string, coStatus?: 'Approved' | 'Pending', categoryPendingAmount?: number, actualSourceLabel?: string) {
     const budgeted = Number(item.predicted || 0)
     const actual = Number(item.actual || 0)
     const v = budgeted - actual
     const pct = budgeted ? Math.round((actual / budgeted) * 100) : 0
     const over = actual > budgeted
     const color = getItemColor(item)
-    const isActive = !isCategoryView && drawerItem?.id === item.id
-    const transactions = !isCategoryView ? getTransactions(item.id) : []
+    const isActive = !isCategoryView && !isChangeOrder && drawerItem?.id === item.id
+    const transactions = !isCategoryView && !isChangeOrder ? getTransactions(item.id) : []
     return (
       <div key={item.id}>
         <div
           role="button"
           tabIndex={0}
-          onClick={() => setDrawerItem(isActive ? null : item)}
-          onKeyDown={(e) => e.key === 'Enter' && (setDrawerItem(isActive ? null : item), e.preventDefault())}
+          onClick={() => !isChangeOrder && setDrawerItem(isActive ? null : item)}
+          onKeyDown={(e) => !isChangeOrder && e.key === 'Enter' && (setDrawerItem(isActive ? null : item), e.preventDefault())}
           className={`budget-table-row ${isActive ? 'active' : ''}`}
           style={{ borderLeftColor: isActive ? color : undefined }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label || 'Untitled'}</div>
-              {!isCategoryView && item.category === 'labor' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Time logs</div>}
-              {!isCategoryView && item.category === 'subs' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Bid sheet</div>}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {item.label || 'Untitled'}
+                {isChangeOrder && (
+                  coStatus === 'Pending'
+                    ? <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}>Pending</span>
+                    : <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}>CO</span>
+                )}
+              </div>
+              {!isCategoryView && !isChangeOrder && item.category === 'labor' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Time logs</div>}
+              {!isCategoryView && !isChangeOrder && item.category === 'subs' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>🔗 Bid sheet</div>}
             </div>
           </div>
           <span style={{ fontSize: 11, background: color + '18', color, padding: '2px 8px', borderRadius: 6, fontWeight: 600, width: 'fit-content' }}>{getItemCategoryLabel(item)}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {!isCategoryView && editingId === item.id ? (
+            {!isCategoryView && !isChangeOrder && editingId === item.id ? (
               <input
                 autoFocus
                 value={editVal}
@@ -234,20 +324,52 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
             ) : (
               <span className="text-[13px] font-mono text-[var(--text-primary)]">{fmt(budgeted)}</span>
             )}
-            {!isCategoryView && (
+            {!isCategoryView && !isChangeOrder && (
               <button type="button" onClick={(e) => { e.stopPropagation(); startEdit(item); }} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer">
                 <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
             )}
           </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: over ? 'var(--red)' : 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(actual)}</div>
-            <div className="budget-kpi-bar" style={{ marginTop: 4, width: 80 }}>
-              <div className="budget-kpi-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: over ? 'var(--red)' : color }} />
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!isCategoryView && !isChangeOrder && editingActualId === item.id ? (
+              <input
+                autoFocus
+                value={editActualVal}
+                onChange={(e) => setEditActualVal(e.target.value)}
+                onBlur={() => commitEditActual(item.id)}
+                onKeyDown={(e) => e.key === 'Enter' && (commitEditActual(item.id), e.preventDefault())}
+                onClick={(e) => e.stopPropagation()}
+                className="border border-[var(--border)] rounded-md px-1.5 py-0.5 w-20 text-[13px] font-mono outline-none"
+                style={{ borderColor: '#6366f1' }}
+              />
+            ) : (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: over ? 'var(--red)' : 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(actual)}</div>
+                {actualSourceLabel && (
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{actualSourceLabel}</div>
+                )}
+                <div className="budget-kpi-bar" style={{ marginTop: 4, width: 80 }}>
+                  <div className="budget-kpi-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: over ? 'var(--red)' : color }} />
+                </div>
+              </div>
+            )}
+            {!isCategoryView && !isChangeOrder && editingActualId !== item.id && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); startEditActual(item); }} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer" title="Edit actual">
+                <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+            )}
           </div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: v >= 0 ? 'var(--green, #16a34a)' : 'var(--red)', background: v >= 0 ? '#f0fdf4' : '#fef2f2', padding: '3px 8px', borderRadius: 6, fontVariantNumeric: 'tabular-nums' }}>{fmtSigned(v)}</span>
-          {isCategoryView ? <span /> : <button type="button" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: v >= 0 ? 'var(--green, #16a34a)' : 'var(--red)', background: v >= 0 ? '#f0fdf4' : '#fef2f2', padding: '3px 8px', borderRadius: 6, fontVariantNumeric: 'tabular-nums', width: 'fit-content', flexShrink: 0 }}>{fmtSigned(v)}</span>
+            {isCategoryView && categoryPendingAmount != null && categoryPendingAmount > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontVariantNumeric: 'tabular-nums', width: 'fit-content', flexShrink: 0 }} title="Pending change orders">Pending +{fmt(categoryPendingAmount)}</span>
+            )}
+          </div>
+          {isCategoryView ? <span /> : isChangeOrder && coId ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteChangeOrder(coId); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>
+          ) : (
+            <button type="button" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>
+          )}
         </div>
         {isActive && (
           <div className="budget-table-drawer">
@@ -383,19 +505,64 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
                   cur.actual += Number(i.actual || 0)
                   byCat.set(key, cur)
                 }
-                const categoryRows = CATEGORY_ORDER.filter((key) => byCat.has(key)).map((key) => {
-                  const { predicted = 0, actual = 0 } = byCat.get(key)!
-                  return { id: `category-${key}`, project_id: list[0]?.project_id ?? '', label: CATEGORY_LABELS[key] ?? key, category: key, predicted, actual } as BudgetLineItem
+                for (const co of changeOrders.filter((c) => c.status === 'Approved')) {
+                  const key = (co.category && CATEGORY_ORDER.includes(co.category)) ? co.category : 'other'
+                  const cur = byCat.get(key) ?? { predicted: 0, actual: 0 }
+                  cur.predicted += co.amount
+                  byCat.set(key, cur)
+                }
+                const pendingByCat = new Map<string, number>()
+                for (const co of changeOrders.filter((c) => c.status === 'Pending')) {
+                  const key = (co.category && CATEGORY_ORDER.includes(co.category)) ? co.category : 'other'
+                  pendingByCat.set(key, (pendingByCat.get(key) ?? 0) + co.amount)
+                }
+                const categoryKeys = CATEGORY_ORDER.filter((key) => byCat.has(key) || (pendingByCat.get(key) ?? 0) > 0)
+                return categoryKeys.map((key) => {
+                  const catData = byCat.get(key)
+                  const pendingAmt = pendingByCat.get(key) ?? 0
+                  return renderBudgetRow({
+                    id: `category-${key}`,
+                    project_id: list[0]?.project_id ?? '',
+                    label: CATEGORY_LABELS[key] ?? key,
+                    category: key,
+                    predicted: catData?.predicted ?? 0,
+                    actual: catData?.actual ?? 0,
+                  } as BudgetLineItem, true, false, undefined, undefined, pendingAmt)
                 })
-                return categoryRows.map((item) => renderBudgetRow(item, true))
               })()}
               {viewMode === 'item' && (() => {
-                const itemGroups = CATEGORY_ORDER.filter((key) => list.some((i) => normalizeCategoryKey(i) === key)).map((key) => ({ key, items: list.filter((i) => normalizeCategoryKey(i) === key) }))
+                const approvedCOList = changeOrders.filter((c) => c.status === 'Approved')
+                const pendingCOList = changeOrders.filter((c) => c.status === 'Pending')
+                const itemGroups = CATEGORY_ORDER.map((key) => ({
+                  key,
+                  items: list.filter((i) => normalizeCategoryKey(i) === key),
+                  cos: approvedCOList.filter((c) => ((c.category && CATEGORY_ORDER.includes(c.category)) ? c.category : 'other') === key),
+                  pendingCos: pendingCOList.filter((c) => ((c.category && CATEGORY_ORDER.includes(c.category)) ? c.category : 'other') === key),
+                })).filter((g) => g.items.length > 0 || g.cos.length > 0 || g.pendingCos.length > 0)
                 return (
                   <>
                     {itemGroups.map((group) => (
                       <div key={group.key}>
-                        {group.items.map((item) => renderBudgetRow(item, false))}
+                        {group.items.map((item) => {
+                          const actualSourceLabel = group.key === 'labor' && laborActualFromTimeEntries != null && laborActualFromTimeEntries > 0 ? 'From time entries' : group.key === 'subs' && subsActualFromBidSheet != null && subsActualFromBidSheet > 0 ? 'From bid sheet' : undefined
+                          return renderBudgetRow(item, false, false, undefined, undefined, undefined, actualSourceLabel)
+                        })}
+                        {group.cos.map((co) => renderBudgetRow({
+                          id: co.id,
+                          project_id: co.project_id,
+                          label: co.description,
+                          predicted: co.amount,
+                          actual: 0,
+                          category: co.category || 'other',
+                        } as BudgetLineItem, false, true, co.id, 'Approved'))}
+                        {group.pendingCos.map((co) => renderBudgetRow({
+                          id: co.id,
+                          project_id: co.project_id,
+                          label: co.description,
+                          predicted: co.amount,
+                          actual: 0,
+                          category: co.category || 'other',
+                        } as BudgetLineItem, false, true, co.id, 'Pending'))}
                         {addingRow && addingForCategory === group.key ? renderAddRowForm() : (
                           <div className="budget-table-add-row">
                             <button
@@ -409,6 +576,9 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
                         )}
                       </div>
                     ))}
+                    {itemGroups.length === 0 && (
+                      <div style={{ padding: '16px 0', color: 'var(--text-muted)', fontSize: 13 }}>No line items or change orders yet. Add line items above or add approved change orders in the Change Orders tab.</div>
+                    )}
                     {addingRow && addingForCategory === null ? renderAddRowForm() : (
                       <div className="budget-table-add-row">
                         <button type="button" className="budget-table-add-row-btn" onClick={() => { setAddingForCategory(null); setAddingRow(true) }}>
@@ -441,21 +611,33 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
                   <div className="budget-table-title">Change Orders</div>
                   <div className="budget-table-sub">Scope changes that adjust the budget baseline. Add COs when you have them.</div>
                 </div>
-                <button type="button" className="px-3.5 py-1.5 rounded-lg bg-[var(--red)] text-white text-[12px] font-semibold border-none cursor-pointer" onClick={() => setCoModalOpen(true)}>+ New CO</button>
+                <button type="button" className="px-3.5 py-1.5 rounded-lg bg-[var(--red)] text-white text-[12px] font-semibold border-none cursor-pointer" onClick={() => { setEditingCoId(null); setCoError(null); setNewCO({ description: '', amount: '', status: 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), category: 'other' }); setCoModalOpen(true); }}>+ New CO</button>
               </div>
               <div style={{ padding: '0 20px' }}>
                 {changeOrders.length === 0 ? (
                   <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No change orders yet. Use “+ New CO” to add one when you have live data.</div>
                 ) : (
                   changeOrders.map((co, i) => (
-                    <div key={co.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: i < changeOrders.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', width: 60 }}>{co.id}</span>
-                      <div style={{ flex: 1 }}>
+                    <div key={co.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 100px) 1fr auto auto auto', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: i < changeOrders.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={co.id}>{co.id.slice(0, 12)}…</span>
+                      <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{co.description}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{co.date}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{co.date} · {CATEGORY_LABELS[co.category] ?? co.category}</div>
                       </div>
                       <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>+{fmt(co.amount)}</span>
                       <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, fontWeight: 600, background: co.status === 'Approved' ? '#f0fdf4' : '#fffbeb', color: co.status === 'Approved' ? '#15803d' : '#a16207' }}>{co.status}</span>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                          ref={coMenuOpenId === co.id ? coMenuButtonRef : undefined}
+                          type="button"
+                          onClick={() => setCoMenuOpenId((prev) => (prev === co.id ? null : co.id))}
+                          className="text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-transparent border-none cursor-pointer p-1 rounded"
+                          aria-label="Actions"
+                          style={{ fontSize: 18, lineHeight: 1 }}
+                        >
+                          ⋮
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -468,34 +650,64 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
             </div>
           )}
 
+          {coMenuOpenId && coMenuAnchor && (() => {
+            const co = changeOrders.find((c) => c.id === coMenuOpenId)
+            if (!co) return null
+            return createPortal(
+              <>
+                <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setCoMenuOpenId(null)} />
+                <div
+                  style={{
+                    position: 'fixed',
+                    top: coMenuAnchor.top,
+                    right: coMenuAnchor.right,
+                    zIndex: 41,
+                    minWidth: 120,
+                    background: '#fff',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    padding: '4px 0',
+                  }}
+                >
+                  <button type="button" onClick={() => { setCoMenuOpenId(null); openEditCO(co); }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--text-primary)', background: '#fff', border: 'none', cursor: 'pointer' }} onMouseOver={(e) => { e.currentTarget.style.background = '#f1f5f9' }} onMouseOut={(e) => { e.currentTarget.style.background = '#fff' }}>Edit</button>
+                  {co.status === 'Pending' && (
+                    <button type="button" onClick={() => handleApproveChangeOrder(co.id)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--green, #16a34a)', background: '#fff', border: 'none', cursor: 'pointer' }} onMouseOver={(e) => { e.currentTarget.style.background = '#f1f5f9' }} onMouseOut={(e) => { e.currentTarget.style.background = '#fff' }}>Approve</button>
+                  )}
+                  <button type="button" onClick={() => handleDeleteChangeOrder(co.id)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--red)', background: '#fff', border: 'none', cursor: 'pointer' }} onMouseOver={(e) => { e.currentTarget.style.background = '#f1f5f9' }} onMouseOut={(e) => { e.currentTarget.style.background = '#fff' }}>Delete</button>
+                </div>
+              </>,
+              document.body
+            )
+          })()}
+
           {activeSection === 'forecast' && (
             <div className="budget-forecast-card">
               <div className="budget-forecast-header">
                 <div className="budget-table-title">Forecast to Complete</div>
-                <div className="budget-table-sub">Projected final spend. Add labor/materials/subs remaining when you have live data.</div>
+                <div className="budget-table-sub">Projected final spend (actual to date + approved change orders).</div>
               </div>
               <div style={{ padding: 20 }}>
                 {[
                   { label: 'Actual spend to date', value: totalActual, color: 'var(--text-primary)' },
-                  { label: 'Labor remaining', value: 0, color: '#6366f1' },
-                  { label: 'Materials pending (open POs)', value: 0, color: '#0ea5e9' },
-                  { label: 'Subcontractors remaining', value: 0, color: '#8b5cf6' },
+                  { label: 'Approved change orders', value: approvedCOs, color: 'var(--green, #16a34a)' },
+                  ...(pendingCOs > 0 ? [{ label: 'Pending change orders', value: pendingCOs, color: '#f59e0b' }] : []),
                 ].map((row, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 3 ? '1px solid var(--border)' : 'none' }}>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 + (pendingCOs > 0 ? 1 : 0) - 1 ? '1px solid var(--border)' : 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {i > 0 && <span style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />}
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />
                       <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{row.label}</span>
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: row.color, fontVariantNumeric: 'tabular-nums' }}>{row.value > 0 ? fmt(row.value) : '—'}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: row.color, fontVariantNumeric: 'tabular-nums' }}>{row.value > 0 ? (row.label.includes('change order') ? `+${fmt(row.value)}` : fmt(row.value)) : '—'}</span>
                   </div>
                 ))}
                 <div className="budget-forecast-summary" style={{ background: forecastVariance >= 0 ? '#f0fdf4' : '#fef2f2', borderColor: forecastVariance >= 0 ? '#bbf7d0' : '#fecaca' }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Projected Final Cost</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>vs {totalBudget ? fmt(totalBudget) : '—'} budget</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>vs {totalBudget ? fmt(totalBudget) : '—'} revised budget</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{totalActual > 0 ? fmt(forecastTotal) : '—'}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{forecastTotal > 0 ? fmt(forecastTotal) : '—'}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: forecastVariance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{fmtSigned(forecastVariance)} projected</div>
                   </div>
                 </div>
@@ -515,7 +727,7 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
                 ))}
                 <circle cx={60} cy={60} r={32} fill="var(--bg-surface)" />
                 <text x={60} y={56} textAnchor="middle" fontSize={11} fontWeight={700} fill="var(--text-primary)">ACTUAL</text>
-                <text x={60} y={72} textAnchor="middle" fontSize={14} fontWeight={700} fill="var(--text-primary)" style={{ fontVariantNumeric: 'tabular-nums' }}>${Math.round(totalActual / 1000)}k</text>
+                <text x={60} y={72} textAnchor="middle" fontSize={14} fontWeight={700} fill="var(--text-primary)" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalActual >= 1000 ? `$${Math.round(totalActual / 1000)}k` : fmt(totalActual)}</text>
               </svg>
             </div>
             {list.map((item) => (
@@ -554,12 +766,17 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
       </div>
 
       {coModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setCoModalOpen(false)} role="dialog" aria-modal="true" aria-labelledby="new-co-title">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => { setCoModalOpen(false); setEditingCoId(null); setCoError(null); }} role="dialog" aria-modal="true" aria-labelledby="new-co-title">
           <div
             className="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-6 shadow-lg max-w-md w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="new-co-title" className="text-lg font-semibold text-[var(--text-primary)] mb-4">New Change Order</h2>
+            <h2 id="new-co-title" className="text-lg font-semibold text-[var(--text-primary)] mb-4">{editingCoId ? 'Edit Change Order' : 'New Change Order'}</h2>
+            {coError && (
+              <div className="mb-4 p-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+                {coError}
+              </div>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Description</label>
@@ -570,6 +787,18 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
                   className="w-full rounded-md px-3 py-2 border border-[var(--border)] bg-[var(--bg-base)] text-[var(--text-primary)]"
                   placeholder="e.g. Added heated floor – tile phase"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Category</label>
+                <select
+                  value={newCO.category}
+                  onChange={(e) => setNewCO((p) => ({ ...p, category: e.target.value }))}
+                  className="w-full rounded-md px-3 py-2 border border-[var(--border)] bg-[var(--bg-base)] text-[var(--text-primary)]"
+                >
+                  {CATEGORY_ORDER.map((key) => (
+                    <option key={key} value={key}>{CATEGORY_LABELS[key] ?? key}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Amount ($)</label>
@@ -606,16 +835,16 @@ export function BudgetTab({ items, onSave }: BudgetTabProps) {
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
-              <button type="button" onClick={() => setCoModalOpen(false)} className="px-3 py-1.5 rounded-md text-[var(--text-secondary)] bg-[var(--bg-base)] border border-[var(--border)] text-sm font-medium">
+              <button type="button" onClick={() => { setCoModalOpen(false); setEditingCoId(null); }} className="px-3 py-1.5 rounded-md text-[var(--text-secondary)] bg-[var(--bg-base)] border border-[var(--border)] text-sm font-medium">
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleAddChangeOrder}
-                disabled={!newCO.description.trim() || !newCO.amount || parseFloat(newCO.amount) < 0}
+                onClick={() => handleSaveChangeOrder()}
+                disabled={coSaving || !newCO.description.trim() || !newCO.amount || parseFloat(newCO.amount) < 0}
                 className="px-3 py-1.5 rounded-md bg-[var(--red)] text-white text-sm font-semibold border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add change order
+                {coSaving ? 'Saving…' : editingCoId ? 'Save changes' : 'Add change order'}
               </button>
             </div>
           </div>

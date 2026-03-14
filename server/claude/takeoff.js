@@ -10,6 +10,8 @@ const {
 
 const PDF_BETA = 'pdfs-2024-09-25'
 const MODEL = 'claude-sonnet-4-6'
+/** Max output tokens for takeoff response. Full residential takeoff (19+ sheets, 30+ line items) needs ~4k–6k; use 8k so output is not truncated. */
+const TAKEOFF_MAX_TOKENS = 8192
 /** Max pages per chunk to stay under API limits. Anthropic allows 100; we use 5 for reliability. */
 const PAGES_PER_CHUNK = 5
 
@@ -107,7 +109,7 @@ async function callClaudeWithPrompt(fileBuffer, mimeType, systemPrompt, userText
   }
   const params = {
     model: MODEL,
-    max_tokens: 8192,
+    max_tokens: TAKEOFF_MAX_TOKENS,
     system: systemPrompt,
     messages: [{ role: 'user', content }],
     stream: false,
@@ -376,11 +378,12 @@ async function runTakeoffCivil(fileBuffer, options = {}) {
     return {
       materialList: { categories: [], summary: 'Civil takeoff: no sheets could be parsed.' },
       rawText: '',
+      truncated: false,
     }
   }
 
   const materialList = aggregateCivilSheets(perSheetResults)
-  return { materialList, rawText: materialList.summary || '' }
+  return { materialList, rawText: materialList.summary || '', truncated: false }
 }
 
 /**
@@ -508,7 +511,7 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
 
   const params = {
     model: MODEL,
-    max_tokens: 8192,
+    max_tokens: TAKEOFF_MAX_TOKENS,
     system,
     messages: [{ role: 'user', content }],
     stream: false,
@@ -556,6 +559,11 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
     throw apiErr
   }
 
+  const truncated = response.stop_reason === 'max_tokens'
+  if (truncated) {
+    console.warn('[takeoff] WARNING: Response hit max_tokens — output likely truncated. Try splitting by trade scope or use a smaller plan set.')
+  }
+
   const textBlock = response.content?.find((b) => b.type === 'text')
   const rawText = textBlock?.text || ''
 
@@ -564,7 +572,7 @@ async function runTakeoffSingle(fileBuffer, mimeType, options = {}) {
     materialList = { categories: [], summary: rawText.slice(0, 500) }
   }
 
-  return { materialList, rawText }
+  return { materialList, rawText, truncated }
 }
 
 /**
@@ -596,13 +604,15 @@ async function runTakeoffInternal(fileBuffer, mimeType, options = {}) {
 
   const chunks = await splitPdfIntoChunks(fileBuffer)
   const results = []
+  let anyTruncated = false
   for (let i = 0; i < chunks.length; i++) {
-    const { materialList } = await runTakeoffSingle(chunks[i], mimeType, options)
+    const { materialList, truncated } = await runTakeoffSingle(chunks[i], mimeType, options)
     results.push(materialList)
+    if (truncated) anyTruncated = true
   }
 
   const merged = mergeMaterialLists(results)
-  return { materialList: merged, rawText: '' }
+  return { materialList: merged, rawText: '', truncated: anyTruncated }
 }
 
 /**

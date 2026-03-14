@@ -227,7 +227,7 @@ export function HeroDashboardMock() {
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0" style={{ background: MOCK_PROJECT.color + '20', color: MOCK_PROJECT.color }}>{MOCK_PROJECT.initials}</div>
                   <div className="min-w-0">
                     <div className="text-[12px] lg:text-[13px] font-semibold text-gray-900 dark:text-landing-white truncate">{MOCK_PROJECT.name}</div>
-                    <div className="text-[10px] lg:text-[11px] text-gray-500 dark:text-white-dim">{MOCK_PROJECT.id} · {MOCK_PROJECT.client}</div>
+                    <div className="text-[10px] lg:text-[11px] text-gray-500 dark:text-white-dim">{MOCK_PROJECT.client || '—'}</div>
                   </div>
                 </div>
                 <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full flex-shrink-0" style={{ background: MOCK_PROJECT.statusBg, color: MOCK_PROJECT.statusColor }}>{MOCK_PROJECT.statusLabel}</span>

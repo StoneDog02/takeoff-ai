@@ -24,8 +24,19 @@ interface LaunchTakeoffWidgetProps {
   projectId: string
   /** Plan type from project (set in project creation). Used for takeoff reference docs and skills. */
   planType: TakeoffPlanType
-  onUpload: (file: File, planType: TakeoffPlanType, tradeFilter?: TakeoffTradeFilter) => Promise<{ material_list: MaterialList }>
+  /** Start takeoff in the background (fire-and-forget). Use this so takeoff keeps running when user leaves the tab. */
+  onStartTakeoff?: (file: File, planType: TakeoffPlanType, tradeFilter?: TakeoffTradeFilter) => void
+  /** Legacy: async upload (widget awaits). If provided with onStartTakeoff, onStartTakeoff is used. */
+  onUpload?: (file: File, planType: TakeoffPlanType, tradeFilter?: TakeoffTradeFilter) => Promise<{ material_list: MaterialList; id?: string; created_at?: string; truncated?: boolean }>
   existingTakeoffs?: { id: string; material_list: MaterialList; created_at: string }[]
+  /** Result of the last completed takeoff from parent (when using onStartTakeoff). Enables background run + show result when user returns. */
+  takeoffResult?: { material_list: MaterialList; id?: string; created_at?: string; truncated?: boolean } | null
+  takeoffError?: string | null
+  /** When parent drives progress (e.g. project page), show this and don't run local interval. Enables background takeoff + popup. */
+  takeoffInProgress?: boolean
+  takeoffProgress?: number
+  takeoffMessage?: string
+  takeoffStartTime?: number
 }
 
 /** Group items by subcategory (if any), else by trade_tag. Returns array of { label, items }. */
@@ -189,8 +200,14 @@ function TakeoffTable({ items }: { items: TakeoffItem[] }) {
 export function LaunchTakeoffWidget({
   projectId: _projectId,
   planType,
+  onStartTakeoff,
   onUpload,
   existingTakeoffs = [],
+  takeoffResult: parentTakeoffResult = null,
+  takeoffError: parentTakeoffError = null,
+  takeoffInProgress: parentInProgress = false,
+  takeoffProgress: parentProgress,
+  takeoffMessage: parentMessage,
 }: LaunchTakeoffWidgetProps) {
   const [file, setFile] = useState<File | null>(null)
   const [tradeOptions, setTradeOptions] = useState<{ key: string; label: string }[]>([])
@@ -224,6 +241,8 @@ export function LaunchTakeoffWidget({
   const [progressMessage, setProgressMessage] = useState(PROGRESS_MESSAGES[0])
   const [error, setError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<MaterialList | null>(null)
+  const [lastSavedId, setLastSavedId] = useState<string | null>(null)
+  const [lastTruncated, setLastTruncated] = useState(false)
   const [activeCategoryIndex, setActiveCategoryIndex] = useState(0)
   const [sidebarPage, setSidebarPage] = useState(1)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -234,15 +253,26 @@ export function LaunchTakeoffWidget({
     api.projects.getTrades().then((list) => setTradeOptions(list)).catch(() => setTradeOptions([]))
   }, [])
 
-  const latestTakeoff = lastResult
-    ? { material_list: lastResult, created_at: dayjs().toISOString() }
-    : existingTakeoffs[0]
+  useEffect(() => {
+    setLastResult(null)
+    setLastSavedId(null)
+    setLastTruncated(false)
+  }, [_projectId])
+
+  const latestTakeoff =
+    parentTakeoffResult ??
+    (lastResult
+      ? { material_list: lastResult, id: lastSavedId ?? undefined, created_at: dayjs().toISOString(), truncated: lastTruncated }
+      : null) ??
+    existingTakeoffs[0]
   const categories = latestTakeoff?.material_list?.categories ?? []
+  const isPersisted = Boolean(latestTakeoff?.id)
+  const showTruncationWarning = Boolean(latestTakeoff && 'truncated' in latestTakeoff && latestTakeoff.truncated)
 
   useEffect(() => {
     setActiveCategoryIndex(0)
     setSidebarPage(1)
-  }, [lastResult])
+  }, [lastResult, parentTakeoffResult])
 
   const totalSidebarPages = Math.max(1, Math.ceil(categories.length / SIDEBAR_PAGE_SIZE))
   const sidebarStart = (sidebarPage - 1) * SIDEBAR_PAGE_SIZE
@@ -256,6 +286,13 @@ export function LaunchTakeoffWidget({
 
   useEffect(() => {
     if (!processing) {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
+      return
+    }
+    if (parentInProgress) {
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
         progressIntervalRef.current = null
@@ -279,7 +316,10 @@ export function LaunchTakeoffWidget({
     return () => {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
     }
-  }, [processing])
+  }, [processing, parentInProgress])
+
+  const displayProgress = parentInProgress && parentProgress != null ? parentProgress : progress
+  const displayMessage = parentInProgress && parentMessage != null ? parentMessage : progressMessage
 
   /** Normalize API material_list so we always have { categories: array, summary? } for the UI. */
   const normalizeMaterialList = (raw: unknown): MaterialList => {
@@ -294,34 +334,43 @@ export function LaunchTakeoffWidget({
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!file) {
       setError('Select a file')
       return
     }
     setError(null)
-    setProcessing(true)
-    try {
-      const { material_list } = await onUpload(file, planType, tradeFilter)
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current)
-        progressIntervalRef.current = null
-      }
-      setProgress(100)
-      setProgressMessage('Complete')
-      setLastResult(normalizeMaterialList(material_list))
-      await new Promise((r) => setTimeout(r, 600))
-    } catch (err) {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current)
-        progressIntervalRef.current = null
-      }
-      setError(err instanceof Error ? err.message : 'Upload failed')
-    } finally {
-      setProcessing(false)
-      setProgress(0)
+    if (onStartTakeoff) {
+      onStartTakeoff(file, planType, tradeFilter)
+      return
     }
+    if (!onUpload) return
+    setProcessing(true)
+    ;(async () => {
+      try {
+        const out = await onUpload(file, planType, tradeFilter)
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current)
+          progressIntervalRef.current = null
+        }
+        setProgress(100)
+        setProgressMessage('Complete')
+        setLastResult(normalizeMaterialList(out.material_list))
+        setLastSavedId(out.id ?? null)
+        setLastTruncated(Boolean(out.truncated))
+        await new Promise((r) => setTimeout(r, 600))
+      } catch (err) {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current)
+          progressIntervalRef.current = null
+        }
+        setError(err instanceof Error ? err.message : 'Upload failed')
+      } finally {
+        setProcessing(false)
+        setProgress(0)
+      }
+    })()
   }
 
   return (
@@ -334,10 +383,10 @@ export function LaunchTakeoffWidget({
         <button
           type="submit"
           form="launch-takeoff-form"
-          disabled={!file || processing}
+          disabled={!file || processing || parentInProgress}
           className="flex-shrink-0 px-4 py-2 rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors text-sm font-medium"
         >
-          {processing ? 'Running takeoff…' : 'Run takeoff'}
+          {(processing || parentInProgress) ? 'Running takeoff…' : 'Run takeoff'}
         </button>
       </div>
       <form id="launch-takeoff-form" onSubmit={handleSubmit} className="mb-4">
@@ -438,23 +487,34 @@ export function LaunchTakeoffWidget({
             <p className="text-muted dark:text-white-dim">Click or drop PDF here</p>
           )}
         </div>
-        {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {(parentTakeoffError ?? error) && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{parentTakeoffError ?? error}</p>
+        )}
       </form>
-      {processing && (
+      {(processing || parentInProgress) && (
         <div className="mt-4 p-4 rounded-lg bg-muted/30 dark:bg-dark-4 border border-border dark:border-border-dark">
-          <p className="text-sm font-medium text-gray-700 dark:text-landing-white mb-2">{progressMessage}</p>
+          <p className="text-sm font-medium text-gray-700 dark:text-landing-white mb-2">{displayMessage}</p>
           <div className="h-2.5 w-full rounded-full bg-gray-200 dark:bg-dark-3 overflow-hidden">
             <div
               className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
-              style={{ width: `${progress}%` }}
+              style={{ width: `${displayProgress}%` }}
             />
           </div>
-          <p className="text-xs text-muted dark:text-white-dim mt-2">{progress}%</p>
+          <p className="text-xs text-muted dark:text-white-dim mt-2">{displayProgress}%</p>
         </div>
       )}
-      {lastResult !== null && (
+      {(parentTakeoffResult != null || lastResult !== null || (existingTakeoffs?.length ?? 0) > 0) && (
         <div className="border-t border-border dark:border-border-dark pt-4 mt-4">
-          <div className="flex items-center justify-end gap-2 mb-3">
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            {isPersisted && (
+              <span className="text-xs text-muted dark:text-white-dim inline-flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Saved to project
+              </span>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
             {categories.length > 0 && (
               <button
                 type="button"
@@ -467,7 +527,13 @@ export function LaunchTakeoffWidget({
                 Download PDF
               </button>
             )}
+            </div>
           </div>
+          {showTruncationWarning && (
+            <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+              <strong>Takeoff may be incomplete</strong> — plan set exceeded processing limit. Try splitting by trade scope (select one or two trades) or use a smaller plan set.
+            </div>
+          )}
           <h3 className="text-sm font-medium text-gray-700 dark:text-white-dim mb-0 sr-only">
             Takeoff line items
           </h3>

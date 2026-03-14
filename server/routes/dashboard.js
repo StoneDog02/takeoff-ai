@@ -13,6 +13,15 @@ function getSupabase(req) {
   return req.supabase || defaultSupabase
 }
 
+/** Normalize category for matching labor/subs (must match projects.js budgetCategoryKey). */
+function budgetCategoryKey(cat) {
+  if (!cat) return 'other'
+  const c = String(cat).toLowerCase().trim()
+  if (c === 'labor') return 'labor'
+  if (c === 'subs' || c === 'subcontractors' || c === 'subcontractor' || c.includes('subcontractor')) return 'subs'
+  return c
+}
+
 /** Get project IDs for current user */
 async function getUserProjectIds(supabase, userId) {
   const { data, error } = await supabase
@@ -380,43 +389,109 @@ router.get('/projects', async (req, res, next) => {
 
     const { data: projects, error: projErr } = await supabase
       .from('projects')
-      .select('id, name, status, expected_start_date, expected_end_date, estimated_value, assigned_to_name')
+      .select('id, name, status, expected_start_date, expected_end_date, estimated_value, assigned_to_name, address_line_1, address_line_2, city, state, postal_code')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
     if (projErr) throw projErr
     if (!projects?.length) return res.json([])
 
     const projectIds = projects.map((p) => p.id)
+    const admin = defaultSupabase
 
-    const { data: budgetRows } = await supabase
+    const { data: budgetRows } = await admin
       .from('budget_line_items')
-      .select('project_id, predicted, actual')
+      .select('project_id, predicted, actual, category')
       .in('project_id', projectIds)
     const budgetByProject = {}
     projectIds.forEach((id) => (budgetByProject[id] = { predicted: 0, actual: 0 }))
     ;(budgetRows || []).forEach((r) => {
       budgetByProject[r.project_id].predicted += Number(r.predicted || 0)
-      budgetByProject[r.project_id].actual += Number(r.actual || 0)
+      const key = budgetCategoryKey(r.category)
+      if (key !== 'labor' && key !== 'subs') budgetByProject[r.project_id].actual += Number(r.actual || 0)
     })
 
-    const { data: phases } = await supabase
+    // Labor actual from time entries + pay rates (per project)
+    const { data: timeRows } = await admin.from('time_entries').select('job_id, employee_id, hours').in('job_id', projectIds)
+    const entries = timeRows || []
+    if (entries.length > 0) {
+      const employeeIds = [...new Set(entries.map((e) => e.employee_id))]
+      const { data: raises } = await admin
+        .from('pay_raises')
+        .select('employee_id, new_rate, amount_type, effective_date')
+        .in('employee_id', employeeIds)
+        .eq('amount_type', 'dollar')
+        .order('effective_date', { ascending: false })
+      const rateByEmployee = {}
+      ;(raises || []).forEach((r) => {
+        if (rateByEmployee[r.employee_id] == null) rateByEmployee[r.employee_id] = Number(r.new_rate) || 0
+      })
+      entries.forEach((e) => {
+        const id = e.job_id
+        if (!budgetByProject[id]) return
+        const hours = Number(e.hours) || 0
+        const rate = rateByEmployee[e.employee_id] ?? 0
+        budgetByProject[id].actual += hours * rate
+      })
+    }
+
+    // Subs actual from awarded sub_bids (per project)
+    const { data: packages } = await admin.from('trade_packages').select('id, project_id').in('project_id', projectIds)
+    const pkgList = packages || []
+    if (pkgList.length > 0) {
+      const pkgIds = pkgList.map((p) => p.id)
+      const projectByPkg = Object.fromEntries(pkgList.map((p) => [p.id, p.project_id]))
+      const { data: bids } = await admin.from('sub_bids').select('trade_package_id, amount').in('trade_package_id', pkgIds).eq('awarded', true)
+      ;(bids || []).forEach((b) => {
+        const projectId = projectByPkg[b.trade_package_id]
+        if (projectId && budgetByProject[projectId]) budgetByProject[projectId].actual += Number(b.amount) || 0
+      })
+    }
+
+    // Approved change orders (add to budget total = revised budget)
+    const { data: changeOrderRows } = await admin
+      .from('project_change_orders')
+      .select('project_id, amount, status')
+      .in('project_id', projectIds)
+      .eq('status', 'Approved')
+    const approvedCOByProject = {}
+    projectIds.forEach((id) => (approvedCOByProject[id] = 0))
+    ;(changeOrderRows || []).forEach((r) => {
+      if (approvedCOByProject[r.project_id] != null) approvedCOByProject[r.project_id] += Number(r.amount) || 0
+    })
+
+    const { data: phases } = await admin
       .from('phases')
-      .select('project_id, start_date, end_date')
+      .select('project_id, name, start_date, end_date, "order"')
       .in('project_id', projectIds)
     const timelineByProject = {}
-    projectIds.forEach((id) => (timelineByProject[id] = { start: null, end: null }))
+    const phasesByProject = {}
+    projectIds.forEach((id) => {
+      timelineByProject[id] = { start: null, end: null }
+      phasesByProject[id] = []
+    })
     ;(phases || []).forEach((p) => {
       const t = timelineByProject[p.project_id]
       if (p.start_date && (!t.start || p.start_date < t.start)) t.start = p.start_date
       if (p.end_date && (!t.end || p.end_date > t.end)) t.end = p.end_date
+      phasesByProject[p.project_id].push({
+        name: p.name || 'Phase',
+        start_date: p.start_date,
+        end_date: p.end_date,
+        order: p.order != null ? p.order : 999,
+      })
+    })
+    projectIds.forEach((id) => {
+      phasesByProject[id].sort((a, b) => a.order - b.order)
     })
 
     const today = new Date().toISOString().slice(0, 10)
+    const todayTime = new Date(today).getTime()
     const result = projects.map((p) => {
       const budget = budgetByProject[p.id]
       let budgetTotal = budget.predicted || 0
-      let spentTotal = budget.actual || 0
       if (budgetTotal === 0 && p.estimated_value != null) budgetTotal = Number(p.estimated_value)
+      budgetTotal += approvedCOByProject[p.id] || 0
+      let spentTotal = budget.actual || 0
       const timelineStart = timelineByProject[p.id].start || p.expected_start_date
       const timelineEnd = timelineByProject[p.id].end || p.expected_end_date
       let timelinePct = null
@@ -425,6 +500,23 @@ router.get('/projects', async (req, res, next) => {
         const end = new Date(timelineEnd).getTime()
         const now = new Date(today).getTime()
         if (end > start) timelinePct = Math.min(100, Math.max(0, Math.round(((now - start) / (end - start)) * 100)))
+      }
+      const phaseList = phasesByProject[p.id].map((ph) => ({
+        name: ph.name,
+        completed: !!(ph.end_date && ph.end_date < today),
+      }))
+      const firstIncomplete = phaseList.findIndex((ph) => !ph.completed)
+      const nextStep =
+        firstIncomplete >= 0
+          ? (phaseList[firstIncomplete] && phaseList[firstIncomplete].name ? `Next: ${phaseList[firstIncomplete].name}` : '—')
+          : phaseList.length > 0
+            ? 'All phases complete – closed out'
+            : '—'
+      let daysLeft = null
+      if (timelineEnd) {
+        const endTime = new Date(timelineEnd).getTime()
+        const diffMs = endTime - todayTime
+        daysLeft = Math.max(0, Math.ceil(diffMs / (24 * 60 * 60 * 1000)))
       }
       const clientName = p.assigned_to_name || ''
       const initials = clientName
@@ -447,13 +539,23 @@ router.get('/projects', async (req, res, next) => {
         timeline_start: timelineStart,
         timeline_end: timelineEnd,
         timeline_pct: timelinePct,
+        phases: phaseList,
+        next_step: nextStep,
+        days_left: daysLeft,
+        address_line_1: p.address_line_1 || null,
+        address_line_2: p.address_line_2 || null,
+        city: p.city || null,
+        state: p.state || null,
+        postal_code: p.postal_code || null,
       }
     })
 
+    res.set('Cache-Control', 'no-store')
     res.json(result)
   } catch (err) {
     next(err)
   }
 })
+
 
 module.exports = router

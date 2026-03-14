@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import type { PipelineItem, PipelineStage } from '@/types/global'
 import type { JobExpense } from '@/types/global'
-import { PipelineDetailPanel } from './PipelineDetailPanel'
+import type { Job } from '@/types/global'
+import { DocumentDetailModal } from './DocumentDetailModal'
 import { PIPELINE_STAGES, formatCurrency, pct } from '@/lib/pipeline'
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
@@ -17,10 +18,13 @@ interface PipelineTabProps {
   setPipeline: (fn: (prev: PipelineItem[]) => PipelineItem[]) => void
   expenses: JobExpense[]
   jobFilterId: string
+  jobs: Job[]
+  onPipelineRefresh?: () => void | Promise<void>
 }
 
-export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId }: PipelineTabProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId, jobs, onPipelineRefresh }: PipelineTabProps) {
+  /** When set, show full document modal (estimate/invoice) with API-backed actions */
+  const [documentModal, setDocumentModal] = useState<{ id: string; type: 'estimate' | 'invoice' } | null>(null)
 
   const filteredPipeline = useMemo(() => {
     if (!jobFilterId) return pipeline
@@ -31,22 +35,6 @@ export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId }: Pi
     if (!jobFilterId) return expenses
     return expenses.filter((r) => r.job_id === jobFilterId)
   }, [expenses, jobFilterId])
-
-  const advanceStage = (id: string, next: PipelineStage) => {
-    setPipeline((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              stage: next,
-              invoiced:
-                next === 'invoiced' || next === 'paid' ? item.amount : item.invoiced,
-              paid: next === 'paid' ? item.amount : item.paid,
-            }
-          : item
-      )
-    )
-  }
 
   const byStage = PIPELINE_STAGES.reduce(
     (acc, s) => {
@@ -63,16 +51,23 @@ export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId }: Pi
   const totalPaid = filteredPipeline.filter((i) => i.stage === 'paid').reduce((s, i) => s + i.amount, 0)
   const totalSpend = filteredExpenses.reduce((s, r) => s + Number(r.amount), 0)
 
-  const selectedItem = selectedId ? pipeline.find((i) => i.id === selectedId) : null
+  const showDocumentModal = documentModal != null
 
   return (
     <div>
-      {selectedItem && (
-        <PipelineDetailPanel
-          item={selectedItem}
-          expenses={expenses}
-          onClose={() => setSelectedId(null)}
-          onAdvance={advanceStage}
+      {showDocumentModal && documentModal && (
+        <DocumentDetailModal
+          type={documentModal.type}
+          id={documentModal.id}
+          jobs={jobs}
+          onClose={() => setDocumentModal(null)}
+          onConvertToInvoice={() => {
+            onPipelineRefresh?.()
+            setDocumentModal(null)
+          }}
+          onSent={() => {
+            onPipelineRefresh?.()
+          }}
         />
       )}
 
@@ -151,15 +146,14 @@ export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId }: Pi
                     tabIndex={0}
                     className="estimates-pipeline-card"
                     style={{ borderLeftColor: STAGE_COLORS[item.stage] }}
-                    onClick={() => setSelectedId(item.id)}
+                    onClick={() => setDocumentModal({ id: item.id, type: item.type })}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        setSelectedId(item.id)
+                        setDocumentModal({ id: item.id, type: item.type })
                       }
                     }}
                   >
-                    <div className="estimates-pipeline-card-id">{item.id}</div>
                     <div className="estimates-pipeline-card-job">{jobName}</div>
                     {addr && <div className="estimates-pipeline-card-addr">{addr}</div>}
                     <div className="estimates-pipeline-card-amount">
@@ -186,11 +180,6 @@ export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId }: Pi
                           {marginPct}% margin
                         </div>
                       </>
-                    )}
-                    {item.milestones && item.milestones.length > 0 && (
-                      <div className="estimates-pipeline-card-milestones">
-                        ⚡ {item.milestones.length} milestones
-                      </div>
                     )}
                   </div>
                 )

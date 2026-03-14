@@ -11,6 +11,7 @@ import type {
 import { dayjs, formatDate, toISODate } from '@/lib/date'
 import { getInitials } from './TeamsAvatar'
 import { WeekBars } from './WeekBars'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const PANEL_TABS = ['overview', 'time', 'attendance', 'pay'] as const
 type PanelTab = (typeof PANEL_TABS)[number]
@@ -255,7 +256,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
 
         <div className="teams-panel-body">
           {loading ? (
-            <p className="teams-muted" style={{ margin: 0 }}>Loading…</p>
+            <div className="py-4"><LoadingSkeleton variant="inline" lines={4} /></div>
           ) : (
             <>
               {panelTab === 'overview' && (

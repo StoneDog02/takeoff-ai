@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RootLayout } from '@/components/Layout'
 import { AppLayout } from '@/components/AppLayout'
@@ -9,7 +10,9 @@ import { BuildListDetailPage } from '@/routes/BuildListDetailPage'
 import { ProjectsPage } from '@/routes/ProjectsPage'
 import { RevenuePage } from '@/pages/RevenuePage'
 import { AccountingPage } from '@/pages/AccountingPage'
-import { EstimatesPage } from '@/pages/EstimatesPage'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+
+const EstimatesPage = lazy(() => import('@/pages/EstimatesPage').then((m) => ({ default: m.EstimatesPage })))
 import { TeamsPage } from '@/pages/TeamsPage'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { DirectoryPage } from '@/pages/DirectoryPage'
@@ -26,6 +29,7 @@ import { EmployeeClockPage } from '@/routes/EmployeeClockPage'
 import { EmployeeHoursPage } from '@/routes/EmployeeHoursPage'
 import { EmployeeJobsPage } from '@/routes/EmployeeJobsPage'
 import { EmployeeProfilePage } from '@/routes/EmployeeProfilePage'
+import { MessagesPage } from '@/pages/MessagesPage'
 
 export const router = createBrowserRouter([
   {
@@ -47,6 +51,7 @@ export const router = createBrowserRouter([
           { path: 'clock', element: <EmployeeClockPage /> },
           { path: 'hours', element: <EmployeeHoursPage /> },
           { path: 'jobs', element: <EmployeeJobsPage /> },
+          { path: 'messages', element: <MessagesPage employeePortal /> },
           { path: 'profile', element: <EmployeeProfilePage /> },
         ],
       },
@@ -58,7 +63,22 @@ export const router = createBrowserRouter([
           { path: 'projects/:id', element: <ProjectsPage /> },
           { path: 'revenue', element: <RevenuePage /> },
           { path: 'accounting', element: <AccountingPage /> },
-          { path: 'estimates', element: <EstimatesPage /> },
+          {
+            path: 'estimates',
+            element: (
+              <Suspense
+                fallback={
+                  <div className="dashboard-app estimates-page flex flex-col min-h-0 flex-1">
+                    <div className="estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0">
+                      <LoadingSkeleton variant="page" className="min-h-[30vh]" />
+                    </div>
+                  </div>
+                }
+              >
+                <EstimatesPage />
+              </Suspense>
+            ),
+          },
           { path: 'teams', element: <TeamsPage /> },
           { path: 'payroll', element: <PayrollPage /> },
           { path: 'directory', element: <DirectoryPage /> },

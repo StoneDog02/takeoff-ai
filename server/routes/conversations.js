@@ -30,11 +30,18 @@ router.get('/', async (req, res, next) => {
 
     const { data: convos, error: convErr } = await supabase
       .from('conversations')
-      .select('id, created_at, updated_at')
+      .select('id, created_at, updated_at, job_id')
       .in('id', conversationIds)
       .order('updated_at', { ascending: false })
     if (convErr) throw convErr
     if (!convos?.length) return res.json([])
+
+    const jobIds = [...new Set((convos || []).map((c) => c.job_id).filter(Boolean))]
+    const jobNameByJobId = {}
+    if (jobIds.length > 0) {
+      const { data: projects } = await supabase.from('projects').select('id, name').in('id', jobIds)
+      if (projects) projects.forEach((p) => { jobNameByJobId[p.id] = p.name || 'Job' })
+    }
 
     const { data: reads, error: readErr } = await supabase
       .from('conversation_reads')
@@ -61,12 +68,40 @@ router.get('/', async (req, res, next) => {
       .select('conversation_id, user_id')
       .in('conversation_id', conversationIds)
     const otherByConv = {}
+    const allOtherIds = new Set()
     ;(allParticipants || []).forEach((p) => {
       if (p.user_id !== userId) {
         if (!otherByConv[p.conversation_id]) otherByConv[p.conversation_id] = []
         otherByConv[p.conversation_id].push(p.user_id)
+        allOtherIds.add(p.user_id)
       }
     })
+
+    // Resolve display names: employees table first, then auth user_metadata
+    const nameByUserId = {}
+    const otherIds = [...allOtherIds]
+    if (otherIds.length > 0) {
+      const { data: employees } = await supabase
+        .from('employees')
+        .select('auth_user_id, name')
+        .in('auth_user_id', otherIds)
+      if (employees) {
+        employees.forEach((e) => {
+          if (e.auth_user_id) nameByUserId[e.auth_user_id] = e.name || 'Unknown'
+        })
+      }
+      for (const uid of otherIds) {
+        if (nameByUserId[uid]) continue
+        try {
+          const { data: authUser } = await supabase.auth.admin.getUserById(uid)
+          const meta = authUser?.user?.user_metadata
+          nameByUserId[uid] =
+            meta?.full_name || meta?.name || (authUser?.user?.email ? authUser.user.email.split('@')[0] : 'Contact')
+        } catch {
+          nameByUserId[uid] = 'Contact'
+        }
+      }
+    }
 
     const list = convos.map((c) => {
       const last = messagesByConv[c.id]
@@ -75,9 +110,13 @@ router.get('/', async (req, res, next) => {
       const unreadCount = lastRead
         ? convMessages.filter((m) => new Date(m.created_at) > lastRead).length
         : convMessages.length
+      const otherIds = otherByConv[c.id] || []
+      const other_participants = otherIds.map((id) => ({ id, name: nameByUserId[id] || 'Contact' }))
       return {
         id: c.id,
         updated_at: c.updated_at,
+        job_id: c.job_id || null,
+        job_name: c.job_id ? (jobNameByJobId[c.job_id] || 'Job') : null,
         last_message: last
           ? {
               id: last.id,
@@ -87,7 +126,8 @@ router.get('/', async (req, res, next) => {
             }
           : null,
         unread_count: unreadCount,
-        other_participant_ids: otherByConv[c.id] || [],
+        other_participant_ids: otherIds,
+        other_participants,
       }
     })
 
@@ -222,6 +262,90 @@ router.post('/', async (req, res, next) => {
     )
 
     res.status(201).json(conv)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** POST /api/conversations/for-job - get or create the group conversation for a job (project). Body: { job_id }. */
+router.post('/for-job', async (req, res, next) => {
+  try {
+    const supabase = getSupabase(req)
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+    const jobId = req.body?.job_id
+    if (!jobId) return res.status(400).json({ error: 'job_id required' })
+
+    const { data: project, error: projErr } = await supabase
+      .from('projects')
+      .select('id, name, user_id')
+      .eq('id', jobId)
+      .single()
+    if (projErr || !project) return res.status(404).json({ error: 'Job not found' })
+
+    const { data: assignments } = await supabase
+      .from('job_assignments')
+      .select('employee_id')
+      .eq('job_id', jobId)
+      .is('ended_at', null)
+    const employeeIds = [...new Set((assignments || []).map((a) => a.employee_id))]
+    const { data: employees } = await supabase
+      .from('employees')
+      .select('id, auth_user_id')
+      .in('id', employeeIds)
+    const participantIds = new Set()
+    participantIds.add(project.user_id)
+    ;(employees || []).forEach((e) => {
+      if (e.auth_user_id) participantIds.add(e.auth_user_id)
+    })
+    if (!participantIds.has(userId)) participantIds.add(userId)
+    const allParticipantIds = [...participantIds]
+
+    const { data: existing } = await supabase
+      .from('conversations')
+      .select('id, created_at, updated_at')
+      .eq('job_id', jobId)
+      .maybeSingle()
+
+    if (existing) {
+      const { data: existingPart } = await supabase
+        .from('conversation_participants')
+        .select('user_id')
+        .eq('conversation_id', existing.id)
+      const existingIds = new Set((existingPart || []).map((p) => p.user_id))
+      if (!existingIds.has(userId)) {
+        await supabase.from('conversation_participants').insert({
+          conversation_id: existing.id,
+          user_id: userId,
+        })
+      }
+      return res.json({
+        id: existing.id,
+        created_at: existing.created_at,
+        updated_at: existing.updated_at,
+        job_id: jobId,
+        job_name: project.name || 'Job',
+      })
+    }
+
+    const { data: conv, error: insErr } = await supabase
+      .from('conversations')
+      .insert({ job_id: jobId })
+      .select('id, created_at, updated_at')
+      .single()
+    if (insErr) throw insErr
+    await supabase.from('conversation_participants').insert(
+      allParticipantIds.map((uid) => ({ conversation_id: conv.id, user_id: uid }))
+    )
+    res.status(201).json({
+      id: conv.id,
+      created_at: conv.created_at,
+      updated_at: conv.updated_at,
+      job_id: jobId,
+      job_name: project.name || 'Job',
+    })
   } catch (err) {
     next(err)
   }

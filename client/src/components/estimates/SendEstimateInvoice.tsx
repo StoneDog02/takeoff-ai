@@ -59,78 +59,69 @@ export function SendEstimateInvoice({
 
   return (
     <div
-      className="dashboard-app"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.4)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1001,
-      }}
+      className="send-estimate-invoice-overlay"
       onClick={onClose}
     >
       <div
-        className="projects-card"
-        style={{
-          padding: 24,
-          maxWidth: 500,
-          width: '100%',
-          maxHeight: '90vh',
-          overflow: 'auto',
-        }}
+        className="send-estimate-invoice-modal"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-estimate-invoice-title"
       >
-        <h2 className="page-title" style={{ marginBottom: 16 }}>
+        <h2 id="send-estimate-invoice-title" className="send-estimate-invoice-modal__title">
           Send {type}
         </h2>
-        <label className="dashboard-app" style={{ display: 'block', marginBottom: 16 }}>
-          <span className="section-title" style={{ display: 'block', marginBottom: 4 }}>
-            Recipient emails (comma or space separated)
-          </span>
-          <textarea
-            value={emailsText}
-            onChange={(e) => setEmailsText(e.target.value)}
-            placeholder="email1@example.com, email2@example.com"
-            rows={3}
-            className="dashboard-app"
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              border: '1px solid var(--border)',
-              borderRadius: 7,
-              background: 'var(--bg-surface)',
-              color: 'var(--text-primary)',
-            }}
-          />
-        </label>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => setShowPreview((p) => !p)}
-          >
-            {showPreview ? 'Hide preview' : 'Preview'}
-          </button>
-        </div>
-        {showPreview && (
-          <div style={{ marginBottom: 16 }}>
-            <EstimateInvoiceFormView
-              type={type}
-              documentId={documentId}
-              jobName={jobName}
-              date={document.created_at ?? ''}
-              status={document.status ?? '—'}
-              recipientEmails={document.recipient_emails ?? []}
-              lineItems={lineItems}
-              total={total}
-              dueDate={document.due_date}
-              embedded
+
+        <div className="send-estimate-invoice-modal__scroll">
+          <div className="send-estimate-invoice-modal__field">
+            <label htmlFor="send-recipient-emails" className="send-estimate-invoice-modal__label">
+              Recipient emails
+            </label>
+            <p className="send-estimate-invoice-modal__hint">
+              Separate multiple addresses with commas or spaces
+            </p>
+            <textarea
+              id="send-recipient-emails"
+              value={emailsText}
+              onChange={(e) => setEmailsText(e.target.value)}
+              placeholder="email1@example.com, email2@example.com"
+              rows={3}
+              className="send-estimate-invoice-modal__input"
+              autoComplete="off"
+              aria-label="Recipient email addresses"
             />
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+
+          <div className="send-estimate-invoice-modal__preview-row">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setShowPreview((p) => !p)}
+            >
+              {showPreview ? 'Hide preview' : 'Preview'}
+            </button>
+          </div>
+
+          {showPreview && (
+            <div className="send-estimate-invoice-modal__preview">
+              <EstimateInvoiceFormView
+                type={type}
+                documentId={documentId}
+                jobName={jobName}
+                date={document.created_at ?? ''}
+                status={document.status ?? '—'}
+                recipientEmails={document.recipient_emails ?? []}
+                lineItems={lineItems}
+                total={total}
+                dueDate={document.due_date}
+                embedded
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="send-estimate-invoice-modal__actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>

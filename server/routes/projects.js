@@ -19,6 +19,7 @@ async function ensureBuildPlansBucket() {
 }
 
 const router = express.Router()
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
@@ -31,6 +32,10 @@ const upload = multer({
       'image/gif',
       'video/mp4',
       'video/webm',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     ]
     if (allowed.includes(file.mimetype)) cb(null, true)
     else cb(new Error('Invalid file type.'))
@@ -71,18 +76,135 @@ async function loadProject(req, res, next) {
 }
 
 // --- Projects CRUD ---
-router.get('/', async (req, res, next) => {
+/** GET / - list projects with summary for cards (phases, budget actual, days left) */
+router.get('/', (req, res, next) => {
+  console.log('[projects GET /] request received')
+  next()
+}, async (req, res, next) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     const supabase = req.supabase || defaultSupabase
-    if (!supabase) return res.json([])
-    const { data, error } = await supabase
+    if (!supabase) {
+      console.warn('[projects GET /] no supabase client')
+      return res.json([])
+    }
+    const { data: projects, error: projErr } = await supabase
       .from('projects')
       .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, plan_type')
       .eq('user_id', req.user?.id)
       .order('updated_at', { ascending: false })
-    if (error) throw error
-    res.json(data || [])
+    if (projErr) {
+      console.warn('[projects GET /] projects query error', projErr.message)
+      throw projErr
+    }
+    if (!projects?.length) {
+      console.log('[projects GET /] no projects, returning []')
+      return res.json([])
+    }
+    console.log('[projects GET /] got', projects.length, 'projects, fetching phases + budget')
+
+    const projectIds = projects.map((p) => p.id)
+    const db = defaultSupabase || supabase
+
+    const { data: budgetRows } = await db
+      .from('budget_line_items')
+      .select('project_id, predicted, actual')
+      .in('project_id', projectIds)
+    const budgetByProject = {}
+    projectIds.forEach((id) => (budgetByProject[id] = { predicted: 0, actual: 0 }))
+    ;(budgetRows || []).forEach((r) => {
+      budgetByProject[r.project_id].predicted += Number(r.predicted || 0)
+      budgetByProject[r.project_id].actual += Number(r.actual || 0)
+    })
+
+    const { data: phases } = await db
+      .from('phases')
+      .select('project_id, name, start_date, end_date, "order"')
+      .in('project_id', projectIds)
+    const timelineByProject = {}
+    const phasesByProject = {}
+    projectIds.forEach((id) => {
+      timelineByProject[id] = { start: null, end: null }
+      phasesByProject[id] = []
+    })
+    ;(phases || []).forEach((p) => {
+      const t = timelineByProject[p.project_id]
+      if (p.start_date && (!t.start || p.start_date < t.start)) t.start = p.start_date
+      if (p.end_date && (!t.end || p.end_date > t.end)) t.end = p.end_date
+      const orderVal = p.order != null ? p.order : (p['order'] != null ? p['order'] : 999)
+      phasesByProject[p.project_id].push({
+        name: p.name || 'Phase',
+        start_date: p.start_date,
+        end_date: p.end_date,
+        order: orderVal,
+      })
+    })
+    projectIds.forEach((id) => {
+      phasesByProject[id].sort((a, b) => a.order - b.order)
+    })
+
+    const today = new Date().toISOString().slice(0, 10)
+    const todayTime = new Date(today).getTime()
+    const result = projects.map((p) => {
+      const budget = budgetByProject[p.id]
+      let budgetTotal = budget.predicted || 0
+      let spentTotal = budget.actual || 0
+      if (budgetTotal === 0 && p.estimated_value != null) budgetTotal = Number(p.estimated_value)
+      const timelineStart = timelineByProject[p.id].start || p.expected_start_date
+      const timelineEnd = timelineByProject[p.id].end || p.expected_end_date
+      const phaseList = phasesByProject[p.id].map((ph) => ({
+        name: ph.name,
+        completed: !!(ph.end_date && ph.end_date < today),
+      }))
+      const firstIncomplete = phaseList.findIndex((ph) => !ph.completed)
+      const nextStep =
+        firstIncomplete >= 0
+          ? (phaseList[firstIncomplete] && phaseList[firstIncomplete].name ? `Next: ${phaseList[firstIncomplete].name}` : '—')
+          : phaseList.length > 0
+            ? 'All phases complete – closed out'
+            : '—'
+      let daysLeft = null
+      if (timelineEnd) {
+        const endTime = new Date(timelineEnd).getTime()
+        const diffMs = endTime - todayTime
+        daysLeft = Math.max(0, Math.ceil(diffMs / (24 * 60 * 60 * 1000)))
+      }
+      const clientName = p.assigned_to_name || ''
+      const initials = clientName
+        ? clientName
+            .split(/\s+/)
+            .map((w) => w[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2)
+        : (p.name || 'P').slice(0, 2).toUpperCase()
+
+      let timelinePct = null
+      if (timelineStart && timelineEnd) {
+        const start = new Date(timelineStart).getTime()
+        const end = new Date(timelineEnd).getTime()
+        const now = new Date(today).getTime()
+        if (end > start) timelinePct = Math.min(100, Math.max(0, Math.round(((now - start) / (end - start)) * 100)))
+      }
+      return {
+        ...p,
+        budget_total: budgetTotal,
+        spent_total: spentTotal,
+        timeline_start: timelineStart,
+        timeline_end: timelineEnd,
+        timeline_pct: timelinePct,
+        phases: phaseList,
+        next_step: nextStep,
+        days_left: daysLeft,
+        client: clientName,
+        initials,
+      }
+    })
+    const first = result[0]
+    console.log('[projects GET /] returning', result.length, 'projects. first has phases:', first?.phases?.length ?? 0, 'budget_total:', first?.budget_total, 'days_left:', first?.days_left)
+    res.json(result)
   } catch (err) {
+    console.warn('[projects GET /] error', err?.message || err)
     next(err)
   }
 })
@@ -684,24 +806,122 @@ router.delete('/:id/build-plans/:planId', loadProject, async (req, res, next) =>
 })
 
 // --- Budget ---
+/** Normalize category for matching labor/subs. */
+function budgetCategoryKey(cat) {
+  if (!cat) return 'other'
+  const c = String(cat).toLowerCase().trim()
+  if (c === 'labor') return 'labor'
+  if (c === 'subs' || c === 'subcontractors' || c === 'subcontractor' || c.includes('subcontractor')) return 'subs'
+  return c
+}
+
 router.get('/:id/budget', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
+    const db = defaultSupabase || supabase
+    const projectId = req.params.id
+
     const { data: items, error } = await supabase
       .from('budget_line_items')
       .select('*')
-      .eq('project_id', req.params.id)
+      .eq('project_id', projectId)
     if (error) throw error
-    const list = items || []
+    let list = items || []
+
+    // Labor actual from time entries + pay rates
+    let laborActualFromTimeEntries = 0
+    if (db) {
+      const { data: timeRows } = await db
+        .from('time_entries')
+        .select('id, employee_id, hours')
+        .eq('job_id', projectId)
+      const entries = timeRows || []
+      if (entries.length > 0) {
+        const employeeIds = [...new Set(entries.map((e) => e.employee_id))]
+        const { data: raises } = await db
+          .from('pay_raises')
+          .select('employee_id, new_rate, amount_type, effective_date')
+          .in('employee_id', employeeIds)
+          .eq('amount_type', 'dollar')
+          .order('effective_date', { ascending: false })
+        const rateByEmployee = {}
+        for (const r of raises || []) {
+          if (rateByEmployee[r.employee_id] == null) rateByEmployee[r.employee_id] = Number(r.new_rate) || 0
+        }
+        for (const e of entries) {
+          const hours = Number(e.hours) || 0
+          const rate = rateByEmployee[e.employee_id] ?? 0
+          laborActualFromTimeEntries += hours * rate
+        }
+      }
+    }
+
+    // Subs actual from bid sheet awarded bids (use same supabase as budget_line_items for consistent auth context)
+    const clientForSubs = supabase
+    let subsActualFromBidSheet = 0
+    if (clientForSubs) {
+      const { data: packages } = await clientForSubs.from('trade_packages').select('id').eq('project_id', projectId)
+      const pkgIds = (packages || []).map((p) => p.id)
+      if (pkgIds.length > 0) {
+        const { data: bids } = await clientForSubs
+          .from('sub_bids')
+          .select('amount')
+          .in('trade_package_id', pkgIds)
+          .eq('awarded', true)
+        for (const b of bids || []) subsActualFromBidSheet += Number(b.amount) || 0
+      }
+    }
+
+    // Merge into line items: first labor line gets labor actual, first subs line gets subs actual; others in same category keep DB actual or 0
+    const laborKey = 'labor'
+    const subsKey = 'subs'
+    let firstLaborIdx = -1
+    let firstSubsIdx = -1
+    list.forEach((item, i) => {
+      const key = budgetCategoryKey(item.category)
+      if (key === laborKey && firstLaborIdx < 0) firstLaborIdx = i
+      if (key === subsKey && firstSubsIdx < 0) firstSubsIdx = i
+    })
+    // If no row matched by category but we have awarded subs, use first row whose label looks like "Subcontractors"
+    if (firstSubsIdx < 0 && subsActualFromBidSheet > 0) {
+      const byLabel = list.findIndex((item) => (item.label || '').toLowerCase().includes('subcontractor'))
+      if (byLabel >= 0) firstSubsIdx = byLabel
+    }
+    list = list.map((item, i) => {
+      const key = budgetCategoryKey(item.category)
+      const row = { ...item, actual: Number(item.actual) || 0 }
+      if (key === laborKey) {
+        if (i === firstLaborIdx) row.actual = laborActualFromTimeEntries
+        else row.actual = 0
+      } else if (key === subsKey || (firstSubsIdx >= 0 && i === firstSubsIdx)) {
+        // Apply subs actual to the first subs row (by category or by label fallback when category is "other")
+        if (i === firstSubsIdx) row.actual = subsActualFromBidSheet
+        else row.actual = 0
+      }
+      return row
+    })
+
     const predicted_total = list.reduce((s, i) => s + Number(i.predicted || 0), 0)
     const actual_total = list.reduce((s, i) => s + Number(i.actual || 0), 0)
+    let approved_change_orders_total = 0
+    const { data: coRows } = await supabase
+      .from('project_change_orders')
+      .select('amount')
+      .eq('project_id', projectId)
+      .eq('status', 'Approved')
+    ;(coRows || []).forEach((r) => { approved_change_orders_total += Number(r.amount) || 0 })
+    const revised_budget = predicted_total + approved_change_orders_total
+    res.set('Cache-Control', 'no-store')
     res.json({
       items: list,
       summary: {
         predicted_total,
         actual_total,
-        profitability: predicted_total - actual_total,
+        profitability: revised_budget - actual_total,
       },
+      labor_actual_from_time_entries: laborActualFromTimeEntries,
+      subs_actual_from_bid_sheet: subsActualFromBidSheet,
+      approved_change_orders_total,
     })
   } catch (err) {
     next(err)
@@ -744,6 +964,122 @@ router.put('/:id/budget', loadProject, async (req, res, next) => {
       items: list,
       summary: { predicted_total, actual_total, profitability: predicted_total - actual_total },
     })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// --- Change orders ---
+router.get('/:id/change-orders', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { data, error } = await supabase
+      .from('project_change_orders')
+      .select('*')
+      .eq('project_id', req.params.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    const rows = (data || []).map((r) => ({
+      id: r.id,
+      project_id: r.project_id,
+      description: r.description,
+      amount: Number(r.amount) || 0,
+      status: r.status === 'Approved' ? 'Approved' : 'Pending',
+      date: r.date || '',
+      category: r.category || 'other',
+      created_at: r.created_at,
+    }))
+    res.set('Cache-Control', 'no-store')
+    res.json(rows)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/:id/change-orders', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const projectId = req.project?.id ?? req.params.id
+    const { description, amount, status, date, category } = req.body || {}
+    if (!description || typeof description !== 'string' || description.trim() === '') {
+      return res.status(400).json({ error: 'description required' })
+    }
+    const numAmount = Number(amount)
+    if (Number.isNaN(numAmount) || numAmount < 0) return res.status(400).json({ error: 'amount must be a non-negative number' })
+    const row = {
+      project_id: projectId,
+      description: String(description).trim(),
+      amount: numAmount,
+      status: status === 'Approved' ? 'Approved' : 'Pending',
+      date: typeof date === 'string' ? date : '',
+      category: typeof category === 'string' && category ? category : 'other',
+    }
+    const { data, error } = await supabase.from('project_change_orders').insert(row).select().single()
+    if (error) throw error
+    res.status(201).json({
+      id: data.id,
+      project_id: data.project_id,
+      description: data.description,
+      amount: Number(data.amount) || 0,
+      status: data.status,
+      date: data.date || '',
+      category: data.category || 'other',
+      created_at: data.created_at,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/:id/change-orders/:coId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { coId } = req.params
+    const { description, amount, status, date, category } = req.body || {}
+    const updates = {}
+    if (description !== undefined) updates.description = String(description).trim()
+    if (amount !== undefined) {
+      const num = Number(amount)
+      if (!Number.isNaN(num) && num >= 0) updates.amount = num
+    }
+    if (status !== undefined) updates.status = status === 'Approved' ? 'Approved' : 'Pending'
+    if (date !== undefined) updates.date = String(date)
+    if (category !== undefined) updates.category = String(category) || 'other'
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'no updates provided' })
+    const { data, error } = await supabase
+      .from('project_change_orders')
+      .update(updates)
+      .eq('id', coId)
+      .eq('project_id', req.params.id)
+      .select()
+      .single()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Change order not found' })
+    res.json({
+      id: data.id,
+      project_id: data.project_id,
+      description: data.description,
+      amount: Number(data.amount) || 0,
+      status: data.status,
+      date: data.date || '',
+      category: data.category || 'other',
+      created_at: data.created_at,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id/change-orders/:coId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { error } = await supabase
+      .from('project_change_orders')
+      .delete()
+      .eq('id', req.params.coId)
+      .eq('project_id', req.params.id)
+    if (error) throw error
+    res.status(204).send()
   } catch (err) {
     next(err)
   }
@@ -795,7 +1131,7 @@ router.post('/:id/launch-takeoff', loadProject, (req, res, next) => {
         tradeFilter = tradeFilter.trim() || null
       }
     }
-    const { materialList } = await runTakeoff(req.file.buffer, req.file.mimetype, {
+    const { materialList, truncated = false } = await runTakeoff(req.file.buffer, req.file.mimetype, {
       useCustomProject: true,
       planType,
       tradeFilter,
@@ -823,6 +1159,7 @@ router.post('/:id/launch-takeoff', loadProject, (req, res, next) => {
       id: row?.id || `temp-${Date.now()}`,
       material_list: enriched,
       created_at: row?.created_at,
+      truncated: Boolean(truncated),
     })
   } catch (err) {
     next(err)
@@ -993,6 +1330,103 @@ router.delete('/:id/work-types/:wtId', loadProject, async (req, res, next) => {
       .from('project_work_types')
       .delete()
       .eq('id', req.params.wtId)
+      .eq('project_id', req.params.id)
+    if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
+// --- Bid documents (uploaded bids from subs for reference) ---
+const BID_DOCUMENTS_PATH_PREFIX = 'bid-documents'
+
+router.get('/:id/bid-documents', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { data, error } = await supabase
+      .from('project_bid_documents')
+      .select('*')
+      .eq('project_id', req.params.id)
+      .order('uploaded_at', { ascending: false })
+    if (error) throw error
+    res.json(data || [])
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/:id/bid-documents', loadProject, upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+    const supabaseClient = req.supabase || defaultSupabase
+    const supabaseStorage = defaultSupabase || supabaseClient
+    if (!supabaseClient) return res.status(503).json({ error: 'Database not configured' })
+    await ensureBuildPlansBucket()
+    const projectId = req.params.id
+    const uploaderName = (req.body && req.body.uploader_name) || req.user?.email || 'Unknown'
+    const safeName = (req.file.originalname || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
+    const ext = safeName.split('.').pop() || 'bin'
+    const path = `${BID_DOCUMENTS_PATH_PREFIX}/${projectId}/${Date.now()}-${safeName}`
+
+    const { error: uploadErr } = await supabaseStorage.storage.from(BUILD_PLANS_BUCKET).upload(path, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false,
+    })
+    if (uploadErr) throw uploadErr
+    let url = path
+    const { data: urlData } = supabaseStorage.storage.from(BUILD_PLANS_BUCKET).getPublicUrl(path)
+    if (urlData?.publicUrl) url = urlData.publicUrl
+
+    const { data: row, error } = await supabaseClient
+      .from('project_bid_documents')
+      .insert({
+        project_id: projectId,
+        file_name: req.file.originalname || safeName,
+        url,
+        uploader_name: uploaderName,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    res.status(201).json(row)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/:id/bid-documents/:docId/view', loadProject, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const { docId } = req.params
+    const { data: doc, error: docErr } = await db
+      .from('project_bid_documents')
+      .select('url')
+      .eq('id', docId)
+      .eq('project_id', req.params.id)
+      .maybeSingle()
+    if (docErr || !doc) return res.status(404).json({ error: 'Bid document not found' })
+    let path = doc.url
+    if (path.startsWith('http')) {
+      const match = path.match(/\/object\/public\/[^/]+\/(.+)$/) || path.match(/\/storage\/v1\/object\/[^/]+\/[^/]+\/(.+)$/)
+      path = match ? match[1] : path
+    }
+    const { data: signed, error: signErr } = await db.storage.from(BUILD_PLANS_BUCKET).createSignedUrl(path, 3600)
+    if (signErr) return res.status(502).json({ error: 'Could not generate view link', detail: signErr.message })
+    res.json({ url: signed.signedUrl })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id/bid-documents/:docId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const { error } = await supabase
+      .from('project_bid_documents')
+      .delete()
+      .eq('id', req.params.docId)
       .eq('project_id', req.params.id)
     if (error) throw error
     res.status(204).send()

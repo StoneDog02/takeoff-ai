@@ -6,6 +6,7 @@ import { RevenueAreaChart } from '@/components/revenue/RevenueAreaChart'
 import { RevenueDonutChart } from '@/components/revenue/RevenueDonutChart'
 import { RevenueExport } from '@/components/revenue/RevenueExport'
 import { useRevenueLiveData } from '@/hooks/useRevenueLiveData'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -155,7 +156,9 @@ export function RevenuePage() {
               <h1 className="dashboard-title revenue-overhaul-title">Revenue</h1>
             </div>
           </div>
-          <div className="py-12 text-center text-[var(--text-muted)]">Loading revenue data…</div>
+          <div className="py-12">
+            <LoadingSkeleton variant="page" className="min-h-[30vh]" />
+          </div>
         </div>
       </div>
     )

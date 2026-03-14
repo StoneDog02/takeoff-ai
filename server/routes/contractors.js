@@ -24,16 +24,17 @@ router.post('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { name, trade, email, phone } = req.body || {}
+    const row = {
+      user_id: req.user?.id,
+      name: name ?? '',
+      trade: trade ?? '',
+      email: email ?? '',
+      phone: phone ?? null,
+      updated_at: new Date().toISOString(),
+    }
     const { data, error } = await supabase
       .from('contractors')
-      .insert({
-        user_id: req.user?.id,
-        name: name ?? '',
-        trade: trade ?? '',
-        email: email ?? '',
-        phone: phone ?? null,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(row, { onConflict: 'user_id,email', ignoreDuplicates: false })
       .select()
       .single()
     if (error) throw error

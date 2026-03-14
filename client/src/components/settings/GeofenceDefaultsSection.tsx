@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { GeofenceDefaults } from '@/types/global'
 import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, CardHeader, CardBody, Field, FieldRow, Input, Btn, SaveRow } from './SettingsPrimitives'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const defaults: GeofenceDefaults = {
   defaultRadiusMeters: 100,
@@ -40,7 +41,7 @@ export function GeofenceDefaultsSection() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

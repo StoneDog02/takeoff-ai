@@ -231,6 +231,10 @@ export interface ProjectCardData {
   isComplete?: boolean
   assignedTo: { initials: string; name: string }
   value: number
+  /** Actual spent (from budget); when set, card uses this instead of phase-based estimate. */
+  valueUsed?: number
+  /** Days left until timeline end; when set, card shows this instead of "—". */
+  daysLeft?: number | null
 }
 
 /** Card metadata for mock projects; real projects can omit for minimal card. */

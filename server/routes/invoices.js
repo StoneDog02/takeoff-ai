@@ -87,6 +87,21 @@ router.patch('/:id', async (req, res) => {
   }
 })
 
+/** DELETE /api/invoices/:id */
+router.delete('/:id', async (req, res) => {
+  const supabase = getSupabase(req)
+  if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const { id } = req.params
+    const { error } = await supabase.from('invoices').delete().eq('id', id)
+    if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    console.error('Invoice delete error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 /** POST /api/invoices/:id/send - mark sent */
 router.post('/:id/send', async (req, res) => {
   const supabase = getSupabase(req)

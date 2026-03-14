@@ -7,6 +7,7 @@ import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 export function EmployeeLayout() {
   const [ready, setReady] = useState(false)
@@ -67,7 +68,7 @@ export function EmployeeLayout() {
   if (!ready) {
     return (
       <div className="dashboard-app flex items-center justify-center min-h-screen">
-        <div className="text-muted">Loading...</div>
+        <LoadingSkeleton variant="inline" lines={3} />
       </div>
     )
   }
@@ -107,6 +108,10 @@ export function EmployeeLayout() {
             <NavLink to="/employee/jobs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
               <span className="nav-label">My Jobs</span>
+            </NavLink>
+            <NavLink to="/employee/messages" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H6l-2 2V4z" /></svg>
+              <span className="nav-label">Messages</span>
             </NavLink>
 
             <div className="nav-divider" />

@@ -5,6 +5,7 @@ import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
 import type { TimeEntry } from '@/types/global'
 import { dayjs } from '@/lib/date'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const formatTime = (date: Date) => date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 const formatDateWeek = (date: Date) => dayjs(date).format('ddd MMM D')   // Fri Mar 6
@@ -347,7 +348,9 @@ export function EmployeeHoursPage() {
             <span className="text-xs text-muted">{loading ? '…' : `${displayEntries.length} shifts`}</span>
           </div>
           {loading ? (
-            <div className="px-5 py-8 text-center text-muted text-sm">Loading…</div>
+            <div className="px-5 py-8">
+              <LoadingSkeleton variant="inline" lines={5} />
+            </div>
           ) : displayEntries.length === 0 ? (
             <div className="px-5 py-8 text-center text-muted text-sm">No entries in this period.</div>
           ) : (

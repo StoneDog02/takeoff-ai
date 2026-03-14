@@ -3,6 +3,7 @@ import { dayjs } from '@/lib/date'
 import type { TaxRate } from '@/types/global'
 import { settingsApi } from '@/api/settings'
 import { SectionHeader, Card, CardHeader, CardBody, Field, Input, Btn, SaveRow } from './SettingsPrimitives'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 function isExpiringWithin30Days(dateStr: string | undefined): boolean {
   if (!dateStr) return false
@@ -63,7 +64,7 @@ export function TaxComplianceSection() {
     setRates((r) => r.map((x, idx) => (idx === i ? { ...x, [field]: value } : x)))
   }
 
-  if (loading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
+  if (loading) return <div style={{ padding: 24 }}><LoadingSkeleton variant="inline" lines={5} /></div>
 
   return (
     <>

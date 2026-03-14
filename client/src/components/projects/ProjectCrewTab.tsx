@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '@/api/client'
 import { teamsApi } from '@/api/teamsClient'
 import type { Contractor, Employee, JobAssignment, Subcontractor } from '@/types/global'
 import { formatDate } from '@/lib/date'
 import { TeamsAvatar, getInitials } from '@/components/teams/TeamsAvatar'
+import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+import { ROLE_OPTS, SUBCONTRACTOR_TRADE_OPTS } from '@/components/projects/NewProjectWizard/constants'
+
+const ROLE_OPTIONS = [...ROLE_OPTS, 'Other'] as const
 
 interface ProjectCrewTabProps {
   projectId: string
@@ -44,6 +49,18 @@ export function ProjectCrewTab({
   const [contractorsLoading, setContractorsLoading] = useState(false)
   const [selectedContractorId, setSelectedContractorId] = useState('')
   const [addingSubcontractor, setAddingSubcontractor] = useState(false)
+  const [editingAssignment, setEditingAssignment] = useState<JobAssignment | null>(null)
+  const [editingSubcontractor, setEditingSubcontractor] = useState<Subcontractor | null>(null)
+  const [editRoleSelect, setEditRoleSelect] = useState<string>('')
+  const [editRoleOther, setEditRoleOther] = useState('')
+  const [rosterMenuAssignmentId, setRosterMenuAssignmentId] = useState<string | null>(null)
+  const [rosterMenuRect, setRosterMenuRect] = useState<{ top: number; right: number } | null>(null)
+  const [editSubName, setEditSubName] = useState('')
+  const [editSubTradeSelect, setEditSubTradeSelect] = useState<string>('')
+  const [editSubTradeOther, setEditSubTradeOther] = useState('')
+  const [editSubEmail, setEditSubEmail] = useState('')
+  const [editSubPhone, setEditSubPhone] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   const propsProvided = jobAssignmentsProp != null && rosterEmployeesProp != null
   const [useProps, setUseProps] = useState(true)
@@ -161,8 +178,90 @@ export function ProjectCrewTab({
     }
   }
 
+  const openEditAssignment = (a: JobAssignment) => {
+    setEditingAssignment(a)
+    const role = (a.role_on_job ?? '').trim()
+    if (ROLE_OPTIONS.includes(role as (typeof ROLE_OPTIONS)[number])) {
+      setEditRoleSelect(role)
+      setEditRoleOther('')
+    } else if (role) {
+      setEditRoleSelect('Other')
+      setEditRoleOther(role)
+    } else {
+      setEditRoleSelect('')
+      setEditRoleOther('')
+    }
+  }
+
+  const handleSaveAssignmentEdit = async () => {
+    if (!editingAssignment || readOnly) return
+    const roleOnJob = editRoleSelect === 'Other' ? editRoleOther.trim() || undefined : (editRoleSelect || undefined)
+    setSavingEdit(true)
+    try {
+      await teamsApi.jobAssignments.update(editingAssignment.id, {
+        role_on_job: roleOnJob,
+      })
+      const [a, e] = await Promise.all([
+        teamsApi.jobAssignments.list({ job_id: projectId, active_only: true }),
+        teamsApi.employees.list(),
+      ])
+      setAssignments(a ?? [])
+      setEmployees(e ?? [])
+      if (useProps) setUseProps(false)
+      onCrewChange?.()
+      setEditingAssignment(null)
+    } catch {
+      // keep modal open on error
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const openEditSubcontractor = (s: Subcontractor) => {
+    setEditingSubcontractor(s)
+    setEditSubName(s.name)
+    const trade = (s.trade ?? '').trim()
+    if (SUBCONTRACTOR_TRADE_OPTS.includes(trade)) {
+      setEditSubTradeSelect(trade)
+      setEditSubTradeOther('')
+    } else if (trade) {
+      setEditSubTradeSelect('Other')
+      setEditSubTradeOther(trade)
+    } else {
+      setEditSubTradeSelect('')
+      setEditSubTradeOther('')
+    }
+    setEditSubEmail(s.email ?? '')
+    setEditSubPhone(s.phone ?? '')
+  }
+
+  const handleSaveSubcontractorEdit = async () => {
+    if (!editingSubcontractor || readOnly) return
+    const trade = editSubTradeSelect === 'Other' ? editSubTradeOther.trim() || 'Subcontractor' : (editSubTradeSelect || 'Subcontractor')
+    setSavingEdit(true)
+    try {
+      await api.projects.updateSubcontractor(projectId, editingSubcontractor.id, {
+        name: editSubName.trim(),
+        trade,
+        email: editSubEmail.trim(),
+        phone: editSubPhone.trim() || undefined,
+      })
+      onSubcontractorAdded?.()
+      onCrewChange?.()
+      setEditingSubcontractor(null)
+    } catch {
+      // keep modal open on error
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   if (loading && !useProps) {
-    return <p className="text-sm text-muted dark:text-white-dim">Loading crew…</p>
+    return (
+      <div className="py-6">
+        <LoadingSkeleton variant="inline" lines={4} className="max-w-sm" />
+      </div>
+    )
   }
 
   return (
@@ -276,13 +375,29 @@ export function ProjectCrewTab({
                       </div>
                     </div>
                     {!readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => handleUnassign(a.id)}
-                        className="text-sm text-muted hover:text-red-600 dark:hover:text-red-400 font-medium"
-                      >
-                        Remove from crew
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (rosterMenuAssignmentId === a.id) {
+                              setRosterMenuAssignmentId(null)
+                              setRosterMenuRect(null)
+                            } else {
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              setRosterMenuAssignmentId(a.id)
+                              setRosterMenuRect({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-[var(--text-muted)] hover:bg-gray-100 dark:hover:bg-dark-4 hover:text-gray-900 dark:hover:text-landing-white"
+                          aria-label="Actions"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="6" r="1.5" />
+                            <circle cx="12" cy="12" r="1.5" />
+                            <circle cx="12" cy="18" r="1.5" />
+                          </svg>
+                        </button>
+                      </div>
                     )}
                   </li>
                 )
@@ -291,6 +406,37 @@ export function ProjectCrewTab({
           )}
         </div>
       </div>
+
+      {/* Roster row dropdown (portal so it isn't clipped) */}
+      {rosterMenuAssignmentId && rosterMenuRect && (() => {
+        const menuAssignment = activeAssignments.find((x) => x.id === rosterMenuAssignmentId)
+        if (!menuAssignment) return null
+        return createPortal(
+          <>
+            <div className="fixed inset-0 z-10" aria-hidden onClick={() => { setRosterMenuAssignmentId(null); setRosterMenuRect(null) }} />
+            <div
+              className="fixed z-20 min-w-[160px] rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 py-1 shadow-lg"
+              style={{ top: rosterMenuRect.top, right: rosterMenuRect.right }}
+            >
+              <button
+                type="button"
+                onClick={() => { openEditAssignment(menuAssignment); setRosterMenuAssignmentId(null); setRosterMenuRect(null) }}
+                className="w-full px-3 py-2 text-left text-sm text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-dark-4 hover:text-gray-900 dark:hover:text-landing-white"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => { handleUnassign(menuAssignment.id); setRosterMenuAssignmentId(null); setRosterMenuRect(null) }}
+                className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                Remove from crew
+              </button>
+            </div>
+          </>,
+          document.body
+        )
+      })()}
 
       {/* Subcontractors section */}
       <div>
@@ -373,7 +519,15 @@ export function ProjectCrewTab({
                       {s.trade || 'Subcontractor'}
                     </span>
                   </div>
-                  <span className="text-xs text-[var(--text-muted)] shrink-0">Subcontractor</span>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => openEditSubcontractor(s)}
+                      className="text-sm text-[var(--text-secondary)] hover:text-gray-900 dark:hover:text-landing-white font-medium shrink-0"
+                    >
+                      Edit
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -389,6 +543,139 @@ export function ProjectCrewTab({
 
       {availableEmployees.length === 0 && employeesList.length > 0 && !readOnly && (
         <p className="text-sm text-muted dark:text-white-dim">All employees are already on this crew. Add more in Teams → Roster.</p>
+      )}
+
+      {/* Edit role modal (employees) */}
+      {editingAssignment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setEditingAssignment(null)}>
+          <div
+            className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-6 shadow-lg max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-4">Edit crew member</h3>
+            <p className="text-sm text-[var(--text-muted)] mb-3">
+              {employeeMap.get(editingAssignment.employee_id)?.name ?? editingAssignment.employee_id}
+            </p>
+            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Role on job</label>
+            <select
+              value={editRoleSelect}
+              onChange={(e) => setEditRoleSelect(e.target.value)}
+              className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white mb-2"
+            >
+              <option value="">Select role</option>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+            {editRoleSelect === 'Other' && (
+              <input
+                type="text"
+                value={editRoleOther}
+                onChange={(e) => setEditRoleOther(e.target.value)}
+                placeholder="Enter role"
+                className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white mb-4 mt-2"
+              />
+            )}
+            {editRoleSelect !== 'Other' && <div className="mb-4" />}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingAssignment(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-dark-4"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAssignmentEdit}
+                disabled={savingEdit}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gray-900 dark:bg-landing-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit subcontractor modal */}
+      {editingSubcontractor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setEditingSubcontractor(null)}>
+          <div
+            className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-dark-3 p-6 shadow-lg max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-4">Edit subcontractor</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Name</label>
+                <input
+                  type="text"
+                  value={editSubName}
+                  onChange={(e) => setEditSubName(e.target.value)}
+                  className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Trade</label>
+                <select
+                  value={editSubTradeSelect}
+                  onChange={(e) => setEditSubTradeSelect(e.target.value)}
+                  className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white"
+                >
+                  <option value="">Select trade</option>
+                  {SUBCONTRACTOR_TRADE_OPTS.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                {editSubTradeSelect === 'Other' && (
+                  <input
+                    type="text"
+                    value={editSubTradeOther}
+                    onChange={(e) => setEditSubTradeOther(e.target.value)}
+                    placeholder="Enter trade"
+                    className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white mt-2"
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editSubEmail}
+                  onChange={(e) => setEditSubEmail(e.target.value)}
+                  className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Phone (optional)</label>
+                <input
+                  type="tel"
+                  value={editSubPhone}
+                  onChange={(e) => setEditSubPhone(e.target.value)}
+                  className="w-full rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-4 px-3 py-2 text-sm text-gray-900 dark:text-landing-white"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setEditingSubcontractor(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-dark-4"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSubcontractorEdit}
+                disabled={savingEdit || !editSubName.trim()}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gray-900 dark:bg-landing-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   )
