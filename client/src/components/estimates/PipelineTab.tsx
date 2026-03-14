@@ -22,7 +22,7 @@ interface PipelineTabProps {
   onPipelineRefresh?: () => void | Promise<void>
 }
 
-export function PipelineTab({ pipeline, setPipeline, expenses, jobFilterId, jobs, onPipelineRefresh }: PipelineTabProps) {
+export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineRefresh }: PipelineTabProps) {
   /** When set, show full document modal (estimate/invoice) with API-backed actions */
   const [documentModal, setDocumentModal] = useState<{ id: string; type: 'estimate' | 'invoice' } | null>(null)
 
