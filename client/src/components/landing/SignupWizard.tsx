@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import type { Stripe, StripeElements } from "@stripe/stripe-js";
+import { API_BASE } from "@/api/config";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -32,32 +35,17 @@ const SIZES = [
   "51–100 employees", "100+ employees",
 ];
 
-const PLANS = [
-  {
-    name: "Starter",
-    price: "$49",
-    period: "/mo",
-    desc: "Great for small crews",
-    features: ["5 active projects", "2 team members", "Material takeoffs", "Basic reports"],
-  },
-  {
-    name: "Pro",
-    price: "$149",
-    period: "/mo",
-    desc: "Most popular for growing GCs",
-    features: ["Unlimited projects", "20 team members", "Payroll & scheduling", "Client portal", "Advanced reports"],
-    popular: true,
-  },
-  {
-    name: "Enterprise",
-    price: "Custom",
-    period: "",
-    desc: "For large operations",
-    features: ["Everything in Pro", "Dedicated support", "Custom integrations", "Multi-location", "SLA guarantee"],
-  },
-];
-
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+/** Plan from Stripe (product + price). id is the Stripe price_id. */
+export interface SignupPlan {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  interval: "month" | "year";
+  formatted: string;
+}
 
 export interface SignupWizardForm {
   firstName: string;
@@ -495,11 +483,15 @@ function Step5({
   upd,
   errors,
   onClearError,
+  plans,
+  plansLoading,
 }: {
   form: SignupWizardForm;
   upd: (key: keyof SignupWizardForm, value: string) => void;
   errors: Step5Errors;
   onClearError: (field: keyof Step5Errors) => void;
+  plans: SignupPlan[];
+  plansLoading: boolean;
 }) {
   return (
     <div>
@@ -508,90 +500,80 @@ function Step5({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
+            gridTemplateColumns: plans.length <= 2 ? "1fr 1fr" : "1fr 1fr 1fr",
             gap: "12px",
             ...(errors.plan ? { padding: "12px", borderRadius: "10px", border: `2px solid ${ACCENT}` } : {}),
           }}
         >
-          {PLANS.map((p) => (
+          {plansLoading && (
+            <div style={{ gridColumn: "1 / -1", padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
+              Loading plans…
+            </div>
+          )}
+          {!plansLoading && plans.length === 0 && (
+            <div style={{ gridColumn: "1 / -1", padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
+              No plans available. Please try again later.
+            </div>
+          )}
+          {!plansLoading && plans.map((p) => (
             <div
-              key={p.name}
+              key={p.id}
               role="button"
               tabIndex={0}
-              onClick={() => { upd("plan", p.name); onClearError("plan"); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { upd("plan", p.name); onClearError("plan"); } }}
+              onClick={() => { upd("plan", p.id); onClearError("plan"); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { upd("plan", p.id); onClearError("plan"); } }}
               style={{
-                border: `2px solid ${form.plan === p.name ? ACCENT : p.popular ? "#ddd" : BORDER}`,
+                border: `2px solid ${form.plan === p.id ? ACCENT : BORDER}`,
                 borderRadius: "10px", background: "#fff", padding: "20px 16px",
-                cursor: "pointer", position: "relative", transition: "border-color 0.15s",
+                cursor: "pointer", transition: "border-color 0.15s",
               }}
             >
-            {p.popular && (
-              <div style={{
-                position: "absolute", top: "-1px", left: "50%",
-                transform: "translateX(-50%)",
-                background: ACCENT, color: "#fff", fontSize: "11px",
-                fontWeight: "700", padding: "3px 12px",
-                borderRadius: "0 0 6px 6px", letterSpacing: "0.5px",
-              }}>
-                MOST POPULAR
+              <div style={{ fontSize: "16px", fontWeight: "700", color: DARK, marginBottom: "4px" }}>
+                {p.name}
               </div>
-            )}
-            <div style={{ fontSize: "16px", fontWeight: "700", color: DARK, marginTop: p.popular ? "10px" : 0, marginBottom: "4px" }}>
-              {p.name}
+              <div style={{ marginBottom: "8px" }}>
+                <span style={{ fontSize: "24px", fontWeight: "700", color: form.plan === p.id ? ACCENT : DARK }}>
+                  {p.formatted}
+                </span>
+              </div>
+              <p style={{ fontSize: "12px", color: "#888", margin: 0 }}>
+                {p.interval === "year" ? "Billed annually" : "Billed monthly"}
+              </p>
             </div>
-            <div style={{ marginBottom: "8px" }}>
-              <span style={{ fontSize: "24px", fontWeight: "700", color: form.plan === p.name ? ACCENT : DARK }}>
-                {p.price}
-              </span>
-              <span style={{ fontSize: "13px", color: "#888" }}>{p.period}</span>
-            </div>
-            <p style={{ fontSize: "12px", color: "#888", margin: "0 0 14px" }}>{p.desc}</p>
-            <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: "12px" }}>
-              {p.features.map((f) => (
-                <div key={f} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#444", marginBottom: "6px" }}>
-                  <span style={{ color: ACCENT, fontWeight: "700", fontSize: "14px" }}>✓</span>
-                  {f}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+          ))}
         </div>
       </Field>
     </div>
   );
 }
 
-// ─── Step 6: Payment ───────────────────────────────────────────────────────────
-//
-// Stripe Elements is not yet wired: @stripe/stripe-js and @stripe/react-stripe-js are not in
-// package.json. These are placeholder card fields with validation. For production, install
-// Stripe, add a publishable key (e.g. VITE_STRIPE_PUBLISHABLE_KEY), wrap the app or this
-// step in <Elements stripe={loadStripe(pk)}>, and replace these inputs with <CardElement />
-// or <PaymentElement /> so card data never touches your server.
+// ─── Step 6: Payment (Stripe Card Element) ───────────────────────────────────────
 
-type Step6Errors = Partial<Record<"cardName" | "cardNumber" | "expiry" | "cvc", string>>;
+type Step6Errors = Partial<Record<"card", string>>;
 
-function Step6({
+function Step6Payment({
   form,
-  upd,
   errors,
   onClearError,
+  onStripeReady,
+  onCardChange,
+  plans,
 }: {
   form: SignupWizardForm;
-  upd: (key: keyof SignupWizardForm, value: string) => void;
   errors: Step6Errors;
   onClearError: (field: keyof Step6Errors) => void;
+  onStripeReady: (stripe: Stripe | null, elements: StripeElements | null) => void;
+  onCardChange: (complete: boolean) => void;
+  plans: SignupPlan[];
 }) {
-  const formatCard = (v: string) =>
-    v.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
-  const formatExp = (v: string) => {
-    const d = v.replace(/\D/g, "").slice(0, 4);
-    return d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
-  };
+  const stripe = useStripe();
+  const elements = useElements();
 
-  const selectedPlan = PLANS.find((p) => p.name === form.plan) || PLANS[1];
+  useEffect(() => {
+    onStripeReady(stripe ?? null, elements ?? null);
+  }, [stripe, elements, onStripeReady]);
+
+  const selectedPlan = plans.find((p) => p.id === form.plan);
 
   return (
     <div>
@@ -608,61 +590,43 @@ function Step6({
             SELECTED PLAN
           </div>
           <div style={{ fontWeight: "700", color: DARK, fontSize: "15px" }}>
-            {selectedPlan.name} Plan
+            {selectedPlan ? selectedPlan.name : "Plan"}
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>{selectedPlan.price}</div>
+          <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>
+            {selectedPlan ? selectedPlan.formatted : form.plan ? "—" : "—"}
+          </div>
           <div style={{ fontSize: "12px", color: "#888" }}>after 14-day trial</div>
         </div>
       </div>
 
-      <Field label="Name on card" error={errors.cardName}>
-        <input
-          style={{ ...inputStyle, ...(errors.cardName ? { borderColor: ACCENT } : {}) }}
-          placeholder="John Smith"
-          value={form.cardName || ""}
-          onChange={(e) => { upd("cardName", e.target.value); onClearError("cardName"); }}
-        />
-      </Field>
-
-      <Field label="Card number" error={errors.cardNumber}>
-        <div style={{ position: "relative" }}>
-          <input
-            style={{ ...inputStyle, paddingRight: "80px", letterSpacing: "1px", ...(errors.cardNumber ? { borderColor: ACCENT } : {}) }}
-            placeholder="1234 5678 9012 3456"
-            value={form.cardNumber || ""}
-            onChange={(e) => { upd("cardNumber", formatCard(e.target.value)); onClearError("cardNumber"); }}
+      <Field label="Card details" error={errors.card}>
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: "8px",
+            border: `1px solid ${errors.card ? ACCENT : BORDER}`,
+            background: "#fff",
+          }}
+        >
+          <CardElement
+            options={{
+              style: {
+                base: {
+                  fontSize: "14px",
+                  fontFamily: "'DM Sans', sans-serif",
+                  color: DARK,
+                },
+              },
+            }}
+            onChange={(e) => {
+              onCardChange(e.complete && !e.error);
+              if (e.complete || e.error) onClearError("card");
+            }}
           />
-          <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", display: "flex", gap: "4px" }}>
-            {["VISA", "MC"].map((b) => (
-              <div key={b} style={{ background: "#eee", borderRadius: "3px", padding: "2px 5px", fontSize: "9px", fontWeight: "700", color: "#555" }}>
-                {b}
-              </div>
-            ))}
-          </div>
         </div>
       </Field>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-        <Field label="Expiry date" error={errors.expiry}>
-          <input
-            style={{ ...inputStyle, ...(errors.expiry ? { borderColor: ACCENT } : {}) }}
-            placeholder="MM/YY"
-            value={form.expiry || ""}
-            onChange={(e) => { upd("expiry", formatExp(e.target.value)); onClearError("expiry"); }}
-          />
-        </Field>
-        <Field label="CVC" error={errors.cvc}>
-          <input
-            style={{ ...inputStyle, ...(errors.cvc ? { borderColor: ACCENT } : {}) }}
-            placeholder="123"
-            maxLength={4}
-            value={form.cvc || ""}
-            onChange={(e) => { upd("cvc", e.target.value.replace(/\D/g, "").slice(0, 4)); onClearError("cvc"); }}
-          />
-        </Field>
-      </div>
 
       <div style={{
         display: "flex", alignItems: "center", gap: "8px",
@@ -779,6 +743,8 @@ export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizard
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plans, setPlans] = useState<SignupPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
   const [form, setForm] = useState<SignupWizardForm>({
     firstName: "",
     lastName: "",
@@ -798,6 +764,24 @@ export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizard
     expiry: "",
     cvc: "",
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/stripe/plans`);
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && Array.isArray((data as { plans?: SignupPlan[] }).plans)) {
+          setPlans((data as { plans: SignupPlan[] }).plans);
+        }
+      } catch {
+        if (!cancelled) setPlans([]);
+      } finally {
+        if (!cancelled) setPlansLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const upd = (key: keyof SignupWizardForm, value: string) => setForm((f) => ({ ...f, [key]: value }));
   const toggleTrade = (t: string) =>
@@ -950,24 +934,12 @@ export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizard
   };
 
   const [step6Errors, setStep6Errors] = useState<Step6Errors>({});
+  const [cardComplete, setCardComplete] = useState(false);
+  const stripeRef = useRef<{ stripe: Stripe; elements: StripeElements } | null>(null);
 
   const validateStep6 = (): Step6Errors => {
     const err: Step6Errors = {};
-    const trim = (s: string) => (s || "").trim();
-    if (!trim(form.cardName)) err.cardName = "Please enter the name on the card.";
-    const cardDigits = (form.cardNumber || "").replace(/\D/g, "");
-    if (cardDigits.length !== 16) err.cardNumber = "Please enter a valid 16-digit card number.";
-    const exp = (form.expiry || "").replace(/\D/g, "");
-    if (exp.length !== 4) err.expiry = "Please enter expiry as MM/YY.";
-    else {
-      const mm = parseInt(exp.slice(0, 2), 10);
-      const yy = parseInt(exp.slice(2, 4), 10);
-      if (mm < 1 || mm > 12) err.expiry = "Please enter a valid month (01–12).";
-      const currentYear = new Date().getFullYear() % 100;
-      if (yy < currentYear) err.expiry = "Card appears to be expired.";
-    }
-    const cvcDigits = (form.cvc || "").replace(/\D/g, "");
-    if (cvcDigits.length < 3 || cvcDigits.length > 4) err.cvc = "Please enter a valid 3- or 4-digit CVC.";
+    if (!cardComplete) err.card = "Please complete your card details.";
     return err;
   };
 
@@ -983,6 +955,41 @@ export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizard
     setError(null);
     setLoading(true);
     try {
+      const { stripe: st, elements: el } = stripeRef.current ?? {};
+      if (st && el) {
+        const res = await fetch(`${API_BASE}/stripe/setup-intent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: form.email || undefined }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError((data as { error?: string }).error || "Failed to set up payment.");
+          setLoading(false);
+          return;
+        }
+        const clientSecret = (data as { client_secret?: string }).client_secret;
+        if (!clientSecret) {
+          setError("Payment setup failed. Please try again.");
+          setLoading(false);
+          return;
+        }
+        const cardEl = el.getElement("card");
+        if (!cardEl) {
+          setError("Card form is not ready. Please try again.");
+          setLoading(false);
+          return;
+        }
+        const { error: confirmError } = await st.confirmCardSetup(clientSecret, {
+          payment_method: { card: cardEl },
+        });
+        if (confirmError) {
+          setError(confirmError.message || "Card verification failed.");
+          setLoading(false);
+          return;
+        }
+      }
+
       const err = await onSignUp(form);
       if (err) {
         setError(err);
@@ -1002,8 +1009,18 @@ export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizard
     <Step2 key="2" form={form} upd={upd} errors={step2Errors} onClearError={clearStep2Error} />,
     <Step3 key="3" form={form} upd={upd} toggleTrade={toggleTrade} errors={step3Errors} onClearError={clearStep3Error} />,
     <Step4 key="4" form={form} upd={upd} errors={step4Errors} onClearError={clearStep4Error} />,
-    <Step5 key="5" form={form} upd={upd} errors={step5Errors} onClearError={clearStep5Error} />,
-    <Step6 key="6" form={form} upd={upd} errors={step6Errors} onClearError={clearStep6Error} />,
+    <Step5 key="5" form={form} upd={upd} errors={step5Errors} onClearError={clearStep5Error} plans={plans} plansLoading={plansLoading} />,
+    <Step6Payment
+      key="6"
+      form={form}
+      errors={step6Errors}
+      onClearError={clearStep6Error}
+      onStripeReady={(stripe, elements) => {
+        stripeRef.current = stripe && elements ? { stripe, elements } : null;
+      }}
+      onCardChange={setCardComplete}
+      plans={plans}
+    />,
   ];
 
   if (done) {

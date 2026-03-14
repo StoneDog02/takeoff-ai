@@ -12,6 +12,7 @@
     "concurrently": "^9.1.0"
   },
   "dependencies": {
-    "intuit-oauth": "^4.2.2"
+    "intuit-oauth": "^4.2.2",
+    "stripe": "^20.4.1"
   }
 }

@@ -29,6 +29,16 @@ VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxx
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxx
 ```
 
+Optional: `STRIPE_SIGNUP_PRODUCT_ID=prod_xxx` limits the signup plan step to that one product’s prices. If unset, **all active products** and their active recurring prices are loaded from Stripe (no product/price IDs in code).
+
+For **webhooks** (to keep `public.subscriptions` in sync with Stripe):
+
+```env
+STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxx
+```
+
+Get this from Stripe Dashboard → Developers → Webhooks → Add endpoint → `https://your-api.com/api/stripe/webhook` → select events: `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed` → reveal signing secret.
+
 Add `.env` (and any file with real keys) to `.gitignore` so keys are never committed.
 
 ---

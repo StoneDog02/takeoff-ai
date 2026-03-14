@@ -28,6 +28,7 @@ const meRoutes = require('./routes/me')
 const adminRoutes = require('./routes/admin')
 const settingsRoutes = require('./routes/settings')
 const quickbooksRoutes = require('./routes/quickbooks')
+const stripeRoutes = require('./routes/stripe')
 const { router: invitesRouter } = require('./routes/invites')
 const { requireAdmin } = require('./middleware/admin')
 
@@ -35,6 +36,14 @@ const app = express()
 const PORT = process.env.PORT || 3001
 
 app.use(cors({ origin: true }))
+
+// Stripe webhook needs raw body for signature verification; must be before express.json()
+app.post(
+  '/api/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  (req, res) => stripeRoutes.handleWebhook(req, res)
+)
+
 app.use(express.json())
 
 const { requireAuth } = require('./middleware/auth')
@@ -65,6 +74,7 @@ app.use('/api/conversations', requireAuth, conversationsRoutes)
 app.use('/api/contractors', requireAuth, contractorsRoutes)
 app.use('/api/settings', requireAuth, settingsRoutes)
 app.use('/api/quickbooks', quickbooksRoutes)
+app.use('/api/stripe', stripeRoutes)
 
 // Unmatched API routes -> JSON 404 (avoids HTML "Cannot POST ...")
 app.use('/api', (req, res) => {
