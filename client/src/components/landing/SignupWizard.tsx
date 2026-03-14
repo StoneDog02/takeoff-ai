@@ -642,28 +642,31 @@ function Step6Payment({
   );
 }
 
-// ─── Success Screen ─────────────────────────────────────────────────────────────
+// ─── Post-signup: Check your email ───────────────────────────────────────────────
 
-function SuccessScreen({ name, onGoToDashboard }: { name: string; onGoToDashboard: () => void }) {
+function CheckEmailScreen({ email }: { email: string }) {
   return (
     <div style={{ textAlign: "center", padding: "60px 40px" }}>
       <div style={{
         width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fdf0ef", border: `2px solid ${ACCENT}`,
+        background: "#e8f5e9", border: "2px solid #4caf50",
         display: "flex", alignItems: "center", justifyContent: "center",
-        margin: "0 auto 24px", fontSize: "28px",
+        margin: "0 auto 24px", fontSize: "28px", color: "#2e7d32",
       }}>
-        ✓
+        ✉
       </div>
       <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: "28px", color: DARK, margin: "0 0 12px" }}>
-        You're all set, {name}!
+        Check your email
       </h2>
-      <p style={{ color: "#888", fontSize: "15px", maxWidth: "360px", margin: "0 auto 32px", lineHeight: "1.7" }}>
-        Your Takeoff workspace is ready. Check your email for login instructions and your 14-day trial details.
+      <p style={{ color: "#666", fontSize: "15px", maxWidth: "380px", margin: "0 auto 16px", lineHeight: "1.7" }}>
+        We've sent a verification link to <strong style={{ color: DARK }}>{email}</strong>.
       </p>
-      <button type="button" onClick={onGoToDashboard} style={btnPrimaryStyle}>
-        Go to Dashboard →
-      </button>
+      <p style={{ color: "#888", fontSize: "14px", maxWidth: "360px", margin: "0 auto 32px", lineHeight: "1.6" }}>
+        Click the link in that email to verify your account. Once verified, you'll be taken straight to your dashboard.
+      </p>
+      <p style={{ color: "#999", fontSize: "13px" }}>
+        Didn't get the email? Check your spam folder or try signing up again.
+      </p>
     </div>
   );
 }
@@ -734,7 +737,7 @@ function Sidebar({ currentStep }: { currentStep: number }) {
 export interface SignupWizardProps {
   /** Called when user completes step 6 (signup). Return error message to show, or undefined on success. */
   onSignUp: (form: SignupWizardForm) => Promise<string | undefined>;
-  /** Called when user clicks "Go to Dashboard" on the success screen. */
+  /** Optional: called when user would have gone to dashboard (e.g. if email confirm is disabled). */
   onGoToDashboard?: (form: SignupWizardForm) => void;
 }
 
@@ -1028,10 +1031,7 @@ export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizard
       <div style={{ display: "flex", minHeight: "640px", borderRadius: "12px", overflow: "hidden", border: `1px solid ${BORDER}` }}>
         <Sidebar currentStep={7} />
         <div style={{ flex: 1, background: BG, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <SuccessScreen
-            name={form.firstName || "there"}
-            onGoToDashboard={() => onGoToDashboard?.(form)}
-          />
+          <CheckEmailScreen email={form.email || ""} />
         </div>
       </div>
     );
