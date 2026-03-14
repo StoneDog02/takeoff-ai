@@ -24,6 +24,7 @@ import { PrivacyPage } from '@/routes/PrivacyPage'
 import { TermsPage } from '@/routes/TermsPage'
 import { SignInPage } from '@/routes/SignInPage'
 import { SignUpPage } from '@/routes/SignUpPage'
+import { AuthCallbackPage } from '@/routes/AuthCallbackPage'
 import { AcceptInvitePage } from '@/routes/AcceptInvitePage'
 import { EmployeeClockPage } from '@/routes/EmployeeClockPage'
 import { EmployeeHoursPage } from '@/routes/EmployeeHoursPage'
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: 'terms', element: <TermsPage /> },
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'auth/callback', element: <AuthCallbackPage /> },
       { path: 'accept-invite', element: <AcceptInvitePage /> },
       {
         path: 'employee',

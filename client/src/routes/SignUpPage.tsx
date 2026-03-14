@@ -12,10 +12,12 @@ export function SignUpPage() {
     if (!supabase) {
       return 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.'
     }
+    const redirectTo = `${window.location.origin}/auth/callback`
     const { data, error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
+        emailRedirectTo: redirectTo || undefined,
         data: {
           full_name: [form.firstName, form.lastName].filter(Boolean).join(' ').trim() || undefined,
           company: form.company || undefined,
