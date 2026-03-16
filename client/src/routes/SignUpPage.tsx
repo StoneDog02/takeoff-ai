@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom'
 import { AuthPageLayout } from '@/components/landing/AuthPageLayout'
 import SignupWizard, { type SignupWizardForm } from '@/components/landing/SignupWizard'
 import { supabase } from '@/lib/supabaseClient'
@@ -6,8 +5,6 @@ import { StripeElementsProvider } from '@/lib/stripe'
 import { API_BASE } from '@/api/config'
 
 export function SignUpPage() {
-  const navigate = useNavigate()
-
   async function handleSignUp(form: SignupWizardForm): Promise<string | undefined> {
     if (!supabase) {
       return 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.'
@@ -52,17 +49,12 @@ export function SignUpPage() {
     return undefined
   }
 
-  function handleGoToDashboard() {
-    navigate('/dashboard', { replace: true })
-  }
-
   return (
     <AuthPageLayout showSignInLink>
       <div className="w-full max-w-[900px] animate-[fadeUp_0.6s_ease_both]">
         <StripeElementsProvider>
           <SignupWizard
             onSignUp={handleSignUp}
-            onGoToDashboard={handleGoToDashboard}
           />
         </StripeElementsProvider>
       </div>

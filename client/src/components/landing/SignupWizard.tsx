@@ -741,7 +741,7 @@ export interface SignupWizardProps {
   onGoToDashboard?: (form: SignupWizardForm) => void;
 }
 
-export default function SignupWizard({ onSignUp, onGoToDashboard }: SignupWizardProps) {
+export default function SignupWizard({ onSignUp }: SignupWizardProps) {
   const [step, setStep] = useState(1);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
