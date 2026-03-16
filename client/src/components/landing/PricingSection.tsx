@@ -1,60 +1,104 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { API_BASE } from '@/api/config'
 
-const plans = [
-  {
-    name: 'Starter',
-    desc: 'Perfect for individual contractors',
-    monthly: 49,
-    yearly: 39,
-    features: [
-      'Up to 5 active projects',
-      'Takeoff processing',
-      'Basic scheduling tools',
-      'Email support',
-      'Mobile app access',
-      'Document storage (5GB)',
-    ],
-    popular: false,
-  },
-  {
-    name: 'Professional',
-    desc: 'For growing contracting businesses',
-    monthly: 99,
-    yearly: 79,
-    features: [
-      'Unlimited projects',
-      'Takeoff processing & bid sheets',
-      'Advanced scheduling',
-      'Priority support',
-      'Team collaboration',
-      'Document storage (50GB)',
-      'Equipment tracking',
-      'Custom reports',
-    ],
-    popular: true,
-  },
-  {
-    name: 'Enterprise',
-    desc: 'For large contracting firms',
-    monthly: 199,
-    yearly: 159,
-    features: [
-      'Everything in Professional',
-      'Dedicated account manager',
-      '24/7 phone support',
-      'Unlimited storage',
-      'Takeoff processing at scale',
-      'API access',
-      'Custom integrations',
-      'White-label options',
-    ],
-    popular: false,
-  },
-]
+/** Flat plan from API (one price per entry). */
+interface FlatPlan {
+  id: string
+  name: string
+  amount: number
+  currency: string
+  interval: 'month' | 'year'
+  formatted: string
+}
+
+/** Product from Stripe with nested prices (month/year). */
+export interface StripeProductPlan {
+  productId: string
+  name: string
+  description: string
+  metadata: Record<string, string>
+  prices: Array<{
+    id: string
+    amount: number
+    currency: string
+    interval: 'month' | 'year'
+    formatted: string
+  }>
+}
+
+/** Build product list from flat plans when API returns only plans (e.g. older server). */
+function plansToProducts(plans: FlatPlan[]): StripeProductPlan[] {
+  const byName = new Map<string, FlatPlan[]>()
+  for (const p of plans) {
+    const list = byName.get(p.name) ?? []
+    list.push(p)
+    byName.set(p.name, list)
+  }
+  return Array.from(byName.entries()).map(([name, priceEntries]) => ({
+    productId: `product-${name}`,
+    name,
+    description: '',
+    metadata: {},
+    prices: priceEntries.map((e) => ({
+      id: e.id,
+      amount: e.amount,
+      currency: e.currency,
+      interval: e.interval,
+      formatted: e.formatted,
+    })),
+  }))
+}
+
+function parseFeatures(metadata: Record<string, string>): string[] {
+  const raw = metadata?.features
+  if (!raw || typeof raw !== 'string') return []
+  const trimmed = raw.trim()
+  if (!trimmed) return []
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : trimmed.split(/\n/).map((s) => s.trim()).filter(Boolean)
+  } catch {
+    return trimmed.split(/\n/).map((s) => s.trim()).filter(Boolean)
+  }
+}
 
 export function PricingSection() {
   const [yearly, setYearly] = useState(false)
+  const [products, setProducts] = useState<StripeProductPlan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/stripe/plans`)
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (!res.ok) {
+          setError((data as { error?: string }).error ?? 'Failed to load plans')
+          setProducts([])
+          return
+        }
+        const payload = data as { products?: StripeProductPlan[]; plans?: FlatPlan[] }
+        let list = Array.isArray(payload.products) ? payload.products : []
+        if (list.length === 0 && Array.isArray(payload.plans) && payload.plans.length > 0) {
+          list = plansToProducts(payload.plans)
+        }
+        setProducts(list)
+        setError(null)
+      } catch (e) {
+        if (!cancelled) {
+          setError('Failed to load plans')
+          setProducts([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   return (
     <section id="pricing" className="w-full bg-light-bg py-[120px] px-6 md:px-12 text-center">
@@ -102,75 +146,103 @@ export function PricingSection() {
           </p>
         </div>
 
-        {/* Plans: charge by plan */}
-        <div className="grid md:grid-cols-3 gap-5 max-w-[1000px] mx-auto items-stretch reveal mt-12">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`relative flex flex-col rounded-[20px] p-10 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border ${
-                plan.popular
-                  ? 'bg-gray-900 border-accent/30 scale-[1.02] shadow-[0_30px_80px_rgba(0,0,0,0.25),0_0_60px_rgba(192,57,43,0.1)]'
-                  : 'bg-white border-black/10'
-              }`}
-            >
-              {plan.popular && (
-                <>
-                  <div className="absolute inset-0 rounded-[20px] overflow-hidden pointer-events-none">
-                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-accent to-accent-hover rounded-t-[20px]" />
+        {/* Plans: fetched from Stripe */}
+        {loading && (
+          <div className="reveal mt-12 text-text-mid text-sm">Loading plans…</div>
+        )}
+        {error && !loading && (
+          <div className="reveal mt-12 text-text-mid text-sm">{error}</div>
+        )}
+        {!loading && !error && products.length === 0 && (
+          <div className="reveal mt-12 text-text-mid text-sm max-w-md mx-auto">
+            No plans available. Make sure Stripe is configured and you have active products with recurring prices.
+          </div>
+        )}
+        {!loading && !error && products.length > 0 && (
+          <div className="grid md:grid-cols-3 gap-5 max-w-[1000px] mx-auto items-stretch reveal mt-12">
+            {products.map((product) => {
+              const priceMonth = product.prices.find((p) => p.interval === 'month')
+              const priceYear = product.prices.find((p) => p.interval === 'year')
+              const price = yearly ? priceYear ?? priceMonth : priceMonth ?? priceYear
+              const features = parseFeatures(product.metadata)
+              const popular = product.metadata?.popular === 'true'
+              const displayAmount = price
+                ? (price.amount / 100).toFixed(price.amount % 100 === 0 ? 0 : 2)
+                : '—'
+
+              return (
+                <div
+                  key={product.productId}
+                  className={`relative flex flex-col rounded-[20px] p-10 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border ${
+                    popular
+                      ? 'bg-gray-900 border-accent/30 scale-[1.02] shadow-[0_30px_80px_rgba(0,0,0,0.25),0_0_60px_rgba(192,57,43,0.1)]'
+                      : 'bg-white border-black/10'
+                  }`}
+                >
+                  {popular && (
+                    <>
+                      <div className="absolute inset-0 rounded-[20px] overflow-hidden pointer-events-none">
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-accent to-accent-hover rounded-t-[20px]" />
+                      </div>
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-white font-sora text-[11px] font-bold tracking-wider uppercase py-1 px-4 rounded-full whitespace-nowrap shadow-[0_4px_20px_var(--color-accent-glow)]">
+                        Most Popular
+                      </div>
+                    </>
+                  )}
+                  <div className={popular ? 'text-white font-sora text-lg font-bold mb-1' : 'font-sora text-lg font-bold text-text-dark mb-1'}>
+                    {product.name}
                   </div>
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-white font-sora text-[11px] font-bold tracking-wider uppercase py-1 px-4 rounded-full whitespace-nowrap shadow-[0_4px_20px_var(--color-accent-glow)]">
-                    Most Popular
+                  <div className={popular ? 'text-gray-300 text-[13px] mb-7' : 'text-[13px] text-text-light mb-7'}>
+                    {product.description || 'Subscribe to this plan.'}
                   </div>
-                </>
-              )}
-              <div className={plan.popular ? 'text-white font-sora text-lg font-bold mb-1' : 'font-sora text-lg font-bold text-text-dark mb-1'}>
-                {plan.name}
-              </div>
-              <div className={plan.popular ? 'text-gray-300 text-[13px] mb-7' : 'text-[13px] text-text-light mb-7'}>
-                {plan.desc}
-              </div>
-              <div className="mb-1">
-                <span className={plan.popular ? 'font-sora text-5xl font-extrabold text-white tracking-tight leading-none' : 'font-sora text-5xl font-extrabold text-text-dark tracking-tight leading-none'}>
-                  ${yearly ? plan.yearly : plan.monthly}
-                </span>
-                <span className={plan.popular ? 'text-sm text-gray-400' : 'text-sm text-text-light'}>
-                  /month
-                </span>
-              </div>
-              <p className="text-xs text-text-light mb-6">
-                {yearly ? 'Billed annually' : 'Billed monthly'}
-              </p>
-              <div className={`h-px mb-6 ${plan.popular ? 'bg-white/20' : 'bg-black/10'}`} />
-              <ul className="list-none flex flex-col gap-3 mb-8">
-                {plan.features.map((f) => (
-                  <li
-                    key={f}
-                    className={`flex items-start gap-2.5 text-sm leading-snug ${plan.popular ? 'text-gray-300' : 'text-text-mid'}`}
-                  >
-                    <span
-                      className={`w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-accent text-[10px] ${
-                        plan.popular ? 'bg-accent/30' : 'bg-accent/10'
-                      }`}
-                    >
-                      ✓
+                  <div className="mb-1">
+                    <span className={popular ? 'font-sora text-5xl font-extrabold text-white tracking-tight leading-none' : 'font-sora text-5xl font-extrabold text-text-dark tracking-tight leading-none'}>
+                      {price?.currency === 'usd' ? `$${displayAmount}` : displayAmount}
                     </span>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                to="/sign-up"
-                className={`mt-auto block w-full py-3.5 rounded-lg font-sora font-semibold text-[15px] text-center no-underline transition-all ${
-                  plan.popular
-                    ? 'bg-accent text-white shadow-[0_4px_20px_var(--color-accent-glow)] hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_var(--color-accent-glow)]'
-                    : 'bg-transparent border border-black/10 text-text-dark hover:bg-light-bg-2'
-                }`}
-              >
-                Get Started
-              </Link>
-            </div>
-          ))}
-        </div>
+                    <span className={popular ? 'text-sm text-gray-400' : 'text-sm text-text-light'}>
+                      /month
+                    </span>
+                  </div>
+                  <p className="text-xs text-text-light mb-6">
+                    {yearly ? 'Billed annually' : 'Billed monthly'}
+                  </p>
+                  <div className={`h-px mb-6 ${popular ? 'bg-white/20' : 'bg-black/10'}`} />
+                  <ul className="list-none flex flex-col gap-3 mb-8">
+                    {features.length > 0 ? features.map((f) => (
+                      <li
+                        key={f}
+                        className={`flex items-start gap-2.5 text-sm leading-snug ${popular ? 'text-gray-300' : 'text-text-mid'}`}
+                      >
+                        <span
+                          className={`w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-accent text-[10px] ${
+                            popular ? 'bg-accent/30' : 'bg-accent/10'
+                          }`}
+                        >
+                          ✓
+                        </span>
+                        {f}
+                      </li>
+                    )) : (
+                      <li className={`text-sm ${popular ? 'text-gray-400' : 'text-text-light'}`}>
+                        All features included.
+                      </li>
+                    )}
+                  </ul>
+                  <Link
+                    to="/sign-up"
+                    className={`mt-auto block w-full py-3.5 rounded-lg font-sora font-semibold text-[15px] text-center no-underline transition-all ${
+                      popular
+                        ? 'bg-accent text-white shadow-[0_4px_20px_var(--color-accent-glow)] hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_var(--color-accent-glow)]'
+                        : 'bg-transparent border border-black/10 text-text-dark hover:bg-light-bg-2'
+                    }`}
+                  >
+                    Get Started
+                  </Link>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </section>
   )

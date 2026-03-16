@@ -8,9 +8,15 @@ const { Resend } = require('resend')
 async function sendInviteEmail({ to, inviteLink, employeeName, appName }) {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {
+    console.warn('[sendInviteEmail] RESEND_API_KEY is not set; skipping send')
     return { sent: false }
   }
+  // Resend only delivers to your own verified email when using onboarding@resend.dev.
+  // To send to employees, verify a domain at resend.com/domains and set INVITE_EMAIL_FROM.
   const from = process.env.INVITE_EMAIL_FROM || 'onboarding@resend.dev'
+  if (!process.env.INVITE_EMAIL_FROM) {
+    console.warn('[sendInviteEmail] INVITE_EMAIL_FROM not set; using onboarding@resend.dev (Resend only delivers to your account email)')
+  }
   const subject = process.env.INVITE_EMAIL_SUBJECT || "You're invited to the team"
   const name = employeeName || 'there'
   const app = appName || 'the team app'
@@ -34,6 +40,7 @@ async function sendInviteEmail({ to, inviteLink, employeeName, appName }) {
       console.error('[sendInviteEmail] Resend error:', error)
       return { sent: false, error }
     }
+    console.log('[sendInviteEmail] Sent to', to, 'from', from)
     return { sent: true }
   } catch (err) {
     console.error('[sendInviteEmail] Error:', err)

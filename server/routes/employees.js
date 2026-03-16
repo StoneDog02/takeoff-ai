@@ -197,13 +197,23 @@ router.post('/:id/invite', async (req, res, next) => {
     const appOrigin = process.env.APP_ORIGIN || process.env.VITE_APP_ORIGIN || ''
     const inviteLink = appOrigin ? `${appOrigin.replace(/\/$/, '')}/accept-invite?token=${token}` : null
     let inviteEmailSent = false
-    if (employee.email && inviteLink) {
+    const hasOrigin = !!(process.env.APP_ORIGIN || process.env.VITE_APP_ORIGIN)
+    const hasResendKey = !!process.env.RESEND_API_KEY
+    const hasFrom = !!process.env.INVITE_EMAIL_FROM
+    console.log('[invite] employeeId=', employee.id, 'hasEmail=', !!employee.email, 'hasOrigin=', hasOrigin, 'hasResendKey=', hasResendKey, 'hasInviteFrom=', hasFrom)
+
+    if (!employee.email) {
+      console.warn('[invite] No employee email; invite created but no email sent')
+    } else if (!inviteLink) {
+      console.warn('[invite] APP_ORIGIN (or VITE_APP_ORIGIN) not set; invite created but no email sent')
+    } else {
       const emailResult = await sendInviteEmail({
         to: employee.email,
         inviteLink,
         employeeName: employee.name,
       })
       inviteEmailSent = emailResult.sent
+      if (!emailResult.sent) console.warn('[invite] sendInviteEmail returned sent=false')
     }
     res.status(201).json({
       ok: true,

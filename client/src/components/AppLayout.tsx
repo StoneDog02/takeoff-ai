@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Link, NavLink, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
@@ -20,25 +20,8 @@ export function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, isAdmin, type, role_label, employee } = useAuth()
-
-  const displayName =
-    employee?.name ??
-    user?.display_name ??
-    user?.full_name ??
-    (user?.email ? user.email.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : null) ??
-    'User'
-  const roleLabel = employee?.role ?? role_label ?? (isAdmin ? 'Admin' : 'Project Manager')
-  const initials =
-    displayName !== 'User'
-      ? displayName
-          .trim()
-          .split(/\s+/)
-          .map((w) => w[0])
-          .slice(0, 2)
-          .join('')
-          .toUpperCase() || displayName.slice(0, 2).toUpperCase()
-      : 'U'
+  const { user, isAdmin, type, role_label, employee, loading } = useAuth()
+  const { previewRole } = usePreview()
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -52,7 +35,6 @@ export function AppLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [profileMenuOpen])
 
-
   useEffect(() => {
     if (!notificationsPanelOpen) return
     setDismissedAlertsLoading(true)
@@ -61,18 +43,60 @@ export function AppLayout() {
       setDismissedAlertsLoading(false)
     }).catch(() => setDismissedAlertsLoading(false))
   }, [notificationsPanelOpen])
-  const { previewRole } = usePreview()
-  const showAdminNav = isAdmin && previewRole !== 'project_manager'
-  const showPmNav = !isAdmin || previewRole === 'project_manager'
 
   useEffect(() => {
+    if (loading) return
     if (type === 'employee') navigate('/employee/clock', { replace: true })
-  }, [type, navigate])
+  }, [type, loading, navigate])
 
   useEffect(() => {
+    if (loading) return
     if (!isAdmin || previewRole === 'project_manager') return
     if (location.pathname !== '/admin') navigate('/admin', { replace: true })
-  }, [isAdmin, previewRole, location.pathname, navigate])
+  }, [isAdmin, previewRole, location.pathname, loading, navigate])
+
+  // Require auth: redirect to sign-in when session is gone (e.g. after sign out)
+  if (!loading && !user) {
+    return <Navigate to="/sign-in" replace />
+  }
+  // Avoid flashing "User" / generic dashboard while auth is loading
+  if (loading) {
+    return (
+      <div className="dashboard-app flex items-center justify-center min-h-screen">
+        <LoadingSkeleton variant="inline" lines={3} />
+      </div>
+    )
+  }
+
+  const rawDisplayName =
+    employee?.name ??
+    user?.display_name ??
+    user?.full_name ??
+    (user?.email ? user.email.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : null) ??
+    'User'
+  // If name looks like email local part (e.g. "Stoney.harward"), show as "Stoney Harward"
+  const displayName =
+    rawDisplayName.includes('.') && !rawDisplayName.includes(' ')
+      ? rawDisplayName
+          .split('.')
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(' ')
+      : rawDisplayName
+  const roleLabel = employee?.role ?? role_label ?? (isAdmin ? 'Admin' : 'Project Manager')
+  // Initials: first + last name (e.g. "John Doe" → "JD"), or first two chars of display/email when single word
+  const initials =
+    displayName !== 'User'
+      ? displayName
+          .trim()
+          .split(/\s+/)
+          .map((w) => w[0])
+          .slice(0, 2)
+          .join('')
+          .toUpperCase() || displayName.slice(0, 2).toUpperCase()
+      : (user?.email ? user.email.split('@')[0].slice(0, 2).toUpperCase() : 'U')
+
+  const showAdminNav = isAdmin && previewRole !== 'project_manager'
+  const showPmNav = !isAdmin || previewRole === 'project_manager'
 
   const toggleCollapse = () => setNavCollapsed((c) => !c)
   const openMobileNav = () => setMobileNavOpen(true)

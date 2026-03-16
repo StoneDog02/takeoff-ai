@@ -2,10 +2,20 @@ const express = require('express')
 const router = express.Router()
 
 /** GET /api/me - Uses profiles.role for type (contractor vs employee) and isAdmin; employee details from employees when role is employee. */
+function fullNameFromMetadata(meta) {
+  if (!meta) return null
+  if (meta.full_name) return meta.full_name
+  if (meta.name) return meta.name
+  const first = (meta.first_name || '').trim()
+  const last = (meta.last_name || '').trim()
+  if (first || last) return [first, last].filter(Boolean).join(' ')
+  return null
+}
+
 function displayNameFromUser(user) {
   const meta = user?.user_metadata
-  if (meta?.full_name) return meta.full_name
-  if (meta?.name) return meta.name
+  const fromMeta = fullNameFromMetadata(meta)
+  if (fromMeta) return fromMeta
   const email = user?.email ?? ''
   const local = email.split('@')[0]
   if (local) return local.charAt(0).toUpperCase() + local.slice(1).toLowerCase()
@@ -30,7 +40,7 @@ router.get('/', async (req, res, next) => {
       ? {
           id: req.user.id,
           email: req.user.email ?? '',
-          full_name: req.user.user_metadata?.full_name ?? req.user.user_metadata?.name ?? null,
+          full_name: fullNameFromMetadata(req.user.user_metadata) ?? null,
           display_name: displayNameFromUser(req.user),
         }
       : null

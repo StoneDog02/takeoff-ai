@@ -135,7 +135,7 @@ export function HeroDashboardMock() {
                   {now.format('dddd, MMMM D, YYYY').toUpperCase()}
                 </div>
                 <h1 className="dashboard-title text-xl lg:text-2xl font-normal tracking-tight m-0 text-gray-900 dark:text-landing-white">
-                  {greeting}, Kyle.
+                  {greeting}, there.
                 </h1>
               </div>
               <button

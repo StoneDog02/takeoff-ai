@@ -25,10 +25,12 @@ function formatPrice(amountCents, currency = 'usd', interval) {
 
 /**
  * GET /api/stripe/plans
- * Returns active recurring plans for signup. If STRIPE_SIGNUP_PRODUCT_ID is set,
- * only that product's prices are returned; otherwise all active products and their
- * active recurring prices are returned. No product/price IDs needed in code.
- * Response: { plans: [{ id, name, amount, currency, interval, formatted }] }
+ * Returns active recurring plans for signup and product-level data for landing page.
+ * - plans: If STRIPE_SIGNUP_PRODUCT_ID is set, only that product's prices; else all. Used by signup flow.
+ * - products: Always all active products (for landing pricing cards).
+ * Response:
+ *   plans: [{ id, name, amount, currency, interval, formatted }]
+ *   products: [{ productId, name, description, metadata, prices: [...] }]
  */
 router.get('/plans', async (req, res) => {
   if (!stripe) {
@@ -37,36 +39,62 @@ router.get('/plans', async (req, res) => {
     })
   }
   try {
-    let products = []
+    // For signup: optionally restrict to one product
+    let signupProducts = []
     if (signupProductId) {
       const product = await stripe.products.retrieve(signupProductId)
-      if (product && product.active) products = [product]
+      if (product && product.active) signupProducts = [product]
     } else {
       const productsRes = await stripe.products.list({ active: true })
-      products = productsRes.data || []
+      signupProducts = productsRes.data || []
     }
 
+    // For landing: always all active products
+    const productsRes = await stripe.products.list({ active: true })
+    const allProducts = productsRes.data || []
+
     const plans = []
-    for (const product of products) {
+    const productList = []
+    for (const product of allProducts) {
       const pricesRes = await stripe.prices.list({
         product: product.id,
         active: true,
         type: 'recurring',
       })
-      const productPlans = (pricesRes.data || []).map((p) => ({
+      const priceList = (pricesRes.data || []).map((p) => ({
         id: p.id,
-        name: product.name,
         amount: p.unit_amount ?? 0,
         currency: (p.currency || 'usd').toLowerCase(),
         interval: p.recurring?.interval === 'year' ? 'year' : 'month',
         formatted: formatPrice(p.unit_amount ?? 0, p.currency, p.recurring?.interval),
       }))
-      plans.push(...productPlans)
+      const sortedPrices = priceList.sort((a, b) => (a.interval === 'month' ? 0 : 1) - (b.interval === 'month' ? 0 : 1))
+      // Only add to flat plans list if this product is in signup set
+      const includeInPlans = signupProducts.some((p) => p.id === product.id)
+      if (includeInPlans) {
+        const productPlans = priceList.map((p) => ({
+          id: p.id,
+          name: product.name,
+          amount: p.amount,
+          currency: p.currency,
+          interval: p.interval,
+          formatted: p.formatted,
+        }))
+        plans.push(...productPlans)
+      }
+      // Always add to product list for landing page
+      productList.push({
+        productId: product.id,
+        name: product.name,
+        description: product.description || '',
+        metadata: product.metadata || {},
+        prices: sortedPrices,
+      })
     }
-    return res.json({ plans })
+    return res.json({ plans, products: productList })
   } catch (err) {
     if (err.code === 'resource_missing') {
-      return res.json({ plans: [] })
+      return res.json({ plans: [], products: [] })
     }
     console.error('[stripe] plans error:', err.message)
     return res.status(500).json({

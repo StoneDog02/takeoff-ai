@@ -483,8 +483,12 @@ export function DashboardPage() {
     if (h < 17) return 'Good afternoon'
     return 'Good evening'
   })()
-  const displayName = authUser?.full_name ?? authUser?.display_name ?? authUser?.email?.split('@')[0] ?? 'Kyle'
-  const userName = displayName.trim().split(/\s+/)[0] || 'Kyle'
+  const displayName = authUser?.full_name ?? authUser?.display_name ?? (authUser?.email ? authUser.email.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : null) ?? 'there'
+  // For greeting: use first name only; if display is email-like (e.g. "Stoney.harward"), use segment before first dot
+  const firstWord = displayName.trim().split(/\s+/)[0] || 'there'
+  const userName = firstWord.includes('.')
+    ? firstWord.split('.')[0].replace(/^./, (c) => c.toUpperCase())
+    : firstWord
 
   return (
     <div className="layout">
