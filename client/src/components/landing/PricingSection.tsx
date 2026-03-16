@@ -73,7 +73,7 @@ export function PricingSection() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`${API_BASE}/stripe/plans`)
+        const res = await fetch(`${API_BASE}/stripe/plans`, { cache: 'no-store' })
         const data = await res.json().catch(() => ({}))
         if (cancelled) return
         if (!res.ok) {
@@ -82,9 +82,17 @@ export function PricingSection() {
           return
         }
         const payload = data as { products?: StripeProductPlan[]; plans?: FlatPlan[] }
-        let list = Array.isArray(payload.products) ? payload.products : []
-        if (list.length === 0 && Array.isArray(payload.plans) && payload.plans.length > 0) {
-          list = plansToProducts(payload.plans)
+        // Use same source as signup: build from plans so we always show what signup shows
+        const flatPlans = Array.isArray(payload.plans) ? payload.plans : []
+        let list = flatPlans.length > 0 ? plansToProducts(flatPlans) : []
+        // Enrich with products when available (description, metadata)
+        if (list.length > 0 && Array.isArray(payload.products) && payload.products.length > 0) {
+          const byName = new Map(payload.products.map((p) => [p.name, p]))
+          list = list.map((card) => {
+            const full = byName.get(card.name)
+            if (!full) return card
+            return { ...card, description: full.description, metadata: full.metadata || {}, prices: full.prices?.length ? full.prices : card.prices }
+          })
         }
         setProducts(list)
         setError(null)
@@ -161,10 +169,11 @@ export function PricingSection() {
         {!loading && !error && products.length > 0 && (
           <div className="grid md:grid-cols-3 gap-5 max-w-[1000px] mx-auto items-stretch reveal mt-12">
             {products.map((product) => {
-              const priceMonth = product.prices.find((p) => p.interval === 'month')
-              const priceYear = product.prices.find((p) => p.interval === 'year')
+              const prices = Array.isArray(product.prices) ? product.prices : []
+              const priceMonth = prices.find((p) => p.interval === 'month')
+              const priceYear = prices.find((p) => p.interval === 'year')
               const price = yearly ? priceYear ?? priceMonth : priceMonth ?? priceYear
-              const features = parseFeatures(product.metadata)
+              const features = parseFeatures(product.metadata || {})
               const popular = product.metadata?.popular === 'true'
               const displayAmount = price
                 ? (price.amount / 100).toFixed(price.amount % 100 === 0 ? 0 : 2)
