@@ -5,6 +5,14 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Redirect Netlify subdomain to custom domain
+[[redirects]]
+  from = "/*"
+  to = "https://projxmanager.com/:splat"
+  status = 301
+  force = true
+  conditions = { Host = ["proj-x.netlify.app"] }
+
 # SPA: serve index.html for client-side routes (place after any /api proxy if added)
 [[redirects]]
   from = "/*"
