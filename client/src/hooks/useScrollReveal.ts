@@ -1,8 +1,13 @@
 import { useEffect } from 'react'
 
+function observeReveals(observer: IntersectionObserver) {
+  document.querySelectorAll('.reveal').forEach((el) => {
+    if (!el.classList.contains('visible')) observer.observe(el)
+  })
+}
+
 export function useScrollReveal() {
   useEffect(() => {
-    const reveals = document.querySelectorAll('.reveal')
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
@@ -11,7 +16,13 @@ export function useScrollReveal() {
       },
       { threshold: 0.12 }
     )
-    reveals.forEach((el) => observer.observe(el))
-    return () => observer.disconnect()
+    observeReveals(observer)
+    // Re-query when DOM changes so dynamically added .reveal elements (e.g. after fetch) get observed
+    const mo = new MutationObserver(() => observeReveals(observer))
+    mo.observe(document.body, { childList: true, subtree: true })
+    return () => {
+      mo.disconnect()
+      observer.disconnect()
+    }
   }, [])
 }
