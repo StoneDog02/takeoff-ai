@@ -1,6 +1,8 @@
+const crypto = require('crypto')
 const express = require('express')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -281,19 +283,30 @@ router.post('/:id/convert-to-invoice', async (req, res) => {
   }
 })
 
-/** POST /api/estimates/:id/send - mark sent and optionally set recipient_emails */
+/** POST /api/estimates/:id/send - mark sent, set client_token, update project to awaiting_approval, send/log client portal link */
 router.post('/:id/send', async (req, res) => {
   const supabase = getSupabase(req)
-  if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
+  if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const { id } = req.params
-    const { recipient_emails } = req.body
+    const { recipient_emails, client_name, project_name, gc_name } = req.body || {}
+    const { data: est, error: fetchErr } = await supabase
+      .from('estimates')
+      .select('id, job_id, user_id')
+      .eq('id', id)
+      .single()
+    if (fetchErr || !est) return res.status(404).json({ error: 'Not found' })
+    if (est.user_id !== req.user.id) return res.status(404).json({ error: 'Not found' })
+
+    const clientToken = crypto.randomUUID()
     const updates = {
+      client_token: clientToken,
       status: 'sent',
       sent_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
     if (Array.isArray(recipient_emails)) updates.recipient_emails = recipient_emails
+
     const { data, error } = await supabase
       .from('estimates')
       .update(updates)
@@ -302,6 +315,39 @@ router.post('/:id/send', async (req, res) => {
       .single()
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Not found' })
+
+    if (est.job_id) {
+      await supabase
+        .from('projects')
+        .update({ status: 'awaiting_approval', updated_at: new Date().toISOString() })
+        .eq('id', est.job_id)
+        .eq('user_id', req.user.id)
+    }
+
+    const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || (req.protocol + '://' + (req.get('host') || 'localhost'))
+    const portalUrl = `${baseUrl.replace(/\/$/, '')}/estimate/${clientToken}`
+    const clientEmail = Array.isArray(recipient_emails) && recipient_emails[0] ? recipient_emails[0] : null
+    let projectDisplayName = project_name
+    if (!projectDisplayName && est.job_id) {
+      const { data: proj } = await supabase.from('projects').select('name').eq('id', est.job_id).single()
+      projectDisplayName = (proj && proj.name) ? proj.name : 'your project'
+    }
+    if (!projectDisplayName) projectDisplayName = 'your project'
+    const gcDisplayName = gc_name && String(gc_name).trim() ? String(gc_name).trim() : 'Your contractor'
+    const clientDisplayName = client_name && String(client_name).trim() ? String(client_name).trim() : 'there'
+
+    if (clientEmail) {
+      await sendEstimatePortalEmail({
+        to: clientEmail,
+        clientName: clientDisplayName,
+        gcName: gcDisplayName,
+        projectName: projectDisplayName,
+        portalUrl,
+      })
+    } else {
+      console.log('[estimates/send] No recipient email; portal link:', portalUrl)
+    }
+
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Estimate send error:', err)

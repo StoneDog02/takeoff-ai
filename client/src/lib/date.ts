@@ -7,11 +7,13 @@ import customParseFormat from 'dayjs/plugin/customParseFormat'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
 import isBetween from 'dayjs/plugin/isBetween'
+import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(customParseFormat)
 dayjs.extend(utc)
 dayjs.extend(timezone)
 dayjs.extend(isBetween)
+dayjs.extend(relativeTime)
 
 /** Display format for dates (no time). */
 export const DISPLAY_DATE_FORMAT = 'MM/DD/YYYY'
@@ -89,6 +91,15 @@ export function formatShortDate(isoOrDate: string | Date | dayjs.Dayjs | number 
 export function parseToTimestamp(isoOrDate: string | Date | null | undefined): number {
   if (isoOrDate == null) return NaN
   return dayjs(isoOrDate).valueOf()
+}
+
+/**
+ * Relative time from now (e.g. "2 hours ago"). Uses dayjs relativeTime plugin.
+ */
+export function formatRelative(isoOrDate: string | Date | dayjs.Dayjs | null | undefined): string {
+  if (isoOrDate == null) return '—'
+  const d = dayjs(isoOrDate)
+  return d.isValid() ? d.fromNow() : '—'
 }
 
 /**

@@ -583,6 +583,70 @@ body {
 .reveal-delay-2 { transition-delay: 0.2s; }
 .reveal-delay-3 { transition-delay: 0.3s; }
 
+/* Pricing card (landing + signup) */
+.pc-card {
+  background: #1a1a1a;
+  border-radius: 20px;
+  padding: 36px 36px 32px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+.pc-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #c0392b;
+}
+.pc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(192, 57, 43, 0.15);
+  border: 1px solid rgba(192, 57, 43, 0.35);
+  border-radius: 100px;
+  padding: 5px 12px;
+  margin-bottom: 24px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e87060;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.pc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c0392b;
+  animation: pc-pulse 2s infinite;
+}
+@keyframes pc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.pc-price-block {
+  margin-bottom: 28px;
+}
+.pc-original-price {
+  text-decoration: line-through;
+  text-decoration-color: #c0392b;
+  text-decoration-thickness: 2px;
+}
+.pc-savings {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5a8a5a;
+  background: rgba(90, 138, 90, 0.12);
+  border: 1px solid rgba(90, 138, 90, 0.25);
+  border-radius: 100px;
+  padding: 2px 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Primary CTA button: gradient red with shadow and lift */
 .btn {
   display: flex;
@@ -5991,6 +6055,75 @@ body {
 .estimates-pipeline-card-margin-bar { height: 3px; background: var(--border); border-radius: 2px; margin-bottom: 4px; overflow: hidden; }
 .estimates-pipeline-card-margin-pct { font-size: 10px; color: var(--text-muted); }
 .estimates-pipeline-card-milestones { font-size: 10px; color: var(--est-amber); margin-top: 4px; font-weight: 600; }
+.estimates-pipeline-card-opened {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--blue, #2563eb);
+  margin-bottom: 6px;
+}
+.estimates-pipeline-card-opened-icon { font-size: 12px; }
+.estimates-pipeline-card-opened-text { font-weight: 500; }
+.estimates-pipeline-card-banner {
+  margin: -14px -14px 10px -14px;
+  padding: 10px 14px;
+  border-radius: 10px 10px 0 0;
+}
+.estimates-pipeline-card-banner--amber {
+  background: rgba(245, 158, 11, 0.12);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+}
+.estimates-pipeline-card-banner-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--amber, #d97706);
+  display: block;
+  margin-bottom: 4px;
+}
+.estimates-pipeline-card-banner-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  line-height: 1.35;
+}
+.estimates-pipeline-card-banner-action {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber, #d97706);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimates-pipeline-card-banner-action:hover { text-decoration: underline; }
+.estimates-pipeline-card-convert {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--green, #16a34a);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimates-pipeline-card-convert:hover { background: #15803d; }
+.estimates-pipeline-show-declined {
+  margin-bottom: 12px;
+}
+.estimates-pipeline-show-declined-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.estimates-pipeline-show-declined-label input { cursor: pointer; }
 .estimates-pipeline-column-empty {
   border: 1.5px dashed var(--border);
   border-radius: 10px;
@@ -6531,6 +6664,12 @@ body {
   justify-content: center;
   flex-wrap: wrap;
 }
+.estimate-wizard-loading {
+  margin: 0;
+  padding: 24px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
 
 .estimate-wizard-topbar {
   background: var(--bg-surface);
@@ -6672,6 +6811,21 @@ body {
 }
 .estimate-wizard-field { margin-bottom: 20px; }
 .estimate-wizard-field:last-child { margin-bottom: 0; }
+.estimate-wizard-field--full { width: 100%; }
+.estimate-wizard-helper {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
+.estimate-wizard-step1-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 520px) {
+  .estimate-wizard-step1-grid { grid-template-columns: 1fr; }
+}
 .estimate-wizard-label {
   font-size: 10px;
   font-weight: 700;
@@ -6747,7 +6901,84 @@ body {
   margin-top: 20px;
 }
 
-/* Step 2: Catalog + Lines */
+/* Step 2: Takeoff (upload plans) */
+.estimate-wizard-takeoff-drop {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--bg-base);
+  transition: border-color 0.15s, background 0.15s;
+}
+.estimate-wizard-takeoff-drop:hover {
+  border-color: var(--border-mid);
+  background: var(--bg-hover, rgba(0,0,0,0.02));
+}
+.estimate-wizard-takeoff-drop p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.estimate-wizard-takeoff-input-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.estimate-wizard-takeoff-skip {
+  margin-top: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+.estimate-wizard-takeoff-skip:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.estimate-wizard-takeoff-processing {
+  padding: 32px 24px;
+  text-align: center;
+}
+.estimate-wizard-takeoff-processing p {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.estimate-wizard-takeoff-spinner {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+  border: 3px solid var(--border);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: estimate-wizard-spin 0.8s linear infinite;
+}
+@keyframes estimate-wizard-spin {
+  to { transform: rotate(360deg); }
+}
+.estimate-wizard-takeoff-success {
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 13px;
+  color: #15803d;
+}
+.estimate-wizard-takeoff-success > div {
+  margin-bottom: 6px;
+}
+.estimate-wizard-takeoff-success > div:last-child {
+  margin-bottom: 0;
+}
+
+/* Step 3: Catalog + Lines */
 .estimate-wizard-step2-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -6838,6 +7069,42 @@ body {
   margin-top: 2px;
 }
 .estimate-wizard-catalog-item-add { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+.estimate-wizard-from-takeoff-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.estimate-wizard-from-takeoff-item:hover {
+  border-color: var(--border-mid);
+}
+.estimate-wizard-from-takeoff-item-main { flex: 1; min-width: 0; }
+.estimate-wizard-from-takeoff-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.estimate-wizard-from-takeoff-item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.estimate-wizard-from-takeoff-item-add {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 .estimate-wizard-custom-btn {
   margin-top: 8px;
   width: 100%;
@@ -12697,7 +12964,7 @@ body {
 /* ═══════════════════════════════════════
    PROJECTS LIST PAGE
 ═══════════════════════════════════════ */
-.projects-list-page { padding: 32px; min-height: 100vh; background: var(--bg-base); }
+.projects-list-page { padding: 32px; min-height: 100vh; background: var(--bg-page); }
 .projects-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 16px; }
 .projects-list-title { font-size: 26px; font-weight: 700; color: var(--text-primary); margin: 0; letter-spacing: -0.5px; }
 .projects-list-sub { font-size: 13px; color: var(--text-muted); margin: 3px 0 0; font-weight: 400; }
@@ -12762,6 +13029,236 @@ body {
 .projects-list-table-row:last-child { border-bottom: none; }
 .projects-list-table-row .projects-card-avatar { width: 26px; height: 26px; }
 
+/* ── PROJECTS BOARD VIEW ── */
+.projects-board { display: flex; gap: 16px; width: 100%; padding-bottom: 8px; min-height: 400px; }
+.projects-board-column { flex: 1 1 0; min-width: 0; background: var(--bg-surface); border-radius: 12px; border: 1.5px solid var(--border); border-top-width: 3px; border-top-style: solid; display: flex; flex-direction: column; }
+.projects-board-column-header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.projects-board-column-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.projects-board-column-label { flex: 1; min-width: 0; }
+.projects-board-column-count { font-size: 11px; font-weight: 500; color: var(--text-muted); background: var(--bg-surface); padding: 2px 8px; border-radius: 10px; }
+.projects-board-column-cards { flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-height: 80px; }
+.projects-board-empty { border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; font-size: 13px; color: var(--text-muted); }
+.projects-board-card { background: var(--bg-surface); border-radius: 10px; border: 1.5px solid var(--border); border-left-width: 4px; border-left-style: solid; padding: 12px 14px; cursor: pointer; transition: box-shadow 0.15s; position: relative; }
+.projects-board-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.projects-board-card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.projects-board-card-address { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.projects-board-card-budget { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.projects-board-card-phase { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+.projects-board-card-convert { margin-top: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: #16a34a; background: rgba(22,163,74,0.12); border: none; border-radius: 8px; cursor: pointer; width: 100%; }
+.projects-board-card-convert:hover { background: rgba(22,163,74,0.2); }
+.projects-board-card-delete { position: absolute; top: 10px; right: 10px; padding: 4px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-radius: 6px; }
+.projects-board-card-delete:hover { color: #dc2626; background: rgba(220,38,38,0.1); }
+.projects-board-card-estimate-status { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.projects-board-card-estimate-status-gray { font-size: 11px; color: var(--text-muted); }
+.projects-board-card-estimate-status-blue { font-size: 12px; color: #2563eb; }
+.projects-board-card-estimate-status-amber { font-size: 12px; color: #d97706; }
+.projects-board-card-revise { padding: 0; font-size: 12px; font-weight: 600; color: #d97706; background: none; border: none; cursor: pointer; text-align: left; }
+.projects-board-card-revise:hover { text-decoration: underline; }
+.projects-board-add { margin: 0 10px 10px; padding: 10px; font-size: 13px; font-weight: 500; color: var(--text-muted); background: transparent; border: 1.5px dashed var(--border); border-radius: 8px; cursor: pointer; }
+.projects-board-add:hover { background: var(--bg-hover, rgba(0,0,0,0.03)); color: var(--text-primary); }
+
+.projects-convert-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.projects-convert-modal { background: var(--bg-surface); border-radius: 12px; padding: 24px; max-width: 400px; width: 90%; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+.projects-convert-modal-title { margin: 0 0 12px; font-size: 18px; font-weight: 600; color: var(--text-primary); }
+.projects-convert-modal-text { margin: 0 0 20px; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+.projects-convert-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+.projects-board-wrapper { display: flex; flex-direction: column; gap: 20px; }
+.projects-board-backlog { width: 100%; background: var(--bg-surface); border-radius: 12px; border: 1.5px solid var(--border); border-top-width: 3px; border-top-style: solid; padding: 0 0 14px; }
+.projects-board-backlog-header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.projects-board-backlog-title { flex: 1; min-width: 0; }
+.projects-board-backlog-cards { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; }
+
+/* ESTIMATE PORTAL (public, client-facing) */
+.estimate-portal {
+  min-height: 100vh;
+  background: #f7f6f3;
+}
+.estimate-portal-header {
+  background: #fff;
+  padding: 20px 40px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.07));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.estimate-portal-header .estimate-portal-gc-name {
+  font-family: var(--font-display, 'DM Serif Display', serif);
+  font-size: 22px;
+  color: var(--text-primary, #1c1a18);
+}
+.estimate-portal-header .estimate-portal-meta {
+  font-size: 13px;
+  color: var(--text-muted, #b0ada9);
+  text-align: right;
+}
+.estimate-portal-body {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.estimate-portal-client-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  background: #fff;
+  padding: 20px 28px;
+  border-radius: 14px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.07));
+}
+.estimate-portal-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.07));
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+}
+.estimate-portal-approve-btn {
+  height: 48px;
+  padding: 0 32px;
+  background: var(--red, #c0392b);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+}
+.estimate-portal-approve-btn:hover {
+  filter: brightness(1.05);
+}
+.estimate-portal-changes-btn {
+  height: 48px;
+  padding: 0 24px;
+  background: #fff;
+  color: var(--text-secondary, #6b6764);
+  border: 1.5px solid var(--border, rgba(0, 0, 0, 0.07));
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.estimate-portal-changes-btn:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.03));
+}
+.estimate-portal-decline-link {
+  font-size: 13px;
+  color: var(--text-muted, #b0ada9);
+  text-decoration: underline;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+}
+.estimate-portal-decline-link:hover {
+  color: var(--text-secondary, #6b6764);
+}
+.estimate-portal-success {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 80px 24px;
+  text-align: center;
+  background: #f7f6f3;
+}
+.estimate-portal-success-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--green-glow, rgba(31, 138, 92, 0.12));
+  color: var(--green, #1f8a5c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1;
+}
+.estimate-portal-success-heading {
+  font-family: var(--font-display, 'DM Serif Display', serif);
+  font-size: 32px;
+  font-weight: 400;
+  color: var(--text-primary, #1c1a18);
+  margin: 0;
+}
+.estimate-portal-success-subtext {
+  font-size: 15px;
+  color: var(--text-muted, #b0ada9);
+  margin: 0;
+  max-width: 420px;
+}
+.estimate-portal-success-next-card {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.07));
+  padding: 24px 28px;
+  max-width: 420px;
+  text-align: left;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.estimate-portal-success-next-card .estimate-portal-next-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.estimate-portal-success-next-card .estimate-portal-next-row:last-child {
+  margin-bottom: 0;
+}
+.estimate-portal-success-next-card .estimate-portal-next-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green, #1f8a5c);
+}
+.estimate-portal-success-next-card .estimate-portal-next-text {
+  font-size: 14px;
+  color: var(--text-primary, #1c1a18);
+  line-height: 1.45;
+  margin: 0;
+}
+.estimate-portal-changes-form {
+  position: fixed;
+  bottom: 80px;
+  left: 0;
+  right: 0;
+  background: #fff;
+  padding: 20px 24px;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.07));
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  z-index: 99;
+}
+.estimate-portal-footer {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted, #b0ada9);
+  padding: 40px 0 32px;
+  margin: 0;
+}
+.estimate-portal-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
 /* ── PROJECT OVERVIEW PAGE (detail hero + overview tab) ── */
 .project-overview-page { min-height: 100vh; background: transparent; }
 .project-overview-hero { background: transparent; border-bottom: 1.5px solid var(--border); padding: 0 32px; }
@@ -12795,6 +13292,8 @@ body {
 .project-overview-tab { padding: 12px 16px; background: none; border: none; border-bottom: 2.5px solid transparent; color: var(--text-muted); font-size: 13px; font-weight: 400; cursor: pointer; white-space: nowrap; font-family: inherit; transition: color 0.15s; }
 .project-overview-tab:hover { color: var(--text-primary); }
 .project-overview-tab.active { border-bottom-color: var(--red); color: var(--red); font-weight: 600; }
+.project-overview-tab--disabled { opacity: 0.5; cursor: not-allowed; color: var(--text-muted); }
+.project-overview-tab--disabled:hover { color: var(--text-muted); }
 .project-overview-wrap { width: 100%; margin-top: 12px; }
 .project-overview-body { padding: 28px 32px; display: grid; grid-template-columns: 1fr 1fr 340px; gap: 20px; align-items: start; }
 @media (max-width: 1200px) { .project-overview-body { grid-template-columns: 1fr 1fr; } }
@@ -12817,3 +13316,1912 @@ body {
 .project-overview-quick-btn { padding: 10px 8px; border-radius: 9px; cursor: pointer; font-family: inherit; text-align: center; transition: opacity 0.15s; border: 1.5px solid; }
 .project-overview-quick-btn:hover { opacity: 0.9; }
 .project-overview-view-all { width: 100%; margin-top: 8px; padding: 8px; background: var(--bg-base); border: 1.5px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-muted); font-weight: 500; cursor: pointer; font-family: inherit; }
+
+/* PROJECTS PIPELINE BOARD VIEW */
+.projects-board { display: flex; gap: 12px; overflow-x: auto; min-height: 480px; }
+.projects-board-col { flex-shrink: 0; width: 224px; display: flex; flex-direction: column; }
+.projects-board-col-header { display: flex; flex-direction: row; align-items: center; gap: 8px; border-top: 3px solid; }
+.projects-board-col-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.projects-board-col-title { font-size: 10.5px; font-weight: 700; text-transform: uppercase; }
+.projects-board-col-count { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg-base); color: var(--text-muted); font-weight: 500; }
+.projects-board-col-cards { display: flex; flex-direction: column; gap: 7px; }
+.projects-board-card { background: var(--bg-surface); border: 1px solid var(--border); border-left-width: 3px; border-left-style: solid; border-radius: 10px; padding: 12px; cursor: pointer; transition: box-shadow 0.15s; position: relative; }
+.projects-board-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.projects-board-card-name { font-size: 13px; font-weight: 600; padding-right: 28px; }
+.projects-board-card-addr { font-size: 11px; color: var(--text-muted); }
+.projects-board-card-budget { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.projects-board-card-phase { font-size: 11px; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+.projects-board-card-phase::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.projects-board-card-convert-btn { width: 100%; padding: 8px 10px; font-size: 11px; font-weight: 700; border-radius: 8px; border: none; cursor: pointer; background: rgba(22,163,74,0.12); color: #16a34a; }
+.projects-board-card-convert-btn:hover { background: rgba(22,163,74,0.2); }
+.projects-board-card-delete { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; padding: 0; border: none; background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; transition: opacity 0.15s; }
+.projects-board-card:hover .projects-board-card-delete { opacity: 1; }
+.projects-board-card-delete:hover { color: #dc2626; }
+.projects-board-col-empty { border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; font-size: 13px; color: var(--text-muted); }
+.projects-board-col-add-btn { width: 100%; padding: 10px; font-size: 13px; font-weight: 500; border: 1.5px dashed var(--border); border-radius: 8px; background: transparent; cursor: pointer; color: var(--text-muted); }
+.projects-board-col-add-btn:hover { border-color: var(--red); color: var(--red); background: rgba(220,38,38,0.04); }
+
+/* NEW ESTIMATE WIZARD */
+.estimate-wizard-takeoff-drop {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--bg-base);
+  transition: border-color 0.15s, background 0.15s;
+}
+.estimate-wizard-takeoff-drop:hover {
+  border-color: var(--red-border);
+  background: rgba(192, 57, 43, 0.04);
+}
+.estimate-wizard-takeoff-processing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  gap: 12px;
+}
+.estimate-wizard-takeoff-processing .estimate-wizard-takeoff-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: estimate-wizard-spin 0.8s linear infinite;
+}
+@keyframes estimate-wizard-spin {
+  to { transform: rotate(360deg); }
+}
+.estimate-wizard-takeoff-success {
+  padding: 0;
+  border-radius: 10px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 13px;
+  color: #15803d;
+  overflow: hidden;
+}
+.estimate-wizard-takeoff-category-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #bbf7d0;
+}
+.estimate-wizard-takeoff-category-row:last-child {
+  border-bottom: none;
+}
+.estimate-wizard-takeoff-skip {
+  display: block;
+  margin: 14px auto 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.estimate-wizard-takeoff-skip:hover {
+  color: var(--text-primary);
+}
+.estimate-wizard-from-takeoff-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.estimate-wizard-from-takeoff-item:hover {
+  border-color: var(--border-mid);
+}
+.estimate-wizard-from-takeoff-item.added {
+  border-color: var(--blue);
+  background: var(--blue-glow);
+}
+
+/* Bid Sheet step (Step 3) */
+.estimate-wizard-bidsheet-section {
+  margin-bottom: 24px;
+}
+.estimate-wizard-bidsheet-section .estimate-wizard-label {
+  margin-bottom: 10px;
+}
+.estimate-wizard-bidsheet-empty {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg-base);
+}
+.estimate-wizard-bidsheet-add-trade {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.estimate-wizard-bidsheet-add-trade:hover {
+  color: var(--text-primary);
+}
+.estimate-wizard-bidsheet-trade-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.estimate-wizard-bidsheet-trade-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.estimate-wizard-bidsheet-trade-row:last-child {
+  border-bottom: none;
+}
+.estimate-wizard-bidsheet-trade-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.estimate-wizard-bidsheet-dispatch {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimate-wizard-bidsheet-dispatch:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+.estimate-wizard-bidsheet-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.estimate-wizard-bidsheet-status--pending {
+  background: var(--bg-base);
+  color: var(--text-muted);
+}
+.estimate-wizard-bidsheet-status--bid_received {
+  background: #fef3c7;
+  color: #b45309;
+}
+.estimate-wizard-bidsheet-status--awarded {
+  background: #f0fdf4;
+  color: #15803d;
+}
+.estimate-wizard-bidsheet-trade-row--add {
+  display: flex;
+  gap: 8px;
+}
+.estimate-wizard-bidsheet-trade-row--add input {
+  flex: 1;
+}
+.estimate-wizard-bidsheet-roster {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.estimate-wizard-bidsheet-roster-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr 100px 80px 70px;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-base);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.estimate-wizard-bidsheet-roster-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr 100px 80px 70px;
+  gap: 12px;
+  padding: 10px 14px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.estimate-wizard-bidsheet-roster-row:last-child {
+  border-bottom: none;
+}
+.estimate-wizard-bidsheet-roster-row--add input,
+.estimate-wizard-bidsheet-roster-row--add select {
+  min-width: 0;
+}
+.estimate-wizard-bidsheet-award {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: #16a34a;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimate-wizard-bidsheet-award:hover {
+  background: #15803d;
+}
+.estimate-wizard-bidsheet-add-sub {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.estimate-wizard-bidsheet-add-sub:hover {
+  color: var(--text-primary);
+}
+.estimate-wizard-bidsheet-directory-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+  grid-column: 1 / -1;
+}
+.estimate-wizard-bidsheet-directory-row .estimate-wizard-directory-select {
+  min-width: 0;
+  max-width: 280px;
+}
+.estimate-wizard-bidsheet-directory-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.estimate-wizard-bidsheet .estimate-wizard-takeoff-skip {
+  margin-top: 20px;
+}
+
+.estimate-wizard-from-takeoff-item-added {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--blue);
+  flex-shrink: 0;
+}
+
+.estimate-wizard-lines-awarded-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  font-size: 13px;
+  color: #1e40af;
+}
+.estimate-wizard-lines-awarded-banner-dismiss {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #1e40af;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+}
+.estimate-wizard-lines-awarded-banner-dismiss:hover {
+  background: rgba(30, 64, 175, 0.15);
+}
+
+/* Prefill banner (build estimate from project) */
+.estimate-wizard-lines-prefill-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: var(--blue-glow);
+  border: 1px solid rgba(45, 111, 168, 0.35);
+  font-size: 13px;
+  color: var(--blue);
+}
+.estimate-wizard-lines-prefill-banner-dismiss {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--blue);
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+}
+.estimate-wizard-lines-prefill-banner-dismiss:hover {
+  background: rgba(45, 111, 168, 0.15);
+}
+
+/* Line items panel (Step 2 build-estimate) */
+.estimate-wizard-lines-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.estimate-wizard-lines-header {
+  display: grid;
+  grid-template-columns: 1fr 80px 70px 100px 36px;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.estimate-wizard-line-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 70px 100px 36px;
+  gap: 10px;
+  align-items: center;
+}
+.estimate-wizard-line-row .estimate-wizard-line-input-name { min-width: 0; }
+.estimate-wizard-line-row .estimate-wizard-line-input-num,
+.estimate-wizard-line-row .estimate-wizard-line-input-unit,
+.estimate-wizard-line-row .estimate-wizard-line-input-price { width: 100%; min-width: 0; text-align: right; }
+.estimate-wizard-line-remove {
+  padding: 4px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+}
+.estimate-wizard-line-remove:hover { color: var(--red); background: rgba(220, 38, 38, 0.08); }
+.estimate-wizard-add-line-btn {
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimate-wizard-add-line-btn:hover { border-color: var(--text-secondary); color: var(--text-secondary); }
+
+/* Trade row & status (estimate wizard) */
+.estimate-wizard-trade-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.estimate-wizard-trade-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+}
+.estimate-wizard-trade-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.estimate-wizard-trade-status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.estimate-wizard-trade-status.pending {
+  background: var(--bg-base);
+  color: var(--text-muted);
+}
+.estimate-wizard-trade-status.pending::before {
+  background: var(--text-muted);
+}
+.estimate-wizard-trade-status.received {
+  background: var(--blue-glow);
+  color: var(--blue);
+}
+.estimate-wizard-trade-status.received::before {
+  background: var(--blue);
+}
+.estimate-wizard-trade-status.awarded {
+  background: var(--green-glow);
+  color: var(--green);
+}
+.estimate-wizard-trade-status.awarded::before {
+  background: var(--green);
+}
+
+.estimate-wizard-sub-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.estimate-wizard-sub-table th {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.estimate-wizard-sub-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.estimate-wizard-sub-inline-form {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-base);
+  border-radius: 8px;
+  align-items: flex-end;
+}
+.estimate-wizard-bid-banner {
+  background: var(--blue-glow);
+  border: 1px solid rgba(45, 111, 168, 0.35);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--blue);
+}
+.estimate-wizard-summary-split {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.estimate-wizard-summary-split-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 3px 0;
+}
+.estimate-wizard-summary-split-row.total {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Estimating Workspace (estimating-status project detail) */
+.estimating-workspace {
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px 32px 32px;
+}
+
+.estimating-workspace-progress {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 28px;
+  padding: 16px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.estimating-workspace-progress-segment {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.estimating-workspace-progress-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.estimating-workspace-progress-stage--locked {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.estimating-workspace-progress-stage--active {
+  color: var(--red);
+  background: var(--red-glow-soft, rgba(220, 38, 38, 0.08));
+  border: 1px solid var(--red-border, rgba(220, 38, 38, 0.25));
+}
+
+.estimating-workspace-progress-stage--complete {
+  color: var(--green);
+  background: var(--green-glow, rgba(22, 163, 74, 0.1));
+  border: 1px solid rgba(22, 163, 74, 0.25);
+}
+
+.estimating-workspace-progress-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: currentColor;
+  color: #fff;
+  opacity: 0.95;
+}
+
+.estimating-workspace-progress-stage--locked .estimating-workspace-progress-num {
+  background: var(--text-muted);
+}
+
+.estimating-workspace-progress-stage--active .estimating-workspace-progress-num {
+  background: var(--red);
+  color: #fff;
+}
+
+.estimating-workspace-progress-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.estimating-workspace-progress-connector {
+  flex: 1;
+  height: 2px;
+  min-width: 16px;
+  margin: 0 8px;
+  background: var(--border);
+  border-radius: 1px;
+}
+
+.estimating-workspace-progress-connector--done {
+  background: var(--green);
+  opacity: 0.5;
+}
+
+.estimating-workspace-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.estimating-workspace-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.estimating-workspace-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-base);
+}
+
+.estimating-workspace-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.estimating-workspace-card-status {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.estimating-workspace-card-status--locked {
+  color: var(--text-muted);
+  background: var(--bg-surface);
+}
+
+.estimating-workspace-card-status--active,
+.estimating-workspace-card-status--ready {
+  color: var(--red);
+  background: var(--red-glow-soft, rgba(220, 38, 38, 0.1));
+}
+
+.estimating-workspace-card-status--complete {
+  color: var(--green);
+  background: var(--green-glow, rgba(22, 163, 74, 0.15));
+}
+
+.estimating-workspace-card-body {
+  padding: 20px;
+}
+
+.estimating-workspace-card-placeholder {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.estimating-workspace-card-subtext {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Stage 1: Takeoff summary (when takeoff exists) */
+.estimating-workspace-takeoff-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.estimating-workspace-takeoff-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.estimating-workspace-takeoff-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.estimating-workspace-takeoff-badge--complete {
+  color: var(--green);
+  background: var(--green-glow, rgba(22, 163, 74, 0.15));
+}
+
+.estimating-workspace-takeoff-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.estimating-workspace-takeoff-categories-wrap {
+  margin-top: 4px;
+}
+
+.estimating-workspace-takeoff-categories-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.estimating-workspace-takeoff-categories-toggle:hover {
+  color: var(--text-primary);
+}
+
+.estimating-workspace-takeoff-categories-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.estimating-workspace-takeoff-categories-list {
+  margin: 8px 0 0;
+  padding: 0 0 0 16px;
+  list-style: none;
+}
+
+.estimating-workspace-takeoff-category-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.estimating-workspace-takeoff-category-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.estimating-workspace-takeoff-category-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.estimating-workspace-takeoff-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.estimating-workspace-takeoff-actions-sep {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.estimating-workspace-takeoff-rerun,
+.estimating-workspace-takeoff-view-full {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+
+.estimating-workspace-takeoff-rerun:hover,
+.estimating-workspace-takeoff-view-full:hover {
+  color: var(--text-primary);
+}
+
+.estimating-workspace-build-btn {
+  margin-top: 8px;
+}
+
+/* Stage 2: Locked state */
+.estimating-workspace-card--locked .estimating-workspace-card-body {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.estimating-workspace-stage-locked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--bg-base);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.estimating-workspace-stage-locked-icon {
+  font-size: 18px;
+  opacity: 0.8;
+}
+.estimating-workspace-stage-locked-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Stage 2: No subs yet — trade rows + Add Sub */
+.estimating-workspace-bidsheet-empty {
+  margin-top: 12px;
+}
+.estimating-workspace-trade-rows {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.estimating-workspace-trade-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.estimating-workspace-trade-row:last-child {
+  border-bottom: none;
+}
+.estimating-workspace-trade-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.estimating-workspace-trade-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.estimating-workspace-add-sub-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimating-workspace-add-sub-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: rgba(220, 38, 38, 0.04);
+}
+.estimating-workspace-add-sub-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.estimating-workspace-add-sub-form .estimate-wizard-input {
+  min-width: 100px;
+  max-width: 140px;
+}
+.estimating-workspace-trade-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.estimating-workspace-trade-pill--none {
+  color: var(--text-muted);
+  background: var(--bg-base);
+}
+.estimating-workspace-add-custom-trade {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.estimating-workspace-add-custom-trade .estimate-wizard-input {
+  width: 180px;
+}
+.estimating-workspace-skip-bidsheet {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+.estimating-workspace-skip-bidsheet:hover {
+  color: var(--text-primary);
+}
+
+/* Stage 2: Subs exist — table */
+.estimating-workspace-bidsheet-table-wrap {
+  margin-top: 12px;
+}
+.estimating-workspace-bidsheet-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.estimating-workspace-bidsheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.estimating-workspace-bidsheet-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.estimating-workspace-bidsheet-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.estimating-workspace-bid-row--awarded {
+  background: rgba(22, 163, 74, 0.06);
+}
+.estimating-workspace-bid-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.estimating-workspace-bid-status--pending {
+  color: var(--text-muted);
+  background: var(--bg-base);
+}
+.estimating-workspace-bid-status--viewed {
+  color: var(--blue, #2563eb);
+  background: rgba(37, 99, 235, 0.12);
+}
+.estimating-workspace-bid-status--bid_received {
+  color: var(--amber, #d97706);
+  background: rgba(217, 119, 6, 0.12);
+}
+.estimating-workspace-bid-status--awarded {
+  color: var(--green);
+  background: var(--green-glow, rgba(22, 163, 74, 0.15));
+}
+.estimating-workspace-bid-status--declined {
+  color: var(--red, #dc2626);
+  background: rgba(220, 38, 38, 0.12);
+}
+.estimating-workspace-bid-status-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.estimating-workspace-bid-status-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.estimating-workspace-card-meta {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+.estimating-workspace-card-refresh {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--link, var(--blue, #2563eb));
+  cursor: pointer;
+  text-decoration: underline;
+}
+.estimating-workspace-card-refresh:hover {
+  text-decoration: none;
+}
+.estimating-workspace-bid-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.estimating-workspace-bid-action-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-base);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimating-workspace-bid-action-btn:hover {
+  background: var(--bg-elevated);
+}
+.estimating-workspace-award-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.estimating-workspace-award-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: var(--green);
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimating-workspace-award-btn:hover {
+  background: #15803d;
+}
+.estimating-workspace-add-another-sub {
+  margin-top: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+.estimating-workspace-add-another-sub:hover {
+  color: var(--text-primary);
+}
+.estimating-workspace-ready-nudge {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--green-glow, rgba(22, 163, 74, 0.1));
+  border: 1px solid rgba(22, 163, 74, 0.25);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green);
+  text-align: center;
+}
+
+/* Stage 3: Build Estimate summary and CTA */
+.estimating-workspace-build-summary {
+  margin-top: 12px;
+}
+.estimating-workspace-build-summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.estimating-workspace-build-summary-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.estimating-workspace-build-summary-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 120px;
+}
+.estimating-workspace-build-summary-val {
+  color: var(--text-secondary);
+}
+.estimating-workspace-build-note {
+  margin: 0 0 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.estimating-workspace-build-cta {
+  display: inline-block;
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  background: var(--red);
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.estimating-workspace-build-cta:hover {
+  background: var(--red-mid, #b91c1c);
+  color: #fff;
+}
+.estimating-workspace-build-blank {
+  display: block;
+  margin-top: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+.estimating-workspace-build-blank:hover {
+  color: var(--text-primary);
+}
+
+/* ----- Bid portal (public /bid/:token) ----- */
+.bid-portal--page {
+  min-height: 100vh;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.bid-portal__inner {
+  flex: 1;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+}
+
+/* ----- Estimate portal (public /estimate/:token) ----- */
+.estimate-portal--page {
+  min-height: 100vh;
+  background: #f7f6f3;
+  display: flex;
+  flex-direction: column;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.estimate-portal__inner {
+  flex: 1;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+}
+.estimate-portal-card {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 28px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+}
+.estimate-portal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a24);
+  margin: 0 0 0.5rem;
+}
+.estimate-portal-message {
+  font-size: 0.9375rem;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+}
+.estimate-portal-footer {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  padding: 32px 0;
+  background: transparent;
+}
+.estimate-portal-footer__text {
+  font-size: 12px;
+}
+.estimate-portal-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+}
+.estimate-portal-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.estimate-portal-spinner__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red, #dc2626);
+  animation: estimate-portal-spinner-bounce 0.6s ease-in-out infinite alternate;
+}
+.estimate-portal-spinner__dot:nth-child(2) { animation-delay: 0.1s; }
+.estimate-portal-spinner__dot:nth-child(3) { animation-delay: 0.2s; }
+@keyframes estimate-portal-spinner-bounce {
+  to { transform: translateY(-8px); opacity: 0.6; }
+}
+.estimate-portal-card--success .estimate-portal-title,
+.estimate-portal-card--success .estimate-portal-message {
+  color: var(--green, #16a34a);
+}
+.estimate-portal-card--success .estimate-portal-message {
+  margin-bottom: 1rem;
+}
+.estimate-portal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 1rem;
+}
+.estimate-portal-meta__project,
+.estimate-portal-meta__total {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #64748b);
+}
+.estimate-portal-meta__total {
+  font-weight: 600;
+}
+
+/* Estimate portal doc: DM Serif Display for company name */
+.estimate-portal-doc .estimate-doc__company-name.estimate-portal-doc__company-name {
+  font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+}
+
+/* Payment schedule card */
+.estimate-portal-milestones {
+  padding: 20px 32px 24px;
+  border-top: 1px solid var(--border);
+}
+.estimate-portal-milestones__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+.estimate-portal-milestones__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.estimate-portal-milestones__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.estimate-portal-milestones__item:last-child { border-bottom: none; }
+.estimate-portal-milestones__label { flex: 1; }
+.estimate-portal-milestones__pct {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: right;
+}
+.estimate-portal-milestones__amount {
+  font-weight: 600;
+  min-width: 80px;
+  text-align: right;
+}
+
+/* Request changes inline */
+.estimate-portal-request-changes {
+  margin-top: 20px;
+  padding: 20px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.estimate-portal-request-changes__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.estimate-portal-request-changes__input {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+.estimate-portal-request-changes__actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Modal overlay */
+.estimate-portal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.estimate-portal-modal {
+  background: var(--bg-surface, #fff);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+.estimate-portal-modal__title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--text-primary);
+}
+.estimate-portal-modal__text {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 20px;
+}
+.estimate-portal-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Action bar — fixed to viewport bottom */
+.estimate-portal-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface, #fff);
+  border-top: 1px solid var(--border);
+  padding: 16px 24px;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+}
+.estimate-portal-action-bar__inner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+/* Reserve space so content isn't hidden behind fixed bar */
+.estimate-portal__inner.estimate-portal__inner--with-actions {
+  padding-bottom: 100px;
+}
+.estimate-portal-action-bar__error {
+  font-size: 13px;
+  color: var(--red, #dc2626);
+  margin: 0 0 10px;
+}
+.estimate-portal-action-bar__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.estimate-portal-action-bar__approve {
+  flex: 1;
+  min-width: 160px;
+}
+.estimate-portal-action-bar__decline {
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.estimate-portal-action-bar__decline:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* Portal buttons */
+.estimate-portal-btn {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.estimate-portal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.estimate-portal-btn--primary {
+  background: var(--red, #dc2626);
+  color: #fff;
+  border-color: var(--red, #dc2626);
+}
+.estimate-portal-btn--primary:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+.estimate-portal-btn--ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.estimate-portal-btn--ghost:hover:not(:disabled) {
+  background: var(--bg-base);
+}
+.estimate-portal-btn--danger {
+  background: transparent;
+  color: var(--red, #dc2626);
+  border-color: var(--red, #dc2626);
+}
+.estimate-portal-btn--danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+/* Approved success full page */
+.estimate-portal-success-page {
+  text-align: center;
+  padding: 60px 28px;
+}
+.estimate-portal-success-page__icon {
+  font-size: 3rem;
+  color: var(--green, #16a34a);
+  margin-bottom: 16px;
+  line-height: 1;
+}
+.estimate-portal-success-page__project {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.estimate-portal-success-page__total {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+.estimate-portal-success-page__next {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  background: var(--bg-base);
+  border-radius: 10px;
+  text-align: center;
+}
+.estimate-portal-success-page__next-icon {
+  font-size: 1.5rem;
+}
+.bid-portal-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.bid-portal-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+}
+.bid-portal-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.bid-portal-spinner__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-accent, #c0392b);
+  animation: bid-portal-spinner-bounce 0.6s ease-in-out infinite alternate;
+}
+.bid-portal-spinner__dot:nth-child(2) { animation-delay: 0.1s; }
+.bid-portal-spinner__dot:nth-child(3) { animation-delay: 0.2s; }
+@keyframes bid-portal-spinner-bounce {
+  to { transform: translateY(-8px); opacity: 0.6; }
+}
+.bid-portal-card {
+  background: var(--color-surface-elevated, #fff);
+  border-radius: var(--radius-lg, 0.75rem);
+  border: 1px solid var(--color-border, #e2e8f0);
+  box-shadow: var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.1));
+  overflow: hidden;
+}
+.bid-portal-card__body {
+  padding: 1.75rem 1.5rem;
+}
+.bid-portal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text-dark, #1a1a24);
+  margin: 0 0 0.5rem;
+}
+.bid-portal-message,
+.bid-portal-subtitle {
+  font-size: 0.9375rem;
+  color: var(--color-muted, #64748b);
+  margin: 0 0 1rem;
+}
+.bid-portal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 1rem;
+}
+.bid-portal-meta__project,
+.bid-portal-meta__trade {
+  font-size: 0.8125rem;
+  color: var(--color-text-mid, #4a4a5e);
+}
+.bid-portal-meta__trade {
+  font-weight: 600;
+  color: var(--color-accent, #c0392b);
+}
+.bid-portal-address {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  margin: 0 0 0.5rem;
+}
+.bid-portal-trade {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  margin: 0 0 1.25rem;
+}
+.bid-portal-scope {
+  margin-bottom: 1.5rem;
+}
+.bid-portal-scope__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  margin: 0 0 0.75rem;
+}
+.bid-portal-scope__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.bid-portal-scope__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+}
+.bid-portal-scope__item:last-child {
+  border-bottom: none;
+}
+.bid-portal-scope__desc {
+  color: var(--color-text-dark);
+  flex: 1;
+  min-width: 0;
+}
+.bid-portal-scope__qty {
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+.bid-portal-scope__empty {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  margin: 0;
+  font-style: italic;
+}
+.bid-portal-card--header .bid-portal-card__body {
+  padding-bottom: 1.25rem;
+}
+.bid-portal-card--success {
+  border-color: var(--green, #16a34a);
+  background: #f0fdf4;
+}
+.bid-portal-card--success .bid-portal-title,
+.bid-portal-card--success .bid-portal-message {
+  color: #15803d;
+}
+.bid-portal-header__project {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text-dark);
+  margin: 0 0 0.25rem;
+}
+.bid-portal-header__address {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  margin: 0 0 0.5rem;
+}
+.bid-portal-header__trade {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  margin: 0;
+}
+.bid-portal-form__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  margin: 0 0 1rem;
+}
+.bid-portal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.bid-portal-form__error {
+  font-size: 0.8125rem;
+  color: var(--red, #dc2626);
+  padding: 0.5rem 0.75rem;
+  background: #fef2f2;
+  border-radius: var(--radius-md);
+}
+.bid-portal-form__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+}
+.bid-portal-form__required { color: var(--color-accent); }
+.bid-portal-form__hint {
+  font-weight: 400;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.bid-portal-form__input,
+.bid-portal-form__textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  background: #fff;
+}
+.bid-portal-form__input--currency {
+  max-width: 12rem;
+  font-variant-numeric: tabular-nums;
+}
+.bid-portal-form__textarea {
+  resize: vertical;
+  min-height: 4rem;
+}
+.bid-portal-form__file {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+.bid-portal-form__file-name {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: 0.25rem;
+}
+.bid-portal-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.bid-portal-btn {
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.bid-portal-btn--primary {
+  background: var(--color-accent, #c0392b);
+  color: #fff;
+  border: none;
+}
+.bid-portal-btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover, #e84040);
+  color: #fff;
+}
+.bid-portal-btn--primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.bid-portal-btn--ghost {
+  background: transparent;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+.bid-portal-btn--ghost:hover:not(:disabled) {
+  color: var(--color-text-dark);
+  border-color: var(--color-text-mid);
+}
+.bid-portal-btn--danger {
+  background: transparent;
+  color: var(--red, #dc2626);
+  border: 1px solid var(--red);
+}
+.bid-portal-btn--danger:hover:not(:disabled) {
+  background: #fef2f2;
+}
+.bid-portal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.bid-portal-modal {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+  padding: 1.5rem;
+  max-width: 400px;
+  width: 100%;
+}
+.bid-portal-modal__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0 0 0.5rem;
+}
+.bid-portal-modal__text {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  margin: 0 0 1.25rem;
+}
+.bid-portal-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+.bid-portal-footer {
+  padding: 1rem 1.5rem;
+  text-align: center;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface, #f8fafc);
+}
+.bid-portal-footer__text {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+/* BID PORTAL (public, unauthenticated) */
+.bid-portal {
+  min-height: 100vh;
+  background: #f7f6f3;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.bid-portal-header {
+  background: #fff;
+  padding: 16px 32px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.bid-portal-header .bid-portal-header__wordmark {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #1a1a24);
+}
+.bid-portal-header .bid-portal-header__project-trade {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #64748b);
+}
+.bid-portal-body {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.bid-portal-card {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 28px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+}
+.bid-portal-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted, #64748b);
+  margin: 0 0 6px;
+}
+.bid-portal-scope-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  font-size: 13px;
+}
+.bid-portal-submit-btn {
+  width: 100%;
+  height: 48px;
+  border-radius: 10px;
+  border: none;
+  background: var(--red, #dc2626);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.bid-portal-submit-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.bid-portal-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.bid-portal-decline-btn {
+  width: 100%;
+  height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+.bid-portal-decline-btn:hover:not(:disabled) {
+  background: var(--bg-base, #f8fafc);
+  color: var(--text, #374151);
+}
+.bid-portal-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 60px 0;
+}
+.bid-portal-success .bid-portal-success__icon {
+  color: var(--green, #16a34a);
+  font-size: 2.5rem;
+  margin-bottom: 16px;
+}
+.bid-portal-success .bid-portal-success__heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a24);
+  margin: 0 0 8px;
+}
+.bid-portal-success .bid-portal-success__subtext {
+  font-size: 0.9375rem;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+}
+.bid-portal-footer {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  padding: 32px 0;
+  background: transparent;
+  border-top: none;
+}
+.bid-portal-footer .bid-portal-footer__text {
+  font-size: 12px;
+}

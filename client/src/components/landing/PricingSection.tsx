@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { API_BASE } from '@/api/config'
+import { PricingCard } from '@/components/landing/PricingCard'
 
 /** Flat plan from API (one price per entry). */
 interface FlatPlan {
@@ -49,6 +49,14 @@ function plansToProducts(plans: FlatPlan[]): StripeProductPlan[] {
     })),
   }))
 }
+
+const DEFAULT_FEATURES = [
+  'Full project management suite',
+  'Estimates, takeoffs & invoicing',
+  'Crew & payroll management',
+  'Client communication portal',
+  'Subcontractor bid collection',
+]
 
 function parseFeatures(metadata: Record<string, string>): string[] {
   const raw = metadata?.features
@@ -123,7 +131,7 @@ export function PricingSection() {
           </p>
         </div>
 
-        {/* Billing frequency: subscription offer */}
+        {/* Billing frequency */}
         <div className="reveal mb-4">
           <p className="text-sm text-text-mid mb-3">Billing frequency</p>
           <div className="inline-flex bg-light-bg-2 border border-black/10 rounded-full p-1">
@@ -144,7 +152,7 @@ export function PricingSection() {
               }`}
             >
               Yearly
-              <span className="ml-1.5 bg-accent text-white text-[11px] font-semibold py-0.5 px-2 rounded-full">
+              <span className="ml-1.5 bg-[#22c55e] text-white text-[11px] font-semibold py-0.5 px-2 rounded-full">
                 Save 20%
               </span>
             </button>
@@ -167,87 +175,44 @@ export function PricingSection() {
           </div>
         )}
         {!loading && !error && products.length > 0 && (
-          <div className="grid md:grid-cols-3 gap-5 max-w-[1000px] mx-auto items-stretch reveal mt-12">
+          <div className="grid md:grid-cols-3 gap-6 max-w-[1000px] mx-auto items-stretch reveal mt-12">
             {products.map((product) => {
               const prices = Array.isArray(product.prices) ? product.prices : []
               const priceMonth = prices.find((p) => p.interval === 'month')
               const priceYear = prices.find((p) => p.interval === 'year')
               const price = yearly ? priceYear ?? priceMonth : priceMonth ?? priceYear
-              const features = parseFeatures(product.metadata || {})
-              const popular = product.metadata?.popular === 'true'
-              const displayAmount = price
-                ? (price.amount / 100).toFixed(price.amount % 100 === 0 ? 0 : 2)
-                : '—'
+              const featuresFromMeta = parseFeatures(product.metadata || {})
+              const features = featuresFromMeta.length > 0 ? featuresFromMeta : DEFAULT_FEATURES
+              const meta = product.metadata || {}
+              const isStandard = product.name.toLowerCase() === 'standard'
+
+              // When Stripe metadata is empty, show reference-style content so the card matches the design
+              const offerBadge =
+                meta.offer_badge ||
+                (meta.limited_time_offer === 'true' ? 'LIMITED TIME OFFER' : undefined) ||
+                (isStandard ? 'LIMITED TIME OFFER' : undefined)
+              const originalPriceFormatted =
+                meta.original_price_formatted || (isStandard ? '$1,000 / mo' : undefined)
+              const discountBadge = meta.discount_badge || (isStandard ? '50% OFF' : undefined)
+              const description =
+                product.description ||
+                (isStandard ? 'Everything you need to run your business.' : 'Subscribe to this plan.')
 
               return (
-                <div
+                <PricingCard
                   key={product.productId}
-                  className={`relative flex flex-col rounded-[20px] p-10 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border ${
-                    popular
-                      ? 'bg-gray-900 border-accent/30 scale-[1.02] shadow-[0_30px_80px_rgba(0,0,0,0.25),0_0_60px_rgba(192,57,43,0.1)]'
-                      : 'bg-white border-black/10'
-                  }`}
-                >
-                  {popular && (
-                    <>
-                      <div className="absolute inset-0 rounded-[20px] overflow-hidden pointer-events-none">
-                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-accent to-accent-hover rounded-t-[20px]" />
-                      </div>
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-white font-sora text-[11px] font-bold tracking-wider uppercase py-1 px-4 rounded-full whitespace-nowrap shadow-[0_4px_20px_var(--color-accent-glow)]">
-                        Most Popular
-                      </div>
-                    </>
-                  )}
-                  <div className={popular ? 'text-white font-sora text-lg font-bold mb-1' : 'font-sora text-lg font-bold text-text-dark mb-1'}>
-                    {product.name}
-                  </div>
-                  <div className={popular ? 'text-gray-300 text-[13px] mb-7' : 'text-[13px] text-text-light mb-7'}>
-                    {product.description || 'Subscribe to this plan.'}
-                  </div>
-                  <div className="mb-1">
-                    <span className={popular ? 'font-sora text-5xl font-extrabold text-white tracking-tight leading-none' : 'font-sora text-5xl font-extrabold text-text-dark tracking-tight leading-none'}>
-                      {price?.currency === 'usd' ? `$${displayAmount}` : displayAmount}
-                    </span>
-                    <span className={popular ? 'text-sm text-gray-400' : 'text-sm text-text-light'}>
-                      /month
-                    </span>
-                  </div>
-                  <p className="text-xs text-text-light mb-6">
-                    {yearly ? 'Billed annually' : 'Billed monthly'}
-                  </p>
-                  <div className={`h-px mb-6 ${popular ? 'bg-white/20' : 'bg-black/10'}`} />
-                  <ul className="list-none flex flex-col gap-3 mb-8">
-                    {features.length > 0 ? features.map((f) => (
-                      <li
-                        key={f}
-                        className={`flex items-start gap-2.5 text-sm leading-snug ${popular ? 'text-gray-300' : 'text-text-mid'}`}
-                      >
-                        <span
-                          className={`w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-accent text-[10px] ${
-                            popular ? 'bg-accent/30' : 'bg-accent/10'
-                          }`}
-                        >
-                          ✓
-                        </span>
-                        {f}
-                      </li>
-                    )) : (
-                      <li className={`text-sm ${popular ? 'text-gray-400' : 'text-text-light'}`}>
-                        All features included.
-                      </li>
-                    )}
-                  </ul>
-                  <Link
-                    to="/sign-up"
-                    className={`mt-auto block w-full py-3.5 rounded-lg font-sora font-semibold text-[15px] text-center no-underline transition-all ${
-                      popular
-                        ? 'bg-accent text-white shadow-[0_4px_20px_var(--color-accent-glow)] hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_var(--color-accent-glow)]'
-                        : 'bg-transparent border border-black/10 text-text-dark hover:bg-light-bg-2'
-                    }`}
-                  >
-                    Get Started
-                  </Link>
-                </div>
+                  name={product.name}
+                  description={description}
+                  price={price ? { amount: price.amount, currency: price.currency, formatted: price.formatted, interval: price.interval } : null}
+                  features={features}
+                  cta="Get Started"
+                  offerBadge={offerBadge}
+                  originalPriceFormatted={originalPriceFormatted}
+                  discountBadge={discountBadge}
+                  billingNote={meta.billing_note || (yearly ? 'Billed annually — lock in this rate while it lasts.' : 'Billed monthly — lock in this rate while it lasts.')}
+                  disclaimer="No contracts — cancel anytime."
+                  ctaHref="/sign-up"
+                />
               )
             })}
           </div>

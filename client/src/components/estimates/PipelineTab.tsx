@@ -4,6 +4,7 @@ import type { JobExpense } from '@/types/global'
 import type { Job } from '@/types/global'
 import { DocumentDetailModal } from './DocumentDetailModal'
 import { PIPELINE_STAGES, formatCurrency, pct } from '@/lib/pipeline'
+import { formatRelative } from '@/lib/date'
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
   draft: 'var(--text-muted)',
@@ -11,6 +12,7 @@ const STAGE_COLORS: Record<PipelineStage, string> = {
   accepted: 'var(--est-amber)',
   invoiced: 'var(--est-amber)',
   paid: 'var(--green)',
+  declined: 'var(--text-muted)',
 }
 
 interface PipelineTabProps {
@@ -25,11 +27,13 @@ interface PipelineTabProps {
 export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineRefresh }: PipelineTabProps) {
   /** When set, show full document modal (estimate/invoice) with API-backed actions */
   const [documentModal, setDocumentModal] = useState<{ id: string; type: 'estimate' | 'invoice' } | null>(null)
+  const [showDeclined, setShowDeclined] = useState(false)
 
   const filteredPipeline = useMemo(() => {
-    if (!jobFilterId) return pipeline
-    return pipeline.filter((i) => i.job_id === jobFilterId)
-  }, [pipeline, jobFilterId])
+    let list = jobFilterId ? pipeline.filter((i) => i.job_id === jobFilterId) : pipeline
+    if (!showDeclined) list = list.filter((i) => i.stage !== 'declined')
+    return list
+  }, [pipeline, jobFilterId, showDeclined])
 
   const filteredExpenses = useMemo(() => {
     if (!jobFilterId) return expenses
@@ -45,6 +49,9 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
   )
 
   const totalPipeline = filteredPipeline.reduce((s, i) => s + i.amount, 0)
+  const sentItems = filteredPipeline.filter((i) => i.stage === 'sent')
+  const sentEstimateOpened = sentItems.filter((i) => i.type === 'estimate' && i.viewed_at).length
+  const sentEstimateUnopened = sentItems.filter((i) => i.type === 'estimate' && !i.viewed_at).length
   const totalInvoiced = filteredPipeline
     .filter((i) => ['invoiced', 'paid'].includes(i.stage))
     .reduce((s, i) => s + i.amount, 0)
@@ -80,6 +87,14 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
             bar: 'var(--purple)',
           },
           {
+            label: 'Sent',
+            val: formatCurrency(sentItems.reduce((s, i) => s + i.amount, 0)),
+            sub: sentItems.filter((i) => i.type === 'estimate').length
+              ? `${sentEstimateOpened} opened, ${sentEstimateUnopened} unopened`
+              : 'Awaiting client',
+            bar: 'var(--blue)',
+          },
+          {
             label: 'Invoiced',
             val: formatCurrency(totalInvoiced),
             sub: 'Awaiting payment',
@@ -110,8 +125,19 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
         ))}
       </div>
 
+      <div className="estimates-pipeline-show-declined">
+        <label className="estimates-pipeline-show-declined-label">
+          <input
+            type="checkbox"
+            checked={showDeclined}
+            onChange={(e) => setShowDeclined(e.target.checked)}
+          />
+          <span>Show declined</span>
+        </label>
+      </div>
+
       <div className="estimates-pipeline-columns">
-        {PIPELINE_STAGES.map((stage) => (
+        {PIPELINE_STAGES.filter((s) => s.key !== 'declined' || showDeclined).map((stage) => (
           <div key={stage.key} className="estimates-pipeline-column">
             <div className="estimates-pipeline-column-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -139,12 +165,18 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
                 const jobParts = item.jobName.split('–').map((s) => s.trim())
                 const jobName = jobParts[0] ?? item.jobName
                 const addr = jobParts[1]
+                const isViewed = item.type === 'estimate' && item.viewed_at
+                const isChangesRequested = item.type === 'estimate' && item.estimateStatus === 'changes_requested'
+                const isAccepted = item.type === 'estimate' && item.stage === 'accepted'
+                const changesPreview = item.changes_requested_message
+                  ? (item.changes_requested_message.slice(0, 80) + (item.changes_requested_message.length > 80 ? '…' : ''))
+                  : ''
                 return (
                   <div
                     key={item.id}
                     role="button"
                     tabIndex={0}
-                    className="estimates-pipeline-card"
+                    className={`estimates-pipeline-card ${isChangesRequested ? 'estimates-pipeline-card--changes-requested' : ''}`}
                     style={{ borderLeftColor: STAGE_COLORS[item.stage] }}
                     onClick={() => setDocumentModal({ id: item.id, type: item.type })}
                     onKeyDown={(e) => {
@@ -154,8 +186,34 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
                       }
                     }}
                   >
+                    {isChangesRequested && (
+                      <div className="estimates-pipeline-card-banner estimates-pipeline-card-banner--amber">
+                        <span className="estimates-pipeline-card-banner-title">Client requested changes</span>
+                        {changesPreview && (
+                          <p className="estimates-pipeline-card-banner-preview">{changesPreview}</p>
+                        )}
+                        <button
+                          type="button"
+                          className="estimates-pipeline-card-banner-action"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDocumentModal({ id: item.id, type: item.type })
+                          }}
+                        >
+                          Revise &amp; Resend →
+                        </button>
+                      </div>
+                    )}
                     <div className="estimates-pipeline-card-job">{jobName}</div>
                     {addr && <div className="estimates-pipeline-card-addr">{addr}</div>}
+                    {isViewed && (
+                      <div className="estimates-pipeline-card-opened">
+                        <span className="estimates-pipeline-card-opened-icon" aria-hidden>👁</span>
+                        <span className="estimates-pipeline-card-opened-text">
+                          Opened {formatRelative(item.viewed_at)}
+                        </span>
+                      </div>
+                    )}
                     <div className="estimates-pipeline-card-amount">
                       {formatCurrency(item.amount)}
                     </div>
@@ -180,6 +238,18 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
                           {marginPct}% margin
                         </div>
                       </>
+                    )}
+                    {isAccepted && (
+                      <button
+                        type="button"
+                        className="estimates-pipeline-card-convert"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDocumentModal({ id: item.id, type: item.type })
+                        }}
+                      >
+                        Convert to Job →
+                      </button>
                     )}
                   </div>
                 )

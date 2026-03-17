@@ -31,8 +31,18 @@ import { EmployeeHoursPage } from '@/routes/EmployeeHoursPage'
 import { EmployeeJobsPage } from '@/routes/EmployeeJobsPage'
 import { EmployeeProfilePage } from '@/routes/EmployeeProfilePage'
 import { MessagesPage } from '@/pages/MessagesPage'
+import { BidPortal } from '@/pages/BidPortal'
+import { EstimatePortal } from '@/pages/EstimatePortal'
 
 export const router = createBrowserRouter([
+  {
+    path: '/bid/:token',
+    element: <BidPortal />,
+  },
+  {
+    path: '/estimate/:token',
+    element: <EstimatePortal />,
+  },
   {
     path: '/',
     element: <RootLayout />,

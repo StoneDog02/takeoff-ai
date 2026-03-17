@@ -45,7 +45,7 @@ export function SendEstimateInvoice({
     setSending(true)
     try {
       if (type === 'estimate') {
-        await estimatesApi.sendEstimate(documentId, emails)
+        await estimatesApi.sendEstimate(documentId, { recipient_emails: emails })
       } else {
         await estimatesApi.sendInvoice(documentId, emails)
       }

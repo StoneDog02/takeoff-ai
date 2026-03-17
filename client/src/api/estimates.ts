@@ -159,15 +159,21 @@ export const estimatesApi = {
     return { invoice: data.invoice, estimate: data.estimate ?? undefined }
   },
 
+  /** Send estimate to client: sets client_token, status sent, project awaiting_approval; optional client/project/gc names for email. */
   async sendEstimate(
     estimateId: string,
-    recipient_emails: string[]
+    payload: {
+      recipient_emails: string[]
+      client_name?: string
+      project_name?: string
+      gc_name?: string
+    }
   ): Promise<Estimate> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${estimateId}/send`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient_emails }),
+      body: JSON.stringify(payload),
     })
     return handleResponse<Estimate>(res)
   },

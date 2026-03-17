@@ -111,7 +111,7 @@ function ProjectHealthCard({
 }) {
   const budgetPct = pct(project.spent, project.budget)
   const budgetColor = budgetPct > 95 ? '#EF4444' : budgetPct > 80 ? '#F59E0B' : '#10B981'
-  const st = STATUS_CONFIG[project.status]
+  const st = STATUS_CONFIG[project.status] ?? STATUS_CONFIG.active
   return (
     <div
       role={onClick ? 'button' : undefined}
@@ -456,6 +456,7 @@ export function DashboardPage() {
     : chatConversations
 
   const filteredProjects: ProjectCardData[] = dashboardProjects
+    .filter((p) => (p.status ?? '').toLowerCase().replace(/[\s-]+/g, '_') === 'active')
     .filter(
       (p) =>
         projectSearch === '' ||
@@ -474,7 +475,7 @@ export function DashboardPage() {
       timelineStart: p.timeline_start ? formatDate(p.timeline_start) : '—',
       timelineEnd: p.timeline_end ? formatDate(p.timeline_end) : '—',
       pctTime: p.timeline_pct ?? 0,
-      status: (p.status === 'on_hold' ? 'on-hold' : p.status) as ProjectStatusKey,
+      status: 'active' as ProjectStatusKey,
     }))
 
   const greeting = (() => {

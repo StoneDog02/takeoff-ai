@@ -26,7 +26,13 @@ export function SignUpPage() {
         },
       },
     })
-    if (error) return error.message
+    if (error) {
+      const msg = error.message || ''
+      if (msg.includes('already been registered') || msg.includes('already exists') || msg.toLowerCase().includes('already registered')) {
+        return 'An account with this email already exists. Sign in instead.'
+      }
+      return error.message
+    }
 
     // Create Stripe subscription with 14-day trial when we have a session (e.g. email confirmation disabled)
     if (data.session && form.plan) {

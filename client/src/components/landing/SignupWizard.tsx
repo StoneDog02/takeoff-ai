@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import type { Stripe, StripeElements } from "@stripe/stripe-js";
 import { API_BASE } from "@/api/config";
+import { PricingCard } from "@/components/landing/PricingCard";
+import { getRecaptchaToken, isRecaptchaConfigured } from "@/lib/recaptcha";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,21 @@ export interface SignupPlan {
   currency: string;
   interval: "month" | "year";
   formatted: string;
+}
+
+/** Product from Stripe with nested prices (for signup plan step with monthly/yearly toggle). */
+export interface SignupProduct {
+  productId: string;
+  name: string;
+  description: string;
+  metadata: Record<string, string>;
+  prices: Array<{
+    id: string;
+    amount: number;
+    currency: string;
+    interval: "month" | "year";
+    formatted: string;
+  }>;
 }
 
 export interface SignupWizardForm {
@@ -474,6 +491,29 @@ function Step4({
   );
 }
 
+const SIGNUP_DEFAULT_FEATURES = [
+  "Full project management suite",
+  "Estimates, takeoffs & invoicing",
+  "Crew & payroll management",
+  "Client communication portal",
+  "Subcontractor bid collection",
+];
+
+function parseSignupFeatures(metadata: Record<string, string>): string[] {
+  const raw = metadata?.features;
+  if (!raw || typeof raw !== "string") return [];
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : trimmed.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  } catch {
+    return trimmed.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  }
+}
+
 // ─── Step 5: Plan ──────────────────────────────────────────────────────────────
 
 type Step5Errors = Partial<Record<"plan", string>>;
@@ -484,24 +524,108 @@ function Step5({
   errors,
   onClearError,
   plans,
+  products,
   plansLoading,
+  yearly,
+  setYearlyAndUpdatePlan,
 }: {
   form: SignupWizardForm;
   upd: (key: keyof SignupWizardForm, value: string) => void;
   errors: Step5Errors;
   onClearError: (field: keyof Step5Errors) => void;
   plans: SignupPlan[];
+  products: SignupProduct[];
   plansLoading: boolean;
+  yearly: boolean;
+  setYearlyAndUpdatePlan: (yearly: boolean) => void;
 }) {
+  const useProductCards = products.length > 0;
+  const [openFeaturesKey, setOpenFeaturesKey] = useState<string | null>(null);
+
   return (
     <div>
       <StepHeader title="Choose your plan" sub="All plans include a 14-day free trial. No credit card until you're ready." />
+
+      {useProductCards && (
+        <div style={{ marginBottom: "24px" }}>
+          <p style={{ fontSize: "14px", color: "#666", margin: "0 0 12px" }}>Billing frequency</p>
+          <div
+            style={{
+              display: "inline-flex",
+              background: "#f0eeea",
+              border: "1px solid #e0ddd8",
+              borderRadius: "100px",
+              padding: "4px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setYearlyAndUpdatePlan(false)}
+              style={{
+                padding: "10px 24px",
+                borderRadius: "100px",
+                border: "none",
+                fontSize: "14px",
+                fontWeight: 500,
+                cursor: "pointer",
+                background: !yearly ? "#fff" : "transparent",
+                color: !yearly ? DARK : "#666",
+                boxShadow: !yearly ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              }}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setYearlyAndUpdatePlan(true)}
+              style={{
+                padding: "10px 24px",
+                borderRadius: "100px",
+                border: "none",
+                fontSize: "14px",
+                fontWeight: 500,
+                cursor: "pointer",
+                background: yearly ? "#fff" : "transparent",
+                color: yearly ? DARK : "#666",
+                boxShadow: yearly ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              Yearly
+              <span
+                style={{
+                  background: "#22c55e",
+                  color: "#fff",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: "100px",
+                }}
+              >
+                Save 20%
+              </span>
+            </button>
+          </div>
+          <p style={{ fontSize: "12px", color: "#888", margin: "8px 0 0" }}>
+            {yearly ? "Billed annually" : "Billed monthly"}
+          </p>
+        </div>
+      )}
+
       <Field label="Plan" error={errors.plan}>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: plans.length <= 2 ? "1fr 1fr" : "1fr 1fr 1fr",
-            gap: "12px",
+            gridTemplateColumns: useProductCards
+              ? products.length <= 2
+                ? "1fr 1fr"
+                : "1fr 1fr 1fr"
+              : plans.length <= 2
+                ? "1fr 1fr"
+                : "1fr 1fr 1fr",
+            gap: "24px",
             ...(errors.plan ? { padding: "12px", borderRadius: "10px", border: `2px solid ${ACCENT}` } : {}),
           }}
         >
@@ -510,37 +634,81 @@ function Step5({
               Loading plans…
             </div>
           )}
-          {!plansLoading && plans.length === 0 && (
+          {!plansLoading && !useProductCards && plans.length === 0 && (
             <div style={{ gridColumn: "1 / -1", padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
               No plans available. Please try again later.
             </div>
           )}
-          {!plansLoading && plans.map((p) => (
-            <div
-              key={p.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => { upd("plan", p.id); onClearError("plan"); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { upd("plan", p.id); onClearError("plan"); } }}
-              style={{
-                border: `2px solid ${form.plan === p.id ? ACCENT : BORDER}`,
-                borderRadius: "10px", background: "#fff", padding: "20px 16px",
-                cursor: "pointer", transition: "border-color 0.15s",
-              }}
-            >
-              <div style={{ fontSize: "16px", fontWeight: "700", color: DARK, marginBottom: "4px" }}>
-                {p.name}
-              </div>
-              <div style={{ marginBottom: "8px" }}>
-                <span style={{ fontSize: "24px", fontWeight: "700", color: form.plan === p.id ? ACCENT : DARK }}>
-                  {p.formatted}
-                </span>
-              </div>
-              <p style={{ fontSize: "12px", color: "#888", margin: 0 }}>
-                {p.interval === "year" ? "Billed annually" : "Billed monthly"}
-              </p>
-            </div>
-          ))}
+
+          {!plansLoading && useProductCards &&
+            products.map((product) => {
+              const prices = product.prices || [];
+              const priceMonth = prices.find((p) => p.interval === "month");
+              const priceYear = prices.find((p) => p.interval === "year");
+              const price = yearly ? priceYear ?? priceMonth : priceMonth ?? priceYear;
+              const featuresFromMeta = parseSignupFeatures(product.metadata || {});
+              const features = featuresFromMeta.length > 0 ? featuresFromMeta : SIGNUP_DEFAULT_FEATURES;
+              const meta = product.metadata || {};
+              const isStandard = product.name.toLowerCase() === "standard";
+              const offerBadge =
+                meta.offer_badge ||
+                (meta.limited_time_offer === "true" ? "LIMITED TIME OFFER" : undefined) ||
+                (isStandard ? "LIMITED TIME OFFER" : undefined);
+              const originalPriceFormatted = meta.original_price_formatted || (isStandard ? "$1,000 / mo" : undefined);
+              const discountBadge = meta.discount_badge || (isStandard ? "50% OFF" : undefined);
+              const description =
+                product.description ||
+                (isStandard ? "Everything you need to run your business." : "Subscribe to this plan.");
+              const selected = price ? form.plan === price.id : false;
+
+              return (
+                <PricingCard
+                  key={product.productId}
+                  name={product.name}
+                  description={description}
+                  price={price ? { amount: price.amount, currency: price.currency, formatted: price.formatted, interval: price.interval } : null}
+                  features={features}
+                  cta="Select plan"
+                  offerBadge={offerBadge}
+                  originalPriceFormatted={originalPriceFormatted}
+                  discountBadge={discountBadge}
+                  disclaimer="No contracts — cancel anytime."
+                  selectable
+                  selected={selected}
+                  onSelect={() => {
+                    if (price) {
+                      upd("plan", price.id);
+                      onClearError("plan");
+                    }
+                  }}
+                  ctaHref={undefined}
+                  collapsibleFeatures
+                  featuresOpen={openFeaturesKey === product.productId}
+                  onToggleFeatures={() => setOpenFeaturesKey((k) => (k === product.productId ? null : product.productId))}
+                />
+              );
+            })}
+
+          {!plansLoading && !useProductCards &&
+            plans.map((p) => (
+              <PricingCard
+                key={p.id}
+                name={p.name}
+                description="Everything you need to run your business."
+                price={{ amount: p.amount, currency: p.currency, formatted: p.formatted, interval: p.interval }}
+                features={[]}
+                cta="Select plan"
+                billingNote={p.interval === "year" ? "Billed annually" : "Billed monthly"}
+                disclaimer="No contracts — cancel anytime."
+                selectable
+                selected={form.plan === p.id}
+                onSelect={() => { upd("plan", p.id); onClearError("plan"); }}
+                ctaHref={undefined}
+                collapsibleFeatures
+                featuresOpen={openFeaturesKey === p.id}
+                onToggleFeatures={() => setOpenFeaturesKey((k) => (k === p.id ? null : p.id))}
+              />
+            ))}
         </div>
       </Field>
     </div>
@@ -747,7 +915,9 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plans, setPlans] = useState<SignupPlan[]>([]);
+  const [products, setProducts] = useState<SignupProduct[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
+  const [yearly, setYearly] = useState(false);
   const [form, setForm] = useState<SignupWizardForm>({
     firstName: "",
     lastName: "",
@@ -772,13 +942,17 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/stripe/plans`);
+        const res = await fetch(`${API_BASE}/stripe/plans`, { cache: "no-store" });
         const data = await res.json().catch(() => ({}));
-        if (!cancelled && Array.isArray((data as { plans?: SignupPlan[] }).plans)) {
-          setPlans((data as { plans: SignupPlan[] }).plans);
-        }
+        if (cancelled) return;
+        const payload = data as { plans?: SignupPlan[]; products?: SignupProduct[] };
+        if (Array.isArray(payload.plans)) setPlans(payload.plans);
+        if (Array.isArray(payload.products)) setProducts(payload.products);
       } catch {
-        if (!cancelled) setPlans([]);
+        if (!cancelled) {
+          setPlans([]);
+          setProducts([]);
+        }
       } finally {
         if (!cancelled) setPlansLoading(false);
       }
@@ -787,6 +961,19 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
   }, []);
 
   const upd = (key: keyof SignupWizardForm, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const setYearlyAndUpdatePlan = (newYearly: boolean) => {
+    setYearly(newYearly);
+    if (!form.plan) return;
+    const product = products.find((p) => p.prices.some((pr) => pr.id === form.plan));
+    if (product) {
+      const price = newYearly
+        ? product.prices.find((p) => p.interval === "year")
+        : product.prices.find((p) => p.interval === "month");
+      if (price) upd("plan", price.id);
+    }
+  };
+
   const toggleTrade = (t: string) =>
     setForm((f) => ({
       ...f,
@@ -812,13 +999,30 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     return err;
   };
 
-  const handleStepNext = () => {
+  const handleStepNext = async () => {
     if (step === 1) {
       const errs = validateStep1();
       const hasErrors = Object.keys(errs).length > 0;
       setStep1Errors(errs);
       if (hasErrors) return;
       setStep1Errors({});
+      const email = form.email.trim();
+      if (email) {
+        try {
+          const res = await fetch(
+            `${API_BASE}/auth/check-email?email=${encodeURIComponent(email)}`
+          );
+          const data = (await res.json().catch(() => ({}))) as { exists?: boolean };
+          if (data.exists) {
+            setStep1Errors({
+              email: "An account with this email already exists. Sign in instead.",
+            });
+            return;
+          }
+        } catch {
+          // On network error, allow continue; signUp may still fail with a message if duplicate
+        }
+      }
     }
     if (step === 2) {
       const errs = validateStep2();
@@ -958,6 +1162,26 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     setError(null);
     setLoading(true);
     try {
+      if (isRecaptchaConfigured) {
+        const token = await getRecaptchaToken("signup");
+        if (!token) {
+          setError("Verification failed. Please refresh the page and try again.");
+          setLoading(false);
+          return;
+        }
+        const res = await fetch(`${API_BASE}/auth/verify-recaptcha`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!data.ok) {
+          setError(data.error || "Verification failed. Please try again.");
+          setLoading(false);
+          return;
+        }
+      }
+
       const { stripe: st, elements: el } = stripeRef.current ?? {};
       if (st && el) {
         const res = await fetch(`${API_BASE}/stripe/setup-intent`, {
@@ -1012,7 +1236,18 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     <Step2 key="2" form={form} upd={upd} errors={step2Errors} onClearError={clearStep2Error} />,
     <Step3 key="3" form={form} upd={upd} toggleTrade={toggleTrade} errors={step3Errors} onClearError={clearStep3Error} />,
     <Step4 key="4" form={form} upd={upd} errors={step4Errors} onClearError={clearStep4Error} />,
-    <Step5 key="5" form={form} upd={upd} errors={step5Errors} onClearError={clearStep5Error} plans={plans} plansLoading={plansLoading} />,
+    <Step5
+      key="5"
+      form={form}
+      upd={upd}
+      errors={step5Errors}
+      onClearError={clearStep5Error}
+      plans={plans}
+      products={products}
+      plansLoading={plansLoading}
+      yearly={yearly}
+      setYearlyAndUpdatePlan={setYearlyAndUpdatePlan}
+    />,
     <Step6Payment
       key="6"
       form={form}

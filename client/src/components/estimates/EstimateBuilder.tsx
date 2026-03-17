@@ -26,9 +26,22 @@ type LineRow = {
   section: string
 }
 
+/** Optional seed for a new estimate (e.g. from takeoff + awarded bids). */
+export type InitialEstimateLine = {
+  description: string
+  quantity: number
+  unit: string
+  unit_price: number
+  section?: string
+}
+
 interface EstimateBuilderProps {
   jobs: Job[]
   estimateId?: string | null
+  /** When creating a new estimate, pre-fill job (e.g. current project). */
+  initialJobId?: string | null
+  /** When creating a new estimate, pre-fill lines (e.g. from takeoff + awarded bid sheet). */
+  initialLines?: InitialEstimateLine[] | null
   onClose: () => void
   onSaved: (estimateId: string) => void
 }
@@ -36,11 +49,13 @@ interface EstimateBuilderProps {
 export function EstimateBuilder({
   jobs,
   estimateId: initialEstimateId,
+  initialJobId,
+  initialLines,
   onClose,
   onSaved,
 }: EstimateBuilderProps) {
   const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId ?? null)
-  const [jobId, setJobId] = useState<string>(jobs[0]?.id ?? '')
+  const [jobId, setJobId] = useState<string>(initialJobId ?? jobs[0]?.id ?? '')
   const [title, setTitle] = useState('Estimate')
   const [lines, setLines] = useState<LineRow[]>([])
   const [loading, setLoading] = useState(!initialEstimateId)
@@ -94,9 +109,26 @@ export function EstimateBuilder({
         .catch(() => {})
         .finally(() => setLoading(false))
     } else {
-      setLines([])
+      if (initialLines?.length) {
+        setLines(
+          initialLines.map((l, i) => ({
+            id: `seed-${i}-${Date.now()}`,
+            description: l.description,
+            quantity: l.quantity,
+            unit: l.unit,
+            unit_price: l.unit_price,
+            total: (l.quantity ?? 1) * (l.unit_price ?? 0),
+            product_id: null,
+            section: l.section ?? '',
+          }))
+        )
+      } else {
+        setLines([])
+      }
+      if (initialJobId != null) setJobId(initialJobId)
+      setLoading(false)
     }
-  }, [estimateId])
+  }, [estimateId, initialJobId, initialLines])
 
   const subtotal = lines.reduce((sum, l) => sum + l.total, 0)
 

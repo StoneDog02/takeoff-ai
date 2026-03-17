@@ -205,6 +205,12 @@ export interface SubBid {
   amount: number
   notes?: string
   awarded?: boolean
+  /** Set when bid is dispatched; used for sub portal link /bid/[token]. */
+  portal_token?: string | null
+  /** Portal response: pending, viewed, bid_received, declined. */
+  response_status?: string | null
+  viewed_at?: string | null
+  responded_at?: string | null
 }
 
 export interface ProposalLine {
@@ -241,7 +247,7 @@ export interface Job {
   estimated_value?: number | null
 }
 
-export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined'
+export type EstimateStatus = 'draft' | 'sent' | 'viewed' | 'accepted' | 'declined' | 'changes_requested'
 
 export interface Estimate {
   id: string
@@ -255,6 +261,13 @@ export interface Estimate {
   created_at: string
   updated_at: string
   sent_at?: string
+  /** Set when estimate is sent; used for client approval portal /estimate/[token]. */
+  client_token?: string | null
+  /** When the client first opened the estimate portal. */
+  viewed_at?: string | null
+  /** Client message when they requested changes. */
+  changes_requested_message?: string | null
+  changes_requested_at?: string | null
 }
 
 export interface EstimateLineItem {
@@ -273,7 +286,7 @@ export interface EstimateLineItem {
 export type InvoiceStatus = 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue'
 
 /** Pipeline stage for estimates & invoices (reference flow). */
-export type PipelineStage = 'draft' | 'sent' | 'accepted' | 'invoiced' | 'paid'
+export type PipelineStage = 'draft' | 'sent' | 'accepted' | 'invoiced' | 'paid' | 'declined'
 
 /** Milestone for progress invoicing (estimate). */
 export interface PipelineMilestone {
@@ -297,6 +310,12 @@ export interface PipelineItem {
   paid: number
   milestones: PipelineMilestone[]
   estimate_id?: string | null
+  /** For estimates: original status (sent | viewed | changes_requested | accepted | declined). */
+  estimateStatus?: EstimateStatus
+  /** When client opened the portal (estimate only). */
+  viewed_at?: string | null
+  /** Client message when they requested changes (estimate only). */
+  changes_requested_message?: string | null
 }
 
 export interface Invoice {

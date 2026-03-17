@@ -7,9 +7,12 @@ import type { Estimate, Invoice, Job, PipelineItem, PipelineStage } from '@/type
 function estimateStatusToStage(status: Estimate['status']): PipelineStage {
   switch (status) {
     case 'draft': return 'draft'
-    case 'sent': return 'sent'
+    case 'sent':
+    case 'viewed':
+    case 'changes_requested':
+      return 'sent'
     case 'accepted': return 'accepted'
-    case 'declined': return 'sent' // show declined in sent for now
+    case 'declined': return 'declined'
     default: return 'draft'
   }
 }
@@ -82,6 +85,9 @@ export function buildPipelineItems(
       invoiced,
       paid: 0,
       milestones,
+      estimateStatus: e.status,
+      viewed_at: e.viewed_at ?? null,
+      changes_requested_message: e.changes_requested_message ?? null,
     })
   })
 
@@ -123,4 +129,5 @@ export const PIPELINE_STAGES: { key: PipelineStage; label: string }[] = [
   { key: 'accepted', label: 'Accepted' },
   { key: 'invoiced', label: 'Invoiced' },
   { key: 'paid', label: 'Paid' },
+  { key: 'declined', label: 'Declined' },
 ]

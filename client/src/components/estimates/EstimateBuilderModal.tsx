@@ -1,36 +1,48 @@
 import { useState, useEffect } from 'react'
+import { api } from '@/api/client'
 import { estimatesApi } from '@/api/estimates'
-import type { Job, CustomProduct, PipelineMilestone } from '@/types/global'
-import { formatCurrency } from '@/lib/pipeline'
-import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import type { Job, PipelineMilestone, Project } from '@/types/global'
+import type { EstimateLineItem } from '@/types/global'
 
-const STEPS = [
-  { num: 1, label: 'Job & Client', icon: '🏗' },
-  { num: 2, label: 'Line Items', icon: '📋' },
-  { num: 3, label: 'Terms & Review', icon: '✅' },
-]
+const PLAN_TYPES = ['residential', 'commercial', 'civil'] as const
+type PlanType = (typeof PLAN_TYPES)[number]
 
-const UNIT_OPTIONS = ['hr', 'sf', 'lf', 'ea', 'day', 'gal', 'sheet']
+/** Pre-fill for Step 1 when opening from a project's "Build Estimate" button. */
+export type PrefillClientInfo = {
+  projectName: string
+  planType: PlanType
+  clientName?: string
+  clientEmail?: string
+  clientPhone?: string
+  projectAddress?: string
+}
 
-type WizardLine = {
-  id: number
-  productId: string | null
+/** Line item for pre-fill: takeoff materials (price can be 0) or awarded sub bids (price = amount). */
+export type LineItem = {
+  id?: string | number
   name: string
   qty: number
   unit: string
   price: number
-  notes: string
 }
 
+const STEPS_CREATE = [
+  { num: 1, label: 'Client Info', icon: '🏗' },
+  { num: 2, label: 'Review & Create', icon: '✅' },
+]
+
+const STEPS_BUILD = [
+  { num: 1, label: 'Client Info', icon: '🏗' },
+  { num: 2, label: 'Line Items', icon: '📋' },
+]
+
 type WizardData = {
-  jobId: string
-  client: string
-  title: string
-  date: string
-  lines: WizardLine[]
-  notes: string
-  useProgress: boolean
-  milestones: { label: string; pct: number }[]
+  projectName: string
+  planType: PlanType
+  clientName: string
+  clientEmail: string
+  clientPhone: string
+  projectAddress: string
 }
 
 export type NewEstimatePayload = {
@@ -46,48 +58,104 @@ export type NewEstimatePayload = {
 interface EstimateBuilderModalProps {
   jobs: Job[]
   onClose: () => void
-  onSave: (estimateId: string, payload?: NewEstimatePayload) => void
+  onSave?: (estimateId: string, payload?: NewEstimatePayload) => void
+  /** When provided, called after project is created (e.g. close modal and navigate to project). */
+  onComplete?: (createdProject: Project) => void
+  /** When provided, modal is in "build estimate" mode for this project (pre-filled client + line items). */
+  projectId?: string
+  /** When provided with projectId, modal is in "revise" mode: load this estimate and update on save. */
+  estimateId?: string
+  /** Pre-fill Step 1 Client Info (from project record). */
+  prefillClientInfo?: PrefillClientInfo | null
+  /** Pre-fill Step 2 Line Items (takeoff materials + awarded bids). */
+  prefillLineItems?: LineItem[] | null
 }
 
-function getProductCategory(p: CustomProduct): string {
-  const t = (p.item_type ?? '').toLowerCase()
-  if (t === 'labor') return 'Labor'
-  if (t === 'service') return 'Services'
-  return 'Materials'
+type WizardLine = { id: number; name: string; qty: number; unit: string; price: number }
+
+function defaultWizardData(prefill?: PrefillClientInfo | null): WizardData {
+  if (prefill) {
+    return {
+      projectName: prefill.projectName ?? '',
+      planType: prefill.planType ?? 'residential',
+      clientName: prefill.clientName ?? '',
+      clientEmail: prefill.clientEmail ?? '',
+      clientPhone: prefill.clientPhone ?? '',
+      projectAddress: prefill.projectAddress ?? '',
+    }
+  }
+  return {
+    projectName: '',
+    planType: 'residential',
+    clientName: '',
+    clientEmail: '',
+    clientPhone: '',
+    projectAddress: '',
+  }
+}
+
+function linesFromPrefill(prefill?: LineItem[] | null): WizardLine[] {
+  if (!prefill?.length) return []
+  return prefill.map((item, i) => ({
+    id: typeof item.id === 'number' ? item.id : Date.now() + i,
+    name: item.name,
+    qty: item.qty ?? 1,
+    unit: item.unit ?? 'ea',
+    price: item.price ?? 0,
+  }))
+}
+
+function linesFromEstimate(lineItems: EstimateLineItem[]): WizardLine[] {
+  if (!lineItems?.length) return []
+  return lineItems.map((li, i) => ({
+    id: Date.now() + i,
+    name: li.description ?? '',
+    qty: li.quantity ?? 1,
+    unit: li.unit ?? 'ea',
+    price: li.unit_price ?? 0,
+  }))
 }
 
 export function EstimateBuilderModal({
-  jobs,
+  jobs: _jobs,
   onClose,
   onSave,
+  onComplete,
+  projectId,
+  estimateId,
+  prefillClientInfo,
+  prefillLineItems,
 }: EstimateBuilderModalProps) {
-  const dateStr = new Date().toLocaleDateString('en-US')
+  const isReviseMode = projectId != null && estimateId != null
+  const isBuildMode = projectId != null && (prefillClientInfo != null || prefillLineItems != null || isReviseMode)
+  const STEPS = isBuildMode ? STEPS_BUILD : STEPS_CREATE
+
   const [step, setStep] = useState(1)
   const [saved, setSaved] = useState(false)
-  const [products, setProducts] = useState<CustomProduct[]>([])
+  const [savedAndSent, setSavedAndSent] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [data, setData] = useState<WizardData>({
-    jobId: jobs[0]?.id ?? '',
-    client: '',
-    title: 'Estimate',
-    date: dateStr,
-    lines: [],
-    notes: '',
-    useProgress: false,
-    milestones: [
-      { label: 'Deposit', pct: 30 },
-      { label: 'Rough-in', pct: 40 },
-      { label: 'Completion', pct: 30 },
-    ],
-  })
+  const [createdProjectName, setCreatedProjectName] = useState('')
+  const [savedEstimateId, setSavedEstimateId] = useState<string | null>(null)
+  const [data, setData] = useState<WizardData>(() => defaultWizardData(prefillClientInfo))
+  const [lines, setLines] = useState<WizardLine[]>(() => (isReviseMode ? [] : linesFromPrefill(prefillLineItems)))
+  /** Revise mode: line item ids from loaded estimate (for delete-before-re-add on save). */
+  const [loadedLineItemIds, setLoadedLineItemIds] = useState<string[]>([])
+  const [reviseLoadDone, setReviseLoadDone] = useState(!isReviseMode)
 
   useEffect(() => {
-    if (USE_MOCK_ESTIMATES) {
-      setProducts(MOCK_CUSTOM_PRODUCTS)
-      return
-    }
-    estimatesApi.getCustomProducts().then(setProducts).catch(() => setProducts([]))
-  }, [])
+    if (!isReviseMode || !estimateId) return
+    setReviseLoadDone(false)
+    estimatesApi
+      .getEstimate(estimateId)
+      .then((est) => {
+        setData((prev) => ({ ...prev, projectName: est.title ?? prev.projectName }))
+        const wizardLines = linesFromEstimate(est.line_items ?? [])
+        setLines(wizardLines)
+        setLoadedLineItemIds((est.line_items ?? []).map((li) => li.id))
+      })
+      .catch(() => {})
+      .finally(() => setReviseLoadDone(true))
+  }, [estimateId, isReviseMode])
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -97,59 +165,123 @@ export function EstimateBuilderModal({
     return () => document.removeEventListener('keydown', handleEscape)
   }, [onClose])
 
-  const total = data.lines.reduce(
-    (s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0),
-    0
-  )
-  const jobName = jobs.find((j) => j.id === data.jobId)?.name ?? data.jobId
+  const canNext = () => step === 1 && !!data.projectName.trim()
 
-  const canNext = () => {
-    if (step === 1) return !!data.jobId
-    if (step === 2) return data.lines.length > 0
-    return true
-  }
-
-  const handleSave = async (_asDraft: boolean) => {
-    const payload: NewEstimatePayload = {
-      id: `est-${Date.now()}`,
-      job_id: data.jobId,
-      jobName,
-      amount: total,
-      date: data.date,
-      title: data.title,
-      milestones:
-        data.useProgress && data.milestones.length > 0
-          ? data.milestones.map((m) => ({
-              label: m.label,
-              pct: m.pct,
-              amount: Math.round((total * m.pct) / 100),
-              status: 'pending' as const,
-            }))
-          : [],
-    }
-    if (USE_MOCK_ESTIMATES) {
-      onSave(payload.id, payload)
-      setSaved(true)
-      return
-    }
+  const handleCreateProject = async () => {
     setSaving(true)
     try {
-      const created = await estimatesApi.createEstimate({
-        job_id: data.jobId || undefined,
-        title: data.title,
+      const createdProject = await api.projects.create({
+        name: data.projectName.trim() || 'New Project',
+        status: 'estimating',
+        plan_type: data.planType,
+        address_line_1: data.projectAddress?.trim() || undefined,
+        assigned_to_name: data.clientName?.trim() || data.clientEmail?.trim() || undefined,
       })
-      const eid = created.id
-      for (const line of data.lines) {
-        await estimatesApi.addLineItem(eid, {
-          description: line.name || 'Custom item',
-          quantity: line.qty,
-          unit: line.unit,
-          unit_price: line.price,
-        })
-      }
-      await estimatesApi.updateEstimate(eid, { total_amount: total })
-      onSave(eid)
+      setCreatedProjectName(createdProject.name ?? data.projectName.trim())
       setSaved(true)
+      onComplete?.(createdProject)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const totalFromLines = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)
+
+  const handleSaveEstimate = async () => {
+    if (!projectId || lines.length === 0) return
+    setSaving(true)
+    try {
+      if (estimateId) {
+        await estimatesApi.updateEstimate(estimateId, {
+          total_amount: totalFromLines,
+          title: data.projectName?.trim() || undefined,
+        })
+        for (const lineId of loadedLineItemIds) {
+          await estimatesApi.deleteLineItem(estimateId, lineId)
+        }
+        for (const line of lines) {
+          await estimatesApi.addLineItem(estimateId, {
+            description: line.name,
+            quantity: line.qty,
+            unit: line.unit,
+            unit_price: line.price,
+          })
+        }
+        setSavedEstimateId(estimateId)
+        setSaved(true)
+        onSave?.(estimateId)
+      } else {
+        const created = await estimatesApi.createEstimate({
+          job_id: projectId,
+          title: data.projectName?.trim() || 'Estimate',
+        })
+        const eid = created.id
+        for (const line of lines) {
+          await estimatesApi.addLineItem(eid, {
+            description: line.name,
+            quantity: line.qty,
+            unit: line.unit,
+            unit_price: line.price,
+          })
+        }
+        await estimatesApi.updateEstimate(eid, { total_amount: totalFromLines })
+        setSavedEstimateId(eid)
+        setSaved(true)
+        onSave?.(eid)
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveAndSendEstimate = async () => {
+    if (!projectId || lines.length === 0 || !data.clientEmail?.trim()) return
+    setSaving(true)
+    try {
+      const eid = estimateId ?? (await estimatesApi.createEstimate({
+        job_id: projectId,
+        title: data.projectName?.trim() || 'Estimate',
+      })).id
+      if (estimateId) {
+        await estimatesApi.updateEstimate(estimateId, {
+          total_amount: totalFromLines,
+          title: data.projectName?.trim() || undefined,
+        })
+        for (const lineId of loadedLineItemIds) {
+          await estimatesApi.deleteLineItem(estimateId, lineId)
+        }
+        for (const line of lines) {
+          await estimatesApi.addLineItem(estimateId, {
+            description: line.name,
+            quantity: line.qty,
+            unit: line.unit,
+            unit_price: line.price,
+          })
+        }
+      } else {
+        for (const line of lines) {
+          await estimatesApi.addLineItem(eid, {
+            description: line.name,
+            quantity: line.qty,
+            unit: line.unit,
+            unit_price: line.price,
+          })
+        }
+        await estimatesApi.updateEstimate(eid, { total_amount: totalFromLines })
+      }
+      await estimatesApi.sendEstimate(eid, {
+        recipient_emails: [data.clientEmail.trim()],
+        client_name: data.clientName?.trim() || undefined,
+        project_name: data.projectName?.trim() || undefined,
+      })
+      setSavedEstimateId(eid)
+      setSavedAndSent(true)
+      setSaved(true)
+      onSave?.(eid)
     } catch (err) {
       console.error(err)
     } finally {
@@ -158,26 +290,18 @@ export function EstimateBuilderModal({
   }
 
   const reset = () => {
-    setData({
-      jobId: jobs[0]?.id ?? '',
-      client: '',
-      title: 'Estimate',
-      date: new Date().toLocaleDateString('en-US'),
-      lines: [],
-      notes: '',
-      useProgress: false,
-      milestones: [
-        { label: 'Deposit', pct: 30 },
-        { label: 'Rough-in', pct: 40 },
-        { label: 'Completion', pct: 30 },
-      ],
-    })
+    setData(defaultWizardData(prefillClientInfo))
+    setLines(linesFromPrefill(prefillLineItems))
     setStep(1)
     setSaved(false)
+    setSavedAndSent(false)
+    setCreatedProjectName('')
+    setSavedEstimateId(null)
   }
 
   // ─── Success state ─────────────────────────────────────────────────────────
   if (saved) {
+    const isEstimateSaved = isBuildMode && savedEstimateId != null
     return (
       <div
         className="estimate-builder-modal-overlay"
@@ -192,18 +316,42 @@ export function EstimateBuilderModal({
         >
           <div className="estimate-wizard-success-icon">✓</div>
           <h2 id="estimate-builder-success-title" className="estimate-wizard-success-title">
-            Estimate saved
+            {savedAndSent ? 'Estimate sent' : isEstimateSaved ? 'Estimate saved' : 'Project created'}
           </h2>
-          <p className="estimate-wizard-success-job">{jobName?.split('–')[0]?.trim() ?? jobName}</p>
-          <p className="estimate-wizard-success-total">{formatCurrency(total)}</p>
+          <p className="estimate-wizard-success-job">
+            {savedAndSent
+              ? `We've sent the estimate to ${data.clientEmail || 'the client'} for review.`
+              : isEstimateSaved
+                ? data.projectName
+                : (createdProjectName || data.projectName)}
+          </p>
           <div className="estimate-wizard-success-actions">
             <button type="button" className="btn btn-primary" onClick={onClose}>
               Done
             </button>
-            <button type="button" className="btn btn-ghost" onClick={reset}>
-              New Estimate
-            </button>
+            {!isEstimateSaved && (
+              <button type="button" className="btn btn-ghost" onClick={reset}>
+                Start another
+              </button>
+            )}
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Revise mode: loading estimate ───────────────────────────────────────
+  if (isReviseMode && !reviseLoadDone) {
+    return (
+      <div
+        className="estimate-builder-modal-overlay"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-busy="true"
+      >
+        <div className="estimate-builder-wizard" onClick={(e) => e.stopPropagation()}>
+          <p className="estimate-wizard-loading">Loading estimate…</p>
         </div>
       </div>
     )
@@ -235,7 +383,7 @@ export function EstimateBuilderModal({
             </button>
             <span className="estimate-wizard-topbar-divider" aria-hidden />
             <h1 id="estimate-builder-wizard-title" className="estimate-wizard-topbar-title">
-              New Estimate
+              {isReviseMode ? 'Revise Estimate' : 'New Estimate'}
             </h1>
           </div>
           <button
@@ -283,26 +431,20 @@ export function EstimateBuilderModal({
         <div className="estimate-wizard-content">
           <div className="estimate-wizard-card">
             {step === 1 && (
-              <Step1JobClient
-                jobs={jobs}
+              <Step1ClientInfo
                 data={data}
                 setData={setData}
+                isBuildMode={isBuildMode}
               />
             )}
-            {step === 2 && (
+            {step === 2 && isBuildMode && (
               <Step2LineItems
-                products={products}
-                data={data}
-                setData={setData}
+                lines={lines}
+                setLines={setLines}
+                hasPrefill={Boolean(prefillLineItems?.length)}
               />
             )}
-            {step === 3 && (
-              <Step3TermsReview
-                jobs={jobs}
-                data={data}
-                setData={setData}
-              />
-            )}
+            {step === 2 && !isBuildMode && <Step2ReviewCreate data={data} />}
           </div>
 
           {/* Nav */}
@@ -323,38 +465,43 @@ export function EstimateBuilderModal({
                 />
               ))}
             </div>
-            {step < 3 ? (
+            {step === 1 ? (
               <button
                 type="button"
                 className="estimate-wizard-nav-next"
-                onClick={() => canNext() && setStep((s) => s + 1)}
+                onClick={() => canNext() && setStep(2)}
                 disabled={!canNext()}
               >
                 Continue →
               </button>
-            ) : (
+            ) : isBuildMode ? (
               <div className="estimate-wizard-nav-final">
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  onClick={() => handleSave(true)}
-                  disabled={saving}
+                  className="estimate-wizard-nav-next btn btn-ghost"
+                  onClick={handleSaveEstimate}
+                  disabled={saving || lines.length === 0}
                 >
-                  Save as draft
+                  {saving ? 'Saving…' : 'Save Estimate'}
                 </button>
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  onClick={() => handleSave(false)}
-                  disabled={
-                    saving ||
-                    (data.useProgress &&
-                      data.milestones.reduce((s, m) => s + (Number(m.pct) || 0), 0) !== 100)
-                  }
+                  className="estimate-wizard-nav-next btn btn-primary"
+                  onClick={handleSaveAndSendEstimate}
+                  disabled={saving || lines.length === 0 || !data.clientEmail?.trim()}
                 >
-                  {saving ? 'Saving…' : 'Save & Send →'}
+                  {saving ? 'Sending…' : 'Save & Send →'}
                 </button>
               </div>
+            ) : (
+              <button
+                type="button"
+                className="estimate-wizard-nav-next btn btn-primary"
+                onClick={handleCreateProject}
+                disabled={saving}
+              >
+                {saving ? 'Creating…' : 'Create Project →'}
+              </button>
             )}
           </div>
         </div>
@@ -363,611 +510,259 @@ export function EstimateBuilderModal({
   )
 }
 
-// ─── Step 1: Job & Client ────────────────────────────────────────────────────
-function Step1JobClient({
-  jobs,
+// ─── Step 1: Client Info ───────────────────────────────────────────────────────
+function Step1ClientInfo({
   data,
   setData,
+  isBuildMode,
 }: {
-  jobs: Job[]
   data: WizardData
   setData: React.Dispatch<React.SetStateAction<WizardData>>
+  isBuildMode?: boolean
 }) {
   return (
     <div className="estimate-wizard-step estimate-wizard-step1">
       <div className="estimate-wizard-step-head">
-        <h3 className="estimate-wizard-step-title">Which job is this for?</h3>
-        <p className="estimate-wizard-step-sub">Select an existing job.</p>
-      </div>
-
-      <div className="estimate-wizard-field">
-        <label className="estimate-wizard-label">Job</label>
-        <div className="estimate-wizard-job-grid">
-          {jobs.map((j) => {
-            const selected = data.jobId === j.id
-            const namePart = j.name.split('–')[0]?.trim() ?? j.name
-            const addrPart = j.name.includes('–') ? j.name.split('–')[1]?.trim() : null
-            return (
-              <button
-                key={j.id}
-                type="button"
-                className={`estimate-wizard-job-btn ${selected ? 'selected' : ''}`}
-                onClick={() => setData((d) => ({ ...d, jobId: j.id }))}
-              >
-                <div className="estimate-wizard-job-btn-name">{namePart}</div>
-                {addrPart && (
-                  <div className="estimate-wizard-job-btn-addr">{addrPart}</div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="estimate-wizard-meta-row">
-        <div className="estimate-wizard-field">
-          <label className="estimate-wizard-label">Estimate Title</label>
-          <input
-            type="text"
-            value={data.title}
-            onChange={(e) => setData((d) => ({ ...d, title: e.target.value }))}
-            placeholder="e.g. Estimate, Revised Estimate…"
-            className="estimate-wizard-input"
-          />
-        </div>
-        <div className="estimate-wizard-field">
-          <label className="estimate-wizard-label">Date</label>
-          <input
-            type="text"
-            value={data.date}
-            onChange={(e) => setData((d) => ({ ...d, date: e.target.value }))}
-            className="estimate-wizard-input"
-          />
-        </div>
-      </div>
-
-      <div className="estimate-wizard-field">
-        <label className="estimate-wizard-label">Client email</label>
-        <input
-          type="email"
-          value={data.client}
-          onChange={(e) => setData((d) => ({ ...d, client: e.target.value }))}
-          placeholder="client@example.com"
-          className="estimate-wizard-input"
-        />
-      </div>
-    </div>
-  )
-}
-
-// ─── Step 2: Line Items ───────────────────────────────────────────────────────
-const CATEGORIES = ['All', 'Labor', 'Materials', 'Services'] as const
-
-function Step2LineItems({
-  products,
-  data,
-  setData,
-}: {
-  products: CustomProduct[]
-  data: WizardData
-  setData: React.Dispatch<React.SetStateAction<WizardData>>
-}) {
-  const [catFilter, setCatFilter] = useState<string>('All')
-  const [expandedLineId, setExpandedLineId] = useState<number | null>(null)
-
-  const filtered =
-    catFilter === 'All'
-      ? products
-      : products.filter((p) => getProductCategory(p) === catFilter)
-
-  const addFromCatalog = (product: CustomProduct) => {
-    const existing = data.lines.find((l) => l.productId === product.id)
-    if (existing) {
-      setData((d) => ({
-        ...d,
-        lines: d.lines.map((l) =>
-          l.productId === product.id ? { ...l, qty: l.qty + 1 } : l
-        ),
-      }))
-    } else {
-      setData((d) => ({
-        ...d,
-        lines: [
-          ...d.lines,
-          {
-            id: Date.now(),
-            productId: product.id,
-            name: product.name,
-            qty: 1,
-            unit: product.unit,
-            price: product.default_unit_price,
-            notes: '',
-          },
-        ],
-      }))
-    }
-  }
-
-  const updateLine = (id: number, field: keyof WizardLine, val: string | number) => {
-    setData((d) => ({
-      ...d,
-      lines: d.lines.map((l) => (l.id === id ? { ...l, [field]: val } : l)),
-    }))
-  }
-
-  const removeLine = (id: number) => {
-    setData((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) }))
-  }
-
-  const addCustom = () => {
-    setData((d) => ({
-      ...d,
-      lines: [
-        ...d.lines,
-        {
-          id: Date.now(),
-          productId: null,
-          name: '',
-          qty: 1,
-          unit: 'ea',
-          price: 0,
-          notes: '',
-        },
-      ],
-    }))
-  }
-
-  const total = data.lines.reduce(
-    (s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0),
-    0
-  )
-
-  return (
-    <div className="estimate-wizard-step estimate-wizard-step2">
-      <div className="estimate-wizard-step-head">
-        <h3 className="estimate-wizard-step-title">What&apos;s included?</h3>
+        <h3 className="estimate-wizard-step-title">Start a new project</h3>
         <p className="estimate-wizard-step-sub">
-          Add from your catalog or create custom line items.
+          {isBuildMode
+            ? 'Review or edit client and project details before building your estimate.'
+            : "We'll set up the project so you can run takeoff and collect bids before building your estimate."}
         </p>
       </div>
 
-      <div className="estimate-wizard-step2-grid">
-        {/* Catalog */}
-        <div className="estimate-wizard-catalog">
-          <div className="estimate-wizard-catalog-header">
-            <label className="estimate-wizard-label" style={{ marginBottom: 0 }}>
-              Catalog
-            </label>
-            <div className="estimate-wizard-cat-tabs">
-              {CATEGORIES.map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={`estimate-wizard-cat-tab ${catFilter === f ? 'active' : ''}`}
-                  onClick={() => setCatFilter(f)}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="estimate-wizard-catalog-list">
-            {filtered.map((p) => {
-              const cat = getProductCategory(p)
-              const inLines = data.lines.find((l) => l.productId === p.id)
-              const catClass =
-                cat === 'Labor'
-                  ? 'labor'
-                  : cat === 'Materials'
-                    ? 'materials'
-                    : 'services'
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`estimate-wizard-catalog-item ${inLines ? 'added' : ''} ${catClass}`}
-                  onClick={() => addFromCatalog(p)}
-                >
-                  <div className="estimate-wizard-catalog-item-main">
-                    <div className="estimate-wizard-catalog-item-name">{p.name}</div>
-                    <div className="estimate-wizard-catalog-item-desc">
-                      {p.description ?? ''}
-                    </div>
-                  </div>
-                  <div className="estimate-wizard-catalog-item-right">
-                    <div className="estimate-wizard-catalog-item-price">
-                      {formatCurrency(p.default_unit_price)}
-                      <span>/{p.unit}</span>
-                    </div>
-                    {inLines ? (
-                      <div className="estimate-wizard-catalog-item-added">
-                        ✓ Added ({inLines.qty})
-                      </div>
-                    ) : (
-                      <div className="estimate-wizard-catalog-item-add">+ Add</div>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-          <button
-            type="button"
-            className="estimate-wizard-custom-btn"
-            onClick={addCustom}
-          >
-            + Custom line item
-          </button>
+      <div className="estimate-wizard-field estimate-wizard-field--full">
+        <label className="estimate-wizard-label">Project Name</label>
+        <input
+          type="text"
+          value={data.projectName}
+          onChange={(e) => setData((d) => ({ ...d, projectName: e.target.value }))}
+          placeholder="e.g. Kitchen Remodel – 123 Main St"
+          className="estimate-wizard-input"
+        />
+      </div>
+
+      <div className="estimate-wizard-field estimate-wizard-field--full">
+        <label className="estimate-wizard-label">Plan Type</label>
+        <select
+          value={data.planType}
+          onChange={(e) => setData((d) => ({ ...d, planType: e.target.value as PlanType }))}
+          className="estimate-wizard-input"
+        >
+          <option value="residential">Residential</option>
+          <option value="commercial">Commercial</option>
+          <option value="civil">Civil</option>
+        </select>
+        <p className="estimate-wizard-helper">
+          Used for takeoff — determines which rulebooks are applied.
+        </p>
+      </div>
+
+      <div className="estimate-wizard-step1-grid">
+        <div className="estimate-wizard-field">
+          <label className="estimate-wizard-label">Client Name</label>
+          <input
+            type="text"
+            value={data.clientName}
+            onChange={(e) => setData((d) => ({ ...d, clientName: e.target.value }))}
+            placeholder="Client name"
+            className="estimate-wizard-input"
+          />
         </div>
-
-        {/* Lines */}
-        <div className="estimate-wizard-lines">
-          <div className="estimate-wizard-lines-header">
-            <label className="estimate-wizard-label" style={{ marginBottom: 0 }}>
-              Estimate Lines
-            </label>
-            <span className="estimate-wizard-lines-count">{data.lines.length} items</span>
-          </div>
-
-          {data.lines.length === 0 ? (
-            <div className="estimate-wizard-lines-empty">
-              <div className="estimate-wizard-lines-empty-icon">←</div>
-              <div className="estimate-wizard-lines-empty-text">
-                Select items from the catalog
-              </div>
-            </div>
-          ) : (
-            <div className="estimate-wizard-lines-list">
-              {data.lines.map((line) => {
-                const expanded = expandedLineId === line.id
-                return (
-                  <div key={line.id} className="estimate-wizard-line-wrap">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className={`estimate-wizard-line ${expanded ? 'expanded' : ''}`}
-                      onClick={() =>
-                        setExpandedLineId(expanded ? null : line.id)
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setExpandedLineId(expanded ? null : line.id)
-                        }
-                      }}
-                    >
-                      <div className="estimate-wizard-line-main">
-                        {line.productId ? (
-                          <div className="estimate-wizard-line-name">{line.name}</div>
-                        ) : (
-                          <input
-                            value={line.name}
-                            onChange={(e) => {
-                              e.stopPropagation()
-                              updateLine(line.id, 'name', e.target.value)
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            placeholder="Custom item…"
-                            className="estimate-wizard-line-name-input"
-                          />
-                        )}
-                      </div>
-                      <div className="estimate-wizard-line-qty">
-                        <button
-                          type="button"
-                          className="estimate-wizard-qty-btn"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            updateLine(
-                              line.id,
-                              'qty',
-                              Math.max(1, (Number(line.qty) || 1) - 1)
-                            )
-                          }}
-                        >
-                          −
-                        </button>
-                        <span className="estimate-wizard-qty-val">{line.qty}</span>
-                        <button
-                          type="button"
-                          className="estimate-wizard-qty-btn"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            updateLine(line.id, 'qty', (Number(line.qty) || 1) + 1)
-                          }}
-                        >
-                          +
-                        </button>
-                      </div>
-                      <div className="estimate-wizard-line-total">
-                        {formatCurrency(
-                          (Number(line.qty) || 0) * (Number(line.price) || 0)
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className="estimate-wizard-line-remove"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removeLine(line.id)
-                        }}
-                        aria-label="Remove line"
-                      >
-                        ×
-                      </button>
-                    </div>
-                    {expanded && (
-                      <div className="estimate-wizard-line-expanded">
-                        <div className="estimate-wizard-line-expanded-row">
-                          <div>
-                            <label className="estimate-wizard-label estimate-wizard-label--sm">
-                              Unit price
-                            </label>
-                            <div className="estimate-wizard-line-price-row">
-                              <span className="estimate-wizard-currency">$</span>
-                              <input
-                                type="number"
-                                value={line.price}
-                                onChange={(e) =>
-                                  updateLine(line.id, 'price', e.target.value)
-                                }
-                                onClick={(e) => e.stopPropagation()}
-                                className="estimate-wizard-input estimate-wizard-input--sm"
-                              />
-                              <select
-                                value={line.unit}
-                                onChange={(e) =>
-                                  updateLine(line.id, 'unit', e.target.value)
-                                }
-                                onClick={(e) => e.stopPropagation()}
-                                className="estimate-wizard-input estimate-wizard-input--unit"
-                              >
-                                {UNIT_OPTIONS.map((u) => (
-                                  <option key={u} value={u}>
-                                    {u}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="estimate-wizard-label estimate-wizard-label--sm">
-                              Notes
-                            </label>
-                            <input
-                              value={line.notes}
-                              onChange={(e) =>
-                                updateLine(line.id, 'notes', e.target.value)
-                              }
-                              onClick={(e) => e.stopPropagation()}
-                              placeholder="Optional note…"
-                              className="estimate-wizard-input estimate-wizard-input--sm"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {data.lines.length > 0 && (
-            <div className="estimate-wizard-total-card">
-              <span className="estimate-wizard-total-label">Estimate Total</span>
-              <span className="estimate-wizard-total-value">
-                {formatCurrency(total)}
-              </span>
-            </div>
-          )}
+        <div className="estimate-wizard-field">
+          <label className="estimate-wizard-label">Client Email</label>
+          <input
+            type="email"
+            value={data.clientEmail}
+            onChange={(e) => setData((d) => ({ ...d, clientEmail: e.target.value }))}
+            placeholder="client@example.com"
+            className="estimate-wizard-input"
+          />
+        </div>
+        <div className="estimate-wizard-field">
+          <label className="estimate-wizard-label">Client Phone</label>
+          <input
+            type="tel"
+            value={data.clientPhone}
+            onChange={(e) => setData((d) => ({ ...d, clientPhone: e.target.value }))}
+            placeholder="(555) 123-4567"
+            className="estimate-wizard-input"
+          />
+        </div>
+        <div className="estimate-wizard-field">
+          <label className="estimate-wizard-label">Project Address</label>
+          <input
+            type="text"
+            value={data.projectAddress}
+            onChange={(e) => setData((d) => ({ ...d, projectAddress: e.target.value }))}
+            placeholder="Street, city, state"
+            className="estimate-wizard-input"
+          />
         </div>
       </div>
     </div>
   )
 }
 
-// ─── Step 3: Terms & Review ────────────────────────────────────────────────────
-function Step3TermsReview({
-  jobs,
-  data,
-  setData,
+// ─── Step 2: Line Items (build-estimate mode) ──────────────────────────────────
+function Step2LineItems({
+  lines,
+  setLines,
+  hasPrefill,
 }: {
-  jobs: Job[]
-  data: WizardData
-  setData: React.Dispatch<React.SetStateAction<WizardData>>
+  lines: WizardLine[]
+  setLines: React.Dispatch<React.SetStateAction<WizardLine[]>>
+  hasPrefill: boolean
 }) {
-  const total = data.lines.reduce(
-    (s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0),
-    0
-  )
-  const milestonePctTotal = data.milestones.reduce(
-    (s, m) => s + (Number(m.pct) || 0),
-    0
-  )
-  const jobName = jobs.find((j) => j.id === data.jobId)?.name ?? data.jobId
+  const [prefillBannerDismissed, setPrefillBannerDismissed] = useState(false)
+
+  const updateLine = (idx: number, updates: Partial<WizardLine>) => {
+    setLines((prev) => {
+      const next = [...prev]
+      next[idx] = { ...next[idx], ...updates }
+      return next
+    })
+  }
+
+  const removeLine = (idx: number) => {
+    setLines((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const addLine = () => {
+    setLines((prev) => [
+      ...prev,
+      { id: Date.now(), name: '', qty: 1, unit: 'ea', price: 0 },
+    ])
+  }
 
   return (
     <div className="estimate-wizard-step estimate-wizard-step3">
       <div className="estimate-wizard-step-head">
-        <h3 className="estimate-wizard-step-title">Terms & review</h3>
+        <h3 className="estimate-wizard-step-title">Line items</h3>
         <p className="estimate-wizard-step-sub">
-          Set payment terms and confirm everything looks right.
+          Review pricing, add markup, and add any additional lines before saving the estimate.
         </p>
       </div>
 
-      {/* Summary */}
-      <div className="estimate-wizard-summary">
-        <div className="estimate-wizard-summary-grid">
-          <div>
-            <div className="estimate-wizard-label">Job</div>
-            <div className="estimate-wizard-summary-val">
-              {jobName?.split('–')[0]?.trim() ?? '—'}
-            </div>
-          </div>
-          <div>
-            <div className="estimate-wizard-label">Client</div>
-            <div className="estimate-wizard-summary-val">
-              {data.client || '—'}
-            </div>
-          </div>
-          <div>
-            <div className="estimate-wizard-label">Total</div>
-            <div className="estimate-wizard-summary-val estimate-wizard-summary-val--total">
-              {formatCurrency(total)}
-            </div>
-          </div>
-        </div>
-        <div className="estimate-wizard-summary-lines">
-          <div className="estimate-wizard-label">Line items</div>
-          {data.lines.map((l) => (
-            <div key={l.id} className="estimate-wizard-summary-line">
-              <span>
-                {l.name || 'Custom item'} × {l.qty} {l.unit}
-              </span>
-              <span>
-                {formatCurrency(
-                  (Number(l.qty) || 0) * (Number(l.price) || 0)
-                )}
-              </span>
-            </div>
-          ))}
-          {data.lines.length === 0 && (
-            <div className="estimate-wizard-summary-empty">No line items added</div>
-          )}
-        </div>
-      </div>
-
-      {/* Progress invoicing */}
-      <div className="estimate-wizard-progress-section">
-        <div className="estimate-wizard-progress-head">
-          <div>
-            <div className="estimate-wizard-progress-title">Progress Invoicing</div>
-            <p className="estimate-wizard-progress-sub">
-              Split into milestone-based invoices
-            </p>
-          </div>
-          <button
-            type="button"
-            className={`estimate-wizard-toggle ${data.useProgress ? 'on' : ''}`}
-            onClick={() =>
-              setData((d) => ({
-                ...d,
-                useProgress: !d.useProgress,
-                milestones:
-                  d.milestones.length > 0
-                    ? d.milestones
-                    : [
-                        { label: 'Deposit', pct: 30 },
-                        { label: 'Rough-in', pct: 40 },
-                        { label: 'Completion', pct: 30 },
-                      ],
-              }))
-            }
-            aria-pressed={data.useProgress}
-          >
-            <span className="estimate-wizard-toggle-thumb" />
-          </button>
-        </div>
-
-        {data.useProgress && (
-          <div className="estimate-wizard-milestones-card">
-            <div className="estimate-wizard-milestones-header">
-              <span>Milestone</span>
-              <span>% of est.</span>
-              <span>Amount</span>
-              <span />
-            </div>
-            {data.milestones.map((m, i) => (
-              <div key={i} className="estimate-wizard-milestones-row">
-                <input
-                  value={m.label}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      milestones: d.milestones.map((x, j) =>
-                        j === i ? { ...x, label: e.target.value } : x
-                      ),
-                    }))
-                  }
-                  placeholder="Milestone…"
-                  className="estimate-wizard-input estimate-wizard-input--milestone"
-                />
-                <div className="estimate-wizard-milestone-pct">
-                  <input
-                    type="number"
-                    value={m.pct}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        milestones: d.milestones.map((x, j) =>
-                          j === i
-                            ? { ...x, pct: parseInt(e.target.value, 10) || 0 }
-                            : x
-                        ),
-                      }))
-                    }
-                    className="estimate-wizard-input estimate-wizard-input--num estimate-wizard-input--sm"
-                  />
-                  <span>%</span>
-                </div>
-                <div className="estimate-wizard-milestone-amount">
-                  {formatCurrency((m.pct / 100) * total)}
-                </div>
-                <button
-                  type="button"
-                  className="estimate-wizard-line-remove"
-                  onClick={() =>
-                    setData((d) => ({
-                      ...d,
-                      milestones: d.milestones.filter((_, j) => j !== i),
-                    }))
-                  }
-                  aria-label="Remove milestone"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            <div className="estimate-wizard-milestones-footer">
-              <button
-                type="button"
-                className="estimate-wizard-milestone-add"
-                onClick={() =>
-                  setData((d) => ({
-                    ...d,
-                    milestones: [...d.milestones, { label: '', pct: 0 }],
-                  }))
-                }
-              >
-                + Add milestone
-              </button>
-              <span
-                className={
-                  milestonePctTotal === 100
-                    ? 'estimate-wizard-milestone-ok'
-                    : 'estimate-wizard-milestone-err'
-                }
-              >
-                {milestonePctTotal}%{' '}
-                {milestonePctTotal === 100 ? '✓ Balanced' : '— must equal 100%'}
-              </span>
-            </div>
+      <div className="estimate-wizard-lines-panel">
+        {hasPrefill && !prefillBannerDismissed && (
+          <div className="estimate-wizard-lines-prefill-banner">
+            <span>
+              Pre-loaded from your takeoff and awarded bids — review pricing and add markup before sending.
+            </span>
+            <button
+              type="button"
+              className="estimate-wizard-lines-prefill-banner-dismiss"
+              onClick={() => setPrefillBannerDismissed(true)}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
           </div>
         )}
-      </div>
 
-      {/* Notes */}
-      <div className="estimate-wizard-field">
-        <label className="estimate-wizard-label">Notes / Terms</label>
-        <textarea
-          value={data.notes}
-          onChange={(e) => setData((d) => ({ ...d, notes: e.target.value }))}
-          rows={3}
-          placeholder="Payment terms, warranty notes, special conditions, thank-you message…"
-          className="estimate-wizard-input estimate-wizard-textarea"
-        />
+        <div className="estimate-wizard-lines-header">
+          <span className="estimate-wizard-label">Item</span>
+          <span className="estimate-wizard-label">Qty</span>
+          <span className="estimate-wizard-label">Unit</span>
+          <span className="estimate-wizard-label">Unit price</span>
+          <span aria-hidden />
+        </div>
+        {lines.map((line, idx) => (
+          <div key={line.id} className="estimate-wizard-line-row">
+            <input
+              type="text"
+              value={line.name}
+              onChange={(e) => updateLine(idx, { name: e.target.value })}
+              placeholder="Description"
+              className="estimate-wizard-input estimate-wizard-line-input-name"
+            />
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={line.qty}
+              onChange={(e) => updateLine(idx, { qty: Number(e.target.value) || 0 })}
+              className="estimate-wizard-input estimate-wizard-line-input-num"
+            />
+            <input
+              type="text"
+              value={line.unit}
+              onChange={(e) => updateLine(idx, { unit: e.target.value })}
+              placeholder="ea"
+              className="estimate-wizard-input estimate-wizard-line-input-unit"
+            />
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={line.price}
+              onChange={(e) => updateLine(idx, { price: Number(e.target.value) || 0 })}
+              placeholder="0"
+              className="estimate-wizard-input estimate-wizard-line-input-price"
+            />
+            <button
+              type="button"
+              className="estimate-wizard-line-remove"
+              onClick={() => removeLine(idx)}
+              aria-label="Remove line"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="estimate-wizard-add-line-btn"
+          onClick={addLine}
+        >
+          + Add line item
+        </button>
       </div>
     </div>
   )
 }
+
+// ─── Step 2: Review & Create ───────────────────────────────────────────────────
+function Step2ReviewCreate({ data }: { data: WizardData }) {
+  const planTypeLabel = data.planType === 'residential' ? 'Residential' : data.planType === 'commercial' ? 'Commercial' : 'Civil'
+  return (
+    <div className="estimate-wizard-step estimate-wizard-step3">
+      <div className="estimate-wizard-step-head">
+        <h3 className="estimate-wizard-step-title">Review & create</h3>
+        <p className="estimate-wizard-step-sub">
+          Confirm the details below, then create the project. You&apos;ll run takeoff and collect bids on the project page.
+        </p>
+      </div>
+      <div className="estimate-wizard-summary">
+        <div className="estimate-wizard-summary-grid">
+          <div>
+            <div className="estimate-wizard-label">Project name</div>
+            <div className="estimate-wizard-summary-val">{data.projectName?.trim() || '—'}</div>
+          </div>
+          <div>
+            <div className="estimate-wizard-label">Plan type</div>
+            <div className="estimate-wizard-summary-val">{planTypeLabel}</div>
+          </div>
+          <div>
+            <div className="estimate-wizard-label">Client name</div>
+            <div className="estimate-wizard-summary-val">{data.clientName?.trim() || '—'}</div>
+          </div>
+          <div>
+            <div className="estimate-wizard-label">Client email</div>
+            <div className="estimate-wizard-summary-val">{data.clientEmail?.trim() || '—'}</div>
+          </div>
+          <div>
+            <div className="estimate-wizard-label">Client phone</div>
+            <div className="estimate-wizard-summary-val">{data.clientPhone?.trim() || '—'}</div>
+          </div>
+          <div>
+            <div className="estimate-wizard-label">Project address</div>
+            <div className="estimate-wizard-summary-val">{data.projectAddress?.trim() || '—'}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+

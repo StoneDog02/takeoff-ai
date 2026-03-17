@@ -1,8 +1,10 @@
+const crypto = require('crypto')
 const express = require('express')
 const multer = require('multer')
 const { runTakeoff } = require('../claude/takeoff')
 const { TRADE_MAP, TRADE_ORDER } = require('../claude/trade-definitions')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { sendBidPortalEmail } = require('../lib/sendPortalEmails')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
 
@@ -1468,6 +1470,117 @@ router.get('/:id/bid-sheet', loadProject, async (req, res, next) => {
   }
 })
 
+/** POST /projects/:id/bid-sheet/dispatch — generate portal token for a sub bid, store it, and send portal link (email TODO). */
+router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const { trade_package_id, subcontractor_id, amount, notes } = req.body || {}
+    if (!trade_package_id || !subcontractor_id) {
+      return res.status(400).json({ error: 'trade_package_id and subcontractor_id are required' })
+    }
+
+    const pkgRes = await supabase.from('trade_packages').select('id').eq('project_id', projectId).eq('id', trade_package_id).maybeSingle()
+    if (pkgRes.error || !pkgRes.data) {
+      return res.status(404).json({ error: 'Trade package not found' })
+    }
+    const subRes = await supabase.from('subcontractors').select('id, email').eq('project_id', projectId).eq('id', subcontractor_id).maybeSingle()
+    if (subRes.error || !subRes.data) {
+      return res.status(404).json({ error: 'Subcontractor not found' })
+    }
+    const subEmail = subRes.data.email || ''
+
+    const existing = await supabase
+      .from('sub_bids')
+      .select('id, portal_token')
+      .eq('trade_package_id', trade_package_id)
+      .eq('subcontractor_id', subcontractor_id)
+      .maybeSingle()
+    const token = crypto.randomUUID()
+    const bidAmount = amount != null ? Number(amount) : 0
+    const bidNotes = notes != null ? String(notes) : null
+
+    if (existing?.data?.id) {
+      await supabase.from('sub_bids').update({ portal_token: token, amount: bidAmount, notes: bidNotes }).eq('id', existing.data.id)
+    } else {
+      await supabase.from('sub_bids').insert({
+        trade_package_id,
+        subcontractor_id,
+        amount: bidAmount,
+        notes: bidNotes,
+        awarded: false,
+        portal_token: token,
+      })
+    }
+
+    const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || req.protocol + '://' + (req.get('host') || 'localhost')
+    const portalUrl = `${baseUrl.replace(/\/$/, '')}/bid/${token}`
+
+    let projectName = ''
+    const projRes = await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()
+    if (projRes.data && projRes.data.name) projectName = projRes.data.name
+
+    if (subEmail) {
+      await sendBidPortalEmail({ to: subEmail, projectName, portalUrl, isResend: false })
+    } else {
+      console.log('[bid-sheet/dispatch] No sub email; portal link:', portalUrl)
+    }
+
+    return res.status(200).json({ token, portal_url: portalUrl })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** POST /projects/:id/bid-sheet/resend — resend portal link email for a sub bid. Body: { sub_bid_id }. */
+router.post('/:id/bid-sheet/resend', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const { sub_bid_id } = req.body || {}
+    if (!sub_bid_id) return res.status(400).json({ error: 'sub_bid_id is required' })
+
+    const pkgRes = await supabase.from('trade_packages').select('id').eq('project_id', projectId)
+    const packageIds = (pkgRes.data || []).map((p) => p.id)
+    const bidRes = await supabase
+      .from('sub_bids')
+      .select('id, trade_package_id, subcontractor_id, portal_token')
+      .eq('id', sub_bid_id)
+      .maybeSingle()
+    if (bidRes.error || !bidRes.data || !packageIds.includes(bidRes.data.trade_package_id)) {
+      return res.status(404).json({ error: 'Sub bid not found' })
+    }
+    const subRes = await supabase
+      .from('subcontractors')
+      .select('email')
+      .eq('project_id', projectId)
+      .eq('id', bidRes.data.subcontractor_id)
+      .maybeSingle()
+    const subEmail = (subRes.data && subRes.data.email) ? subRes.data.email : ''
+    const token = bidRes.data.portal_token
+    if (!token) return res.status(400).json({ error: 'No portal link for this bid' })
+
+    const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || req.protocol + '://' + (req.get('host') || 'localhost')
+    const portalUrl = `${baseUrl.replace(/\/$/, '')}/bid/${token}`
+
+    let projectName = ''
+    const projRes = await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()
+    if (projRes.data && projRes.data.name) projectName = projRes.data.name
+
+    if (subEmail) {
+      await sendBidPortalEmail({ to: subEmail, projectName, portalUrl, isResend: true })
+    } else {
+      console.log('[bid-sheet/resend] No sub email; portal link:', portalUrl)
+    }
+
+    return res.status(200).json({ ok: true, portal_url: portalUrl })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.put('/:id/bid-sheet', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
@@ -1498,13 +1611,15 @@ router.put('/:id/bid-sheet', loadProject, async (req, res, next) => {
       if (pkgIds.length) await supabase.from('sub_bids').delete().in('trade_package_id', pkgIds)
       for (const bid of sub_bids) {
         if (bid.trade_package_id && bid.subcontractor_id != null && pkgIds.includes(bid.trade_package_id)) {
-          await supabase.from('sub_bids').insert({
+          const row = {
             trade_package_id: bid.trade_package_id,
             subcontractor_id: bid.subcontractor_id,
             amount: Number(bid.amount) || 0,
             notes: bid.notes || null,
             awarded: !!bid.awarded,
-          })
+          }
+          if (bid.portal_token != null && String(bid.portal_token).trim()) row.portal_token = bid.portal_token
+          await supabase.from('sub_bids').insert(row)
         }
       }
     }

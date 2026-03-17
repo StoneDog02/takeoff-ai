@@ -625,6 +625,29 @@ export const api = {
       })
       return handleResponse<BidSheet>(res)
     },
+    /** Dispatch a bid to a subcontractor: generates portal token, stores it, and returns the portal URL (email sent/logged server-side). */
+    async dispatchBid(
+      projectId: string,
+      body: { trade_package_id: string; subcontractor_id: string; amount?: number; notes?: string }
+    ): Promise<{ token: string; portal_url: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/dispatch`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<{ token: string; portal_url: string }>(res)
+    },
+    /** Resend portal link email for a sub bid. */
+    async resendBid(projectId: string, subBidId: string): Promise<{ ok: boolean; portal_url?: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/resend`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ sub_bid_id: subBidId }),
+      })
+      return handleResponse<{ ok: boolean; portal_url?: string }>(res)
+    },
   },
 
   /** Schedule items (tasks + milestones) for a given date across all user projects. */
@@ -780,4 +803,102 @@ export const api = {
       }
     },
   },
+
+  /** Public bid portal (no auth) — token-gated. */
+  bids: {
+    async getPortal(token: string): Promise<BidPortalResponse> {
+      const res = await fetch(`${API_BASE}/bids/portal/${encodeURIComponent(token)}`)
+      if (res.status === 410) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || 'This project has been cancelled.')
+      }
+      return handleResponse<BidPortalResponse>(res)
+    },
+    async markViewed(token: string): Promise<void> {
+      const res = await fetch(`${API_BASE}/bids/portal/${encodeURIComponent(token)}/viewed`, { method: 'PATCH' })
+      if (!res.ok) throw new Error(res.status === 404 ? 'Invalid or expired link' : 'Request failed')
+    },
+    async submitBid(token: string, payload: { amount: number; notes?: string; availability?: string; quoteFile?: File }): Promise<void> {
+      const form = new FormData()
+      form.append('amount', String(payload.amount))
+      if (payload.notes != null) form.append('notes', payload.notes)
+      if (payload.availability != null) form.append('availability', payload.availability)
+      if (payload.quoteFile) form.append('quoteFile', payload.quoteFile)
+      const res = await fetch(`${API_BASE}/bids/portal/${encodeURIComponent(token)}/respond`, {
+        method: 'POST',
+        body: form,
+      })
+      return handleResponse(res)
+    },
+    async declineBid(token: string): Promise<void> {
+      const res = await fetch(`${API_BASE}/bids/portal/${encodeURIComponent(token)}/decline`, { method: 'POST' })
+      return handleResponse(res)
+    },
+  },
+
+  /** Public estimate portal (no auth) — token-gated. */
+  estimatePortal: {
+    async get(token: string): Promise<EstimatePortalResponse> {
+      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}`)
+      return handleResponse<EstimatePortalResponse>(res)
+    },
+    async markViewed(token: string): Promise<void> {
+      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/viewed`, { method: 'PATCH' })
+      if (!res.ok && res.status !== 204) throw new Error(res.status === 404 ? 'Invalid or expired link' : 'Request failed')
+    },
+    async approve(token: string): Promise<{ status: string }> {
+      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/approve`, { method: 'POST' })
+      return handleResponse<{ status: string }>(res)
+    },
+    async requestChanges(token: string, message: string): Promise<{ ok: boolean }> {
+      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/request-changes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      })
+      return handleResponse<{ ok: boolean }>(res)
+    },
+    async decline(token: string): Promise<{ status: string }> {
+      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/decline`, { method: 'POST' })
+      return handleResponse<{ status: string }>(res)
+    },
+  },
+}
+
+export interface EstimatePortalResponse {
+  estimate_id?: string
+  estimate_number?: string
+  date_issued?: string | null
+  expiry_date?: string | null
+  projectName: string
+  address: string
+  clientName: string | null
+  clientAddress?: string
+  gcName: string
+  company: string | null
+  line_items: { id: string; description: string; quantity: number; unit: string; unit_price: number; total: number; section?: string | null }[]
+  total: number
+  invoiced_amount: number
+  milestones: { label: string; amount: number; percentage?: number }[]
+  notes: string | null
+  terms: string | null
+  status: string
+  sent_at: string | null
+  viewed_at: string | null
+  actioned_at?: string | null
+}
+
+export interface BidPortalResponse {
+  projectName: string
+  address: string
+  tradeName: string
+  scope: { description?: string; quantity?: number; unit?: string; notes?: string }[]
+  subName: string
+  status: 'pending' | 'viewed' | 'bid_received' | 'awarded' | 'declined'
+  bid_amount?: number | null
+  amount?: number | null
+  notes: string | null
+  availability?: string | null
+  attachment_url?: string | null
+  responded_at?: string | null
 }

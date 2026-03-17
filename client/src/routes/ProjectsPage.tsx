@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
 import type { DashboardProject } from '@/api/client'
 import type { ProjectCardData } from '@/data/mockProjectsData'
-import type { Project, Phase, Milestone, ProjectTask, JobWalkMedia, ProjectBuildPlan, Subcontractor, MaterialList, ProjectWorkType, ProjectActivityItem, JobAssignment, Employee } from '@/types/global'
+import type { Project, Job, Phase, Milestone, ProjectTask, JobWalkMedia, ProjectBuildPlan, Subcontractor, MaterialList, ProjectWorkType, ProjectActivityItem, JobAssignment, Employee, BidSheet, Estimate } from '@/types/global'
 import { teamsApi } from '@/api/teamsClient'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { HealthRing } from '@/components/projects/HealthRing'
@@ -13,14 +13,18 @@ import { LaunchTakeoffWidget, type TakeoffPlanType } from '@/components/projects
 import { TakeoffProgressPopup } from '@/components/projects/TakeoffProgressPopup'
 import { BulkSendModal } from '@/components/projects/BulkSendModal'
 import { BidSheetFlow } from '@/components/projects/BidSheetFlow'
+import { EstimatingWorkspace } from '@/components/projects/EstimatingWorkspace'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
 import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
 import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeleteProjectModal'
 import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
 import type { BuilderPhase, BuilderMilestone } from '@/components/projects/ScheduleBuilder'
-import { formatDate, dayjs } from '@/lib/date'
+import { formatDate, dayjs, formatRelative } from '@/lib/date'
 import { SetupWizard, SetupBanner, EMPTY_WIZARD_PROJECT, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
+import { EstimateBuilderModal, type PrefillClientInfo, type LineItem } from '@/components/estimates/EstimateBuilderModal'
+import { type InitialEstimateLine } from '@/components/estimates/EstimateBuilder'
+import { estimatesApi } from '@/api/estimates'
 
 export interface NewProjectFormData {
   name: string
@@ -39,6 +43,38 @@ export interface NewProjectFormData {
 
 const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
+
+const PIPELINE_COLUMNS = [
+  { key: 'estimating', label: 'Estimating', dotColor: '#6b7280', barColor: '#6b7280' },
+  { key: 'awaiting_approval', label: 'Awaiting Approval', dotColor: '#f59e0b', barColor: '#f59e0b' },
+  { key: 'backlog', label: 'Backlog', dotColor: '#3b82f6', barColor: '#3b82f6' },
+  { key: 'active', label: 'Active', dotColor: '#16a34a', barColor: '#16a34a' },
+  { key: 'on_hold', label: 'On Hold', dotColor: '#6b7280', barColor: '#6b7280' },
+  { key: 'completed', label: 'Completed', dotColor: '#22c55e', barColor: '#22c55e' },
+] as const
+
+/** Main kanban pipeline (Backlog is rendered separately below). */
+const PIPELINE_COLUMNS_MAIN = PIPELINE_COLUMNS.filter((c) => c.key !== 'backlog')
+
+const FILTER_LABELS: Record<string, string> = {
+  all: 'All',
+  estimating: 'Estimating',
+  awaiting_approval: 'Awaiting Approval',
+  backlog: 'Backlog',
+  active: 'Active',
+  on_hold: 'On Hold',
+  completed: 'Completed',
+}
+
+function normStatus(s: string): string {
+  return s.toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+function colMatchesStatus(colKey: string, status: string): boolean {
+  const normalized = normStatus(status)
+  if (colKey === 'backlog' && normalized === 'planning') return true
+  return colKey === normalized
+}
 
 if (typeof window !== 'undefined') {
   console.log('[ProjectsPage] module loaded')
@@ -66,9 +102,11 @@ export function ProjectsPage() {
   const [bulkSendOpen, setBulkSendOpen] = useState(false)
   const [bulkSendIds, setBulkSendIds] = useState<string[]>([])
   const [newProjectOpen, setNewProjectOpen] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'active' | 'planning' | 'on_hold' | 'completed'>('all')
+  const [newEstimateOpen, setNewEstimateOpen] = useState(false)
+  const [estimateModalJobs, setEstimateModalJobs] = useState<Job[]>([])
+  const [filter, setFilter] = useState<'all' | 'estimating' | 'awaiting_approval' | 'backlog' | 'active' | 'on_hold' | 'completed'>('all')
   const [search, setSearch] = useState('')
-  const [listView, setListView] = useState<'grid' | 'table'>('grid')
+  const [listView, setListView] = useState<'board' | 'grid' | 'table'>('board')
   const [scheduleImportOpen, setScheduleImportOpen] = useState(false)
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0)
@@ -84,6 +122,14 @@ export function ProjectsPage() {
   const [buildPlans, setBuildPlans] = useState<ProjectBuildPlan[]>([])
   const [heroMenuOpen, setHeroMenuOpen] = useState(false)
   const heroMenuRef = useRef<HTMLDivElement>(null)
+  const [buildEstimateOpen, setBuildEstimateOpen] = useState(false)
+  const [buildEstimateBlankMode, setBuildEstimateBlankMode] = useState(false)
+  const [buildEstimateBidSheet, setBuildEstimateBidSheet] = useState<BidSheet | null | undefined>(undefined)
+  const [buildEstimateBidSheetFetched, setBuildEstimateBidSheetFetched] = useState(false)
+  /** Bid sheet for EstimatingWorkspace when project status is estimating (overview). */
+  const [workspaceBidSheet, setWorkspaceBidSheet] = useState<BidSheet | null | undefined>(undefined)
+  /** Timestamp (ms) of last bid sheet fetch for Stage 2 "Last updated X seconds ago". */
+  const [lastBidSheetUpdated, setLastBidSheetUpdated] = useState<number | null>(null)
   /** Takeoff in progress (lives in parent so progress continues when user leaves Takeoff tab). */
   const [takeoffInProgress, setTakeoffInProgress] = useState(false)
   const [takeoffProgress, setTakeoffProgress] = useState(0)
@@ -103,6 +149,14 @@ export function ProjectsPage() {
   const tabFromUrl = searchParams.get('tab')
   /** Budget tab: show skeleton until refetch completes so variance/actual don't flash. */
   const [budgetTabLoading, setBudgetTabLoading] = useState(false)
+  /** List view: estimates for awaiting_approval column (project id → estimate). */
+  const [estimatesByProjectId, setEstimatesByProjectId] = useState<Record<string, Estimate>>({})
+  /** List view: convert-to-job confirmation (project id, name, estimate total). */
+  const [convertConfirmProject, setConvertConfirmProject] = useState<{ id: string; name: string; estimateTotal: number } | null>(null)
+  /** List view: open EstimateBuilderModal in revise mode (project id + estimate id). */
+  const [reviseEstimate, setReviseEstimate] = useState<{ projectId: string; estimateId: string } | null>(null)
+  /** List view: converting project to job (disable confirm button). */
+  const [convertInProgress, setConvertInProgress] = useState(false)
 
   const TAKEOFF_PROGRESS_MESSAGES = [
     'Uploading plan…',
@@ -128,6 +182,12 @@ export function ProjectsPage() {
       return () => clearTimeout(t)
     }
   }, [id, loading, searchParams, setSearchParams])
+
+  // Load jobs when opening the New Estimate modal (for EstimateBuilderModal)
+  useEffect(() => {
+    if (!newEstimateOpen) return
+    estimatesApi.getJobs().then(setEstimateModalJobs).catch(() => setEstimateModalJobs([]))
+  }, [newEstimateOpen])
 
   const workTypes = id ? (workTypesByProject[id] ?? []) : []
   const setWorkTypes = (list: ProjectWorkType[]) => {
@@ -194,6 +254,32 @@ export function ProjectsPage() {
       .catch(() => setProjects([]))
       .finally(() => setLoading(false))
   }, [id])
+
+  const refetchEstimatesForList = useCallback(() => {
+    if (projects.length === 0) return
+    estimatesApi
+      .getEstimates()
+      .then((list) => {
+        const projectIds = new Set(projects.map((p) => p.id))
+        const statuses = new Set(['sent', 'viewed', 'changes_requested', 'accepted'])
+        const map: Record<string, Estimate> = {}
+        for (const est of list) {
+          if (!est.job_id || !projectIds.has(est.job_id) || !statuses.has(est.status)) continue
+          const existing = map[est.job_id]
+          const estSent = est.sent_at ? new Date(est.sent_at).getTime() : 0
+          const existingSent = existing?.sent_at ? new Date(existing.sent_at).getTime() : 0
+          if (!existing || estSent >= existingSent) map[est.job_id] = est
+        }
+        setEstimatesByProjectId(map)
+      })
+      .catch(() => setEstimatesByProjectId({}))
+  }, [projects])
+
+  // List view: fetch estimates for awaiting_approval column (project id → linked estimate)
+  useEffect(() => {
+    if (id !== undefined || projects.length === 0) return
+    refetchEstimatesForList()
+  }, [id, projects, refetchEstimatesForList])
 
   useEffect(() => {
     if (!id) return
@@ -314,6 +400,112 @@ export function ProjectsPage() {
   const refreshSubcontractors = () => {
     if (id) api.projects.getSubcontractors(id).then(setSubcontractors)
   }
+
+  // Fetch bid sheet when opening Build Estimate modal so we can seed awarded bids
+  useEffect(() => {
+    if (!buildEstimateOpen || !id) {
+      if (!buildEstimateOpen) {
+        setBuildEstimateBidSheet(undefined)
+        setBuildEstimateBidSheetFetched(false)
+      }
+      return
+    }
+    setBuildEstimateBidSheetFetched(false)
+    api.projects
+      .getBidSheet(id)
+      .then((sheet) => {
+        setBuildEstimateBidSheet(sheet)
+        setBuildEstimateBidSheetFetched(true)
+      })
+      .catch(() => {
+        setBuildEstimateBidSheet(null)
+        setBuildEstimateBidSheetFetched(true)
+      })
+  }, [buildEstimateOpen, id])
+
+  // Fetch bid sheet when project is estimating (for EstimatingWorkspace and hero KPIs)
+  useEffect(() => {
+    if (!id || project?.status !== 'estimating') return
+    api.projects
+      .getBidSheet(id)
+      .then((sheet) => {
+        setWorkspaceBidSheet(sheet)
+        setLastBidSheetUpdated(Date.now())
+      })
+      .catch(() => setWorkspaceBidSheet(null))
+  }, [id, project?.status, detailRefreshTrigger])
+
+  const refreshWorkspaceBidSheet = useCallback(() => {
+    if (!id) return
+    api.projects
+      .getBidSheet(id)
+      .then((sheet) => {
+        setWorkspaceBidSheet(sheet)
+        setLastBidSheetUpdated(Date.now())
+      })
+      .catch(() => setWorkspaceBidSheet(null))
+  }, [id])
+
+  const buildEstimateInitialLines = useMemo((): InitialEstimateLine[] => {
+    if (!buildEstimateBidSheetFetched) return []
+    const lines: InitialEstimateLine[] = []
+    const categories = takeoffs[0]?.material_list?.categories ?? []
+    for (const cat of categories) {
+      for (const item of cat.items ?? []) {
+        const qty = item.quantity ?? 1
+        const unitPrice = item.cost_estimate ?? 0
+        lines.push({
+          description: item.description ?? '',
+          quantity: qty,
+          unit: item.unit ?? 'ea',
+          unit_price: unitPrice,
+          section: cat.name,
+        })
+      }
+    }
+    const bidSheet = buildEstimateBidSheet
+    if (bidSheet?.sub_bids && bidSheet?.trade_packages && subcontractors.length > 0) {
+      const subsById = new Map(subcontractors.map((s) => [s.id, s]))
+      const packagesById = new Map(bidSheet.trade_packages.map((p) => [p.id, p]))
+      for (const b of bidSheet.sub_bids) {
+        if (!b.awarded) continue
+        const pkg = packagesById.get(b.trade_package_id)
+        const sub = subsById.get(b.subcontractor_id)
+        const trade = pkg?.trade_tag ?? 'Trade'
+        const subName = sub?.name ?? 'Sub'
+        const amount = Number(b.amount) || 0
+        lines.push({
+          description: `${trade} — ${subName}`,
+          quantity: 1,
+          unit: 'job',
+          unit_price: amount,
+          section: '',
+        })
+      }
+    }
+    return lines
+  }, [buildEstimateBidSheetFetched, takeoffs, buildEstimateBidSheet, subcontractors])
+
+  const buildEstimatePrefillClientInfo: PrefillClientInfo | undefined = useMemo(() => {
+    if (!project) return undefined
+    return {
+      projectName: project.name ?? '',
+      planType: (project.plan_type as PrefillClientInfo['planType']) ?? 'residential',
+      clientName: project.assigned_to_name ?? '',
+      clientEmail: '',
+      clientPhone: '',
+      projectAddress: project.address_line_1 ?? '',
+    }
+  }, [project])
+
+  const buildEstimatePrefillLineItems: LineItem[] = useMemo(() => {
+    return buildEstimateInitialLines.map((l) => ({
+      name: l.description,
+      qty: l.quantity,
+      unit: l.unit,
+      price: l.unit_price,
+    }))
+  }, [buildEstimateInitialLines])
 
   const handleDeleteProject = async () => {
     if (!deleteConfirmProject) return
@@ -441,14 +633,85 @@ export function ProjectsPage() {
   if (id === undefined) {
     const filterMatch = (p: DashboardProject) => {
       if (filter === 'all') return true
-      const s = (p.status ?? '').toLowerCase().replace(' ', '_')
-      return s === filter
+      return colMatchesStatus(filter, p.status ?? '')
     }
     const searchLower = search.trim().toLowerCase()
     const searchMatch = (p: DashboardProject) =>
       !searchLower || p.name.toLowerCase().includes(searchLower)
     const displayedProjects = projects.filter(filterMatch).filter(searchMatch)
     const activeCount = displayedProjects.filter((p) => (p.status ?? 'active').toLowerCase() === 'active').length
+
+    const renderBoardCard = (p: DashboardProject, col: (typeof PIPELINE_COLUMNS)[number]) => {
+      const budgetTotal = p.budget_total ?? p.estimated_value ?? 0
+      const currentPhase = p.phases?.find((ph) => !ph.completed)?.name ?? (p.phases?.length ? p.phases[p.phases.length - 1]?.name : null)
+      const address = [p.address_line_1, p.city, p.state, p.postal_code].filter(Boolean).join(', ') || null
+      return (
+        <div
+          key={p.id}
+          role="button"
+          tabIndex={0}
+          className="projects-board-card"
+          style={{ borderLeftColor: col.barColor }}
+          onClick={() => navigate(`/projects/${p.id}`)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
+        >
+          <div className="projects-board-card-name">{p.name}</div>
+          {address ? <div className="projects-board-card-address">{address}</div> : null}
+          {budgetTotal > 0 ? <div className="projects-board-card-budget">${budgetTotal.toLocaleString()}</div> : null}
+          {currentPhase ? <div className="projects-board-card-phase">{currentPhase}</div> : null}
+          {col.key === 'awaiting_approval' ? (() => {
+            const estimate = estimatesByProjectId[p.id]
+            const sentNotViewed = estimate?.status === 'sent' && !estimate?.viewed_at
+            const viewed = estimate?.status === 'viewed' || (estimate?.status === 'sent' && estimate?.viewed_at)
+            const changesRequested = estimate?.status === 'changes_requested'
+            const accepted = estimate?.status === 'accepted'
+            return (
+              <div className="projects-board-card-estimate-status">
+                {!estimate ? null : sentNotViewed ? (
+                  <span className="projects-board-card-estimate-status-gray">Not opened yet</span>
+                ) : viewed ? (
+                  <span className="projects-board-card-estimate-status-blue">Opened {formatRelative(estimate.viewed_at)}</span>
+                ) : changesRequested ? (
+                  <>
+                    <span className="projects-board-card-estimate-status-amber">Changes requested</span>
+                    <button
+                      type="button"
+                      className="projects-board-card-revise"
+                      onClick={(e) => { e.stopPropagation(); setReviseEstimate({ projectId: p.id, estimateId: estimate.id }) }}
+                    >
+                      Revise →
+                    </button>
+                  </>
+                ) : null}
+                {accepted ? (
+                  <button
+                    type="button"
+                    className="projects-board-card-convert"
+                    onClick={(e) => { e.stopPropagation(); setConvertConfirmProject({ id: p.id, name: p.name, estimateTotal: estimate.total_amount }) }}
+                  >
+                    Convert to Job →
+                  </button>
+                ) : null}
+              </div>
+            )
+          })() : null}
+          <button
+            type="button"
+            className="projects-board-card-delete"
+            title="Delete project"
+            aria-label="Delete project"
+            onClick={(e) => { e.stopPropagation(); setDeleteConfirmProject(toProject(p)) }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+          </button>
+        </div>
+      )
+    }
 
     return (
       <div className="min-h-full">
@@ -475,6 +738,16 @@ export function ProjectsPage() {
                 />
               </div>
               <div className="projects-list-view-toggle">
+                <button
+                  type="button"
+                  onClick={() => setListView('board')}
+                  className={`projects-list-view-btn ${listView === 'board' ? 'active' : ''}`}
+                  aria-label="Board view"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="5" height="18" /><rect x="9.5" y="3" width="5" height="18" /><rect x="16" y="3" width="5" height="18" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   onClick={() => setListView('grid')}
@@ -507,9 +780,9 @@ export function ProjectsPage() {
 
           {/* Filter tabs */}
           <div className="projects-list-filters">
-            {(['all', 'active', 'planning', 'on_hold', 'completed'] as const).map((tab) => {
-              const count = tab === 'all' ? displayedProjects.length : displayedProjects.filter((p) => (p.status ?? '').toLowerCase().replace(' ', '_') === tab).length
-              const label = tab === 'all' ? 'All' : tab === 'on_hold' ? 'On Hold' : tab.charAt(0).toUpperCase() + tab.slice(1)
+            {(['all', 'estimating', 'awaiting_approval', 'backlog', 'active', 'on_hold', 'completed'] as const).map((tab) => {
+              const count = tab === 'all' ? displayedProjects.length : displayedProjects.filter((p) => colMatchesStatus(tab, p.status ?? '')).length
+              const label = FILTER_LABELS[tab] ?? tab
               return (
                 <button
                   key={tab}
@@ -531,6 +804,59 @@ export function ProjectsPage() {
                 <div className="skeleton" />
                 <div className="skeleton" />
               </div>
+            </div>
+            ) : listView === 'board' ? (
+            <div className="projects-board-wrapper">
+              <div className="projects-board">
+                {PIPELINE_COLUMNS_MAIN.map((col) => {
+                  const columnProjects = displayedProjects.filter((p) => colMatchesStatus(col.key, p.status ?? ''))
+                  return (
+                    <div key={col.key} className="projects-board-column" style={{ borderTopColor: col.barColor }}>
+                      <div className="projects-board-column-header">
+                        <span className="projects-board-column-dot" style={{ backgroundColor: col.dotColor }} />
+                        <span className="projects-board-column-label">{col.label}</span>
+                        <span className="projects-board-column-count">{columnProjects.length}</span>
+                      </div>
+                      <div className="projects-board-column-cards">
+                        {columnProjects.length === 0 ? (
+                          <div className="projects-board-empty">Empty</div>
+                        ) : (
+                          columnProjects.map((p) => renderBoardCard(p, col))
+                        )}
+                      </div>
+                      {col.key === 'estimating' ? (
+                        <button type="button" className="projects-board-add" onClick={() => setNewEstimateOpen(true)}>
+                          + New Estimate
+                        </button>
+                      ) : col.key === 'active' ? (
+                        <button type="button" className="projects-board-add" onClick={() => setNewProjectOpen(true)}>
+                          + New Project
+                        </button>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+              {(() => {
+                const backlogCol = PIPELINE_COLUMNS.find((c) => c.key === 'backlog')!
+                const backlogProjects = displayedProjects.filter((p) => colMatchesStatus('backlog', p.status ?? ''))
+                return (
+                  <div className="projects-board-backlog">
+                    <div className="projects-board-backlog-header" style={{ borderTopColor: backlogCol.barColor }}>
+                      <span className="projects-board-column-dot" style={{ backgroundColor: backlogCol.dotColor }} />
+                      <span className="projects-board-backlog-title">{backlogCol.label}</span>
+                      <span className="projects-board-column-count">{backlogProjects.length}</span>
+                    </div>
+                    <div className="projects-board-backlog-cards">
+                      {backlogProjects.length === 0 ? (
+                        <div className="projects-board-empty">Empty</div>
+                      ) : (
+                        backlogProjects.map((p) => renderBoardCard(p, backlogCol))
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
             ) : listView === 'table' ? (
             displayedProjects.length === 0 ? (
@@ -646,6 +972,17 @@ export function ProjectsPage() {
               }}
             />
           )}
+          {newEstimateOpen && (
+            <EstimateBuilderModal
+              jobs={estimateModalJobs}
+              onClose={() => setNewEstimateOpen(false)}
+              onSave={(_estimateId, _payload) => setNewEstimateOpen(false)}
+              onComplete={(createdProject) => {
+                setNewEstimateOpen(false)
+                navigate(`/projects/${createdProject.id}`)
+              }}
+            />
+          )}
           {deleteConfirmProject && (
             <ConfirmDeleteProjectModal
               project={deleteConfirmProject}
@@ -655,6 +992,75 @@ export function ProjectsPage() {
               error={deleteError}
             />
           )}
+          {convertConfirmProject && (
+            <div
+              className="projects-convert-modal-overlay"
+              onClick={() => { if (!convertInProgress) setConvertConfirmProject(null) }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="convert-modal-title"
+            >
+              <div className="projects-convert-modal" onClick={(e) => e.stopPropagation()}>
+                <h2 id="convert-modal-title" className="projects-convert-modal-title">Convert to Job</h2>
+                <p className="projects-convert-modal-text">
+                  This will create an active job from this estimate. The estimate total of ${convertConfirmProject.estimateTotal.toLocaleString()} will be set as the project budget.
+                </p>
+                <div className="projects-convert-modal-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => { if (!convertInProgress) setConvertConfirmProject(null) }}
+                    disabled={convertInProgress}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={convertInProgress}
+                    onClick={async () => {
+                      setConvertInProgress(true)
+                      try {
+                        await api.projects.update(convertConfirmProject.id, {
+                          status: 'backlog',
+                          estimated_value: convertConfirmProject.estimateTotal,
+                        })
+                        setConvertConfirmProject(null)
+                        navigate(`/projects/${convertConfirmProject.id}`)
+                      } catch (err) {
+                        console.error(err)
+                      } finally {
+                        setConvertInProgress(false)
+                      }
+                    }}
+                  >
+                    {convertInProgress ? 'Converting…' : 'Confirm'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {reviseEstimate && (() => {
+            const revProj = projects.find((pr) => pr.id === reviseEstimate.projectId)
+            const prefillFromProject: PrefillClientInfo | undefined = revProj
+              ? {
+                  projectName: revProj.name ?? '',
+                  planType: 'residential',
+                  projectAddress: [revProj.address_line_1, revProj.city, revProj.state, revProj.postal_code].filter(Boolean).join(', ') || undefined,
+                }
+              : undefined
+            return (
+              <EstimateBuilderModal
+                jobs={[]}
+                projectId={reviseEstimate.projectId}
+                estimateId={reviseEstimate.estimateId}
+                prefillClientInfo={prefillFromProject}
+                prefillLineItems={undefined}
+                onClose={() => { setReviseEstimate(null); refetchEstimatesForList() }}
+                onSave={() => { setReviseEstimate(null); refetchEstimatesForList() }}
+              />
+            )
+          })()}
           {takeoffInProgress && (
             <TakeoffProgressPopup
               progress={takeoffProgress}
@@ -811,6 +1217,15 @@ export function ProjectsPage() {
             </h1>
           </div>
           <div className="project-overview-hero-actions relative" ref={heroMenuRef}>
+            {project?.status === 'estimating' && (
+              <button
+                type="button"
+                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate"
+                onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
+              >
+                Build Estimate →
+              </button>
+            )}
             <button
               type="button"
               className="project-overview-hero-menu-trigger"
@@ -824,7 +1239,9 @@ export function ProjectsPage() {
             {heroMenuOpen && (
               <div className="project-overview-hero-menu" role="menu">
                 <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
-                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false) }}>Share</button>
+                {project?.status !== 'estimating' && (
+                  <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false) }}>Share</button>
+                )}
                 <button type="button" className="project-overview-hero-menu-item project-overview-hero-menu-item-danger" role="menuitem" onClick={() => { setHeroMenuOpen(false); project && setDeleteConfirmProject(project) }} title="Delete project">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
                   Delete
@@ -836,6 +1253,57 @@ export function ProjectsPage() {
 
         {/* KPI strip */}
         <div className="project-overview-kpi-strip">
+          {project?.status === 'estimating' ? (
+            <>
+              <div className="project-overview-kpi-cell">
+                <div className="project-overview-kpi-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                  Client
+                </div>
+                <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.assigned_to_name || '—'}</div>
+                {(project && 'client_email' in project && (project as Project & { client_email?: string }).client_email) ? (
+                  <div className="text-[12px] text-[var(--text-muted)] mt-0.5">{(project as Project & { client_email: string }).client_email}</div>
+                ) : null}
+              </div>
+              <div className="project-overview-kpi-cell">
+                <div className="project-overview-kpi-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                  Plan type
+                </div>
+                <div className="text-[15px] font-semibold text-[var(--text-primary)]">
+                  {(project?.plan_type === 'commercial' && 'Commercial') || (project?.plan_type === 'civil' && 'Civil') || (project?.plan_type === 'auto' && 'Auto') || 'Residential'}
+                </div>
+              </div>
+              <div className="project-overview-kpi-cell">
+                <div className="project-overview-kpi-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                  Created
+                </div>
+                <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.created_at ? formatDate(project.created_at) : '—'}</div>
+              </div>
+              <div className="project-overview-kpi-cell">
+                <div className="project-overview-kpi-label">Takeoff</div>
+                <div className="text-[15px] font-semibold text-[var(--text-primary)]">
+                  {takeoffs.length === 0 ? 'Not run' : `Complete — ${takeoffCategories.reduce((sum, cat) => sum + (cat.items?.length ?? 0), 0)} items`}
+                </div>
+              </div>
+              <div className="project-overview-kpi-cell">
+                <div className="project-overview-kpi-label">Bids</div>
+                <div className="text-[15px] font-semibold text-[var(--text-primary)]">
+                  {(() => {
+                    const tradeCount = workspaceBidSheet?.trade_packages?.length ?? 0
+                    const awarded = workspaceBidSheet?.sub_bids?.filter((b) => b.awarded) ?? []
+                    const tradesAwardedCount = new Set(awarded.map((b) => b.trade_package_id)).size
+                    const totalAwarded = awarded.reduce((s, b) => s + (Number(b.amount) || 0), 0)
+                    if (tradeCount === 0) return '0 trades'
+                    if (tradesAwardedCount === 0) return `0 of ${tradeCount} trades awarded`
+                    return `${tradesAwardedCount} of ${tradeCount} awarded · $${totalAwarded.toLocaleString()} total`
+                  })()}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
           <div className="project-overview-kpi-cell" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <HealthRing score={healthScore} />
             <div>
@@ -921,20 +1389,60 @@ export function ProjectsPage() {
               <div className="text-[12px] text-[var(--text-muted)] mt-1">No plans. Use Edit to add.</div>
             )}
           </div>
+            </>
+          )}
         </div>
 
         {/* Tabs */}
         <nav className="project-overview-tabs" aria-label="Project sections">
-          {tabs.map((tab) => (
-            <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''}`}>
-              {tab.label}
-            </button>
-          ))}
+          {tabs.map((tab) => {
+            const isEstimating = project?.status === 'estimating'
+            const tabDisabledWhenEstimating = isEstimating && ['worktypes', 'crew', 'budget', 'schedule'].includes(tab.id)
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => { if (!tabDisabledWhenEstimating) setActiveTab(tab.id) }}
+                className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''} ${tabDisabledWhenEstimating ? 'project-overview-tab--disabled' : ''}`}
+                title={tabDisabledWhenEstimating ? 'Available after job is created' : undefined}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
         </nav>
       </div>
 
       {activeTab === 'overview' && project && (
         <div className="project-overview-wrap">
+          {project.status === 'estimating' ? (
+            <section className="w-full min-w-0 px-8 py-6">
+              <EstimatingWorkspace
+                project={project}
+                takeoffs={takeoffs.map((t) => ({ id: t.id, material_list: t.material_list, created_at: t.created_at }))}
+                subcontractors={subcontractors}
+                onRefreshTakeoffs={() => id && api.projects.getTakeoffs(id).then((toffs) => setTakeoffs(toffs?.length ? toffs : []))}
+                onRefreshSubcontractors={refreshSubcontractors}
+                onBuildEstimate={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
+                hasAwardedBids={(workspaceBidSheet?.sub_bids?.some((b) => b.awarded)) ?? false}
+                onViewFullTakeoff={() => setActiveTab('takeoff')}
+                onViewBidSheet={() => setActiveTab('bidsheet')}
+                onRefreshBidSheet={refreshWorkspaceBidSheet}
+                lastBidSheetUpdated={lastBidSheetUpdated}
+                onResendBid={id ? (subBidId) => api.projects.resendBid(id, subBidId).then(() => {}) : undefined}
+                onStartTakeoff={startTakeoff}
+                takeoffResult={takeoffResult}
+                takeoffError={takeoffError}
+                takeoffInProgress={takeoffInProgress}
+                takeoffProgress={takeoffProgress}
+                takeoffMessage={takeoffMessage}
+                takeoffStartTime={takeoffStartTime}
+                bidSheet={workspaceBidSheet ?? null}
+                onBuildBlankEstimate={() => { setBuildEstimateBlankMode(true); setBuildEstimateOpen(true) }}
+              />
+            </section>
+          ) : (
+          <>
           {overviewSetupReady && (
             <SetupBanner
               project={{
@@ -1137,6 +1645,8 @@ export function ProjectsPage() {
             </div>
           </div>
           </div>
+          </>
+          )}
         </div>
       )}
 
@@ -1417,6 +1927,43 @@ export function ProjectsPage() {
           onClose={() => {
             setBulkSendOpen(false)
             setBulkSendIds([])
+          }}
+        />
+      )}
+
+      {buildEstimateOpen && project && !buildEstimateBlankMode && !buildEstimateBidSheetFetched && (
+        <div
+          className="estimate-builder-modal-overlay"
+          onClick={() => setBuildEstimateOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Build estimate"
+        >
+          <div className="estimate-builder-wizard" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-center p-12">
+              <span className="text-[var(--text-muted)]">Loading…</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {buildEstimateOpen && project && (buildEstimateBlankMode || buildEstimateBidSheetFetched) && (
+        <EstimateBuilderModal
+          jobs={[]}
+          projectId={project.id}
+          prefillClientInfo={buildEstimatePrefillClientInfo ?? undefined}
+          prefillLineItems={buildEstimateBlankMode ? undefined : (buildEstimatePrefillLineItems.length > 0 ? buildEstimatePrefillLineItems : undefined)}
+          onClose={() => {
+            setBuildEstimateOpen(false)
+            setBuildEstimateBlankMode(false)
+            setBuildEstimateBidSheet(undefined)
+            setBuildEstimateBidSheetFetched(false)
+          }}
+          onSave={(_estimateId) => {
+            setBuildEstimateOpen(false)
+            setBuildEstimateBlankMode(false)
+            setBuildEstimateBidSheet(undefined)
+            setBuildEstimateBidSheetFetched(false)
+            setDetailRefreshTrigger((t) => t + 1)
           }}
         />
       )}
