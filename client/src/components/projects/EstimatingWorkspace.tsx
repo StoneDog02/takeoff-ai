@@ -71,7 +71,7 @@ export function EstimatingWorkspace({
   project,
   takeoffs,
   subcontractors,
-  onRefreshTakeoffs,
+  onRefreshTakeoffs: _onRefreshTakeoffs,
   onRefreshSubcontractors,
   onBuildEstimate,
   hasAwardedBids = false,
@@ -143,7 +143,6 @@ export function EstimatingWorkspace({
   const tradePackages = bidSheet?.trade_packages ?? []
   const hasSubBids = subBids.length > 0
   const awardedBids = subBids.filter((b) => b.awarded)
-  const awardedCount = awardedBids.length
   const tradeCount = Math.max(tradePackages.length, 1)
   const tradesWithAwarded = new Set(awardedBids.map((b) => b.trade_package_id))
   const awardedTradeCount = tradesWithAwarded.size

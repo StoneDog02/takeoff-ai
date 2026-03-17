@@ -7,6 +7,7 @@ const STAGE_STYLES: Record<PipelineStage, { color: string; bg: string; dot: stri
   accepted: { color: 'var(--est-amber)', bg: 'var(--est-amber-light)', dot: 'var(--est-amber)' },
   invoiced: { color: 'var(--est-amber)', bg: 'var(--est-amber-light)', dot: 'var(--est-amber)' },
   paid: { color: 'var(--green)', bg: 'var(--green-glow)', dot: 'var(--green)' },
+  declined: { color: 'var(--text-muted)', bg: 'var(--bg-base)', dot: 'var(--border-mid)' },
 }
 
 interface StagePipelineProps {

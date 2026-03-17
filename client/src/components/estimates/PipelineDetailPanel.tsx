@@ -17,6 +17,7 @@ const NEXT_ACTION: Record<PipelineStage, { label: string; next: PipelineStage } 
   accepted: { label: 'Create Invoice', next: 'invoiced' },
   invoiced: { label: 'Mark as Paid', next: 'paid' },
   paid: null,
+  declined: null,
 }
 
 interface PipelineDetailPanelProps {

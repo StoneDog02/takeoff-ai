@@ -80,7 +80,7 @@ function ActiveBidView({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
-    const num = Number.parseFloat(amount.replace(/[,$]/g, ''), 10)
+    const num = Number.parseFloat(amount.replace(/[,$]/g, ''))
     if (Number.isNaN(num) || num < 0) {
       setFormError('Please enter a valid bid amount.')
       return
