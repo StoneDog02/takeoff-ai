@@ -15743,7 +15743,7 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
 .bid-portal__inner {
   flex: 1;
   width: 100%;
-  max-width: 560px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 2rem 1.5rem 3rem;
 }
@@ -16076,6 +16076,33 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+.bid-portal-cards--layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
+  gap: 1.5rem;
+  align-items: start;
+}
+.bid-portal-cards__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.bid-portal-cards__aside {
+  min-width: 0;
+}
+.bid-portal-card--bid {
+  position: sticky;
+  top: 1.25rem;
+}
+@media (max-width: 900px) {
+  .bid-portal-cards--layout {
+    grid-template-columns: 1fr;
+  }
+  .bid-portal-card--bid {
+    position: static;
+  }
 }
 .bid-portal-loading {
   display: flex;
