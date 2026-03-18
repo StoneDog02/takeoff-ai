@@ -16081,7 +16081,8 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
   gap: 1.5rem;
-  align-items: start;
+  /* Stretch aside to full row height so sticky bid card can pin while scrolling the left column */
+  align-items: stretch;
 }
 .bid-portal-cards__main {
   display: flex;
@@ -16090,18 +16091,32 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   min-width: 0;
 }
 .bid-portal-cards__aside {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  align-self: stretch;
 }
 .bid-portal-card--bid {
   position: sticky;
   top: 1.25rem;
+  align-self: flex-start;
+  width: 100%;
+  box-sizing: border-box;
+  /* Stay in view; scroll inside card if the form is taller than the viewport */
+  max-height: calc(100vh - 2.5rem);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 @media (max-width: 900px) {
   .bid-portal-cards--layout {
     grid-template-columns: 1fr;
+    align-items: start;
   }
   .bid-portal-card--bid {
     position: static;
+    max-height: none;
+    overflow-y: visible;
+    align-self: stretch;
   }
 }
 .bid-portal-loading {
