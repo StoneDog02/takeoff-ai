@@ -4,6 +4,13 @@ import { api, type BidPortalResponse } from '@/api/client'
 
 const RESPONDED_STATUSES = ['bid_received', 'awarded', 'declined'] as const
 
+function formatPortalDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+}
+
 function LoadingSpinner() {
   return (
     <div className="bid-portal-spinner" aria-label="Loading">
@@ -101,6 +108,9 @@ function ActiveBidView({
     }
   }
 
+  const sentDate = formatPortalDate(data.dispatched_at)
+  const deadlineDate = formatPortalDate(data.response_deadline)
+
   const handleDecline = async () => {
     setFormError(null)
     setDeclining(true)
@@ -121,31 +131,123 @@ function ActiveBidView({
       <div className="bid-portal-card bid-portal-card--header">
         <div className="bid-portal-card__body">
           <h1 className="bid-portal-header__project">{data.projectName}</h1>
-          {data.address && <p className="bid-portal-header__address">{data.address}</p>}
-          <p className="bid-portal-header__trade">{data.tradeName}</p>
+          {(data.address || data.project_address) && (
+            <p className="bid-portal-header__address">{data.project_address || data.address}</p>
+          )}
+          {(data.gc_name || sentDate || deadlineDate) && (
+            <div className="bid-portal-header__meta">
+              <div className="bid-portal-meta-row">
+                {data.gc_name ? (
+                  <span className="bid-portal-meta-row__item">
+                    <span className="bid-portal-meta-row__label">Issued by:</span>
+                    {data.gc_name}
+                  </span>
+                ) : null}
+                {sentDate ? (
+                  <span className="bid-portal-meta-row__item">
+                    <span className="bid-portal-meta-row__label">Sent:</span>
+                    {sentDate}
+                  </span>
+                ) : null}
+                {deadlineDate ? (
+                  <span className="bid-portal-meta-row__item">
+                    <span className="bid-portal-meta-row__label">Respond by:</span>
+                    <span className="bid-portal-meta-row__deadline">{deadlineDate}</span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          )}
+          <p className="bid-portal-header__trade">{data.trade_name || data.tradeName}</p>
         </div>
       </div>
 
       {/* Scope of Work card */}
       <div className="bid-portal-card">
         <div className="bid-portal-card__body">
-          <h3 className="bid-portal-scope__title">What you&apos;re bidding on.</h3>
-          {data.scope?.length > 0 ? (
-            <ul className="bid-portal-scope__list">
-              {data.scope.map((item, i) => (
-                <li key={i} className="bid-portal-scope__item">
-                  <span className="bid-portal-scope__desc">{item.description ?? '—'}</span>
-                  <span className="bid-portal-scope__qty">
-                    {item.quantity != null ? Number(item.quantity).toLocaleString() : '—'} {item.unit ?? 'ea'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="bid-portal-scope__empty">Scope to be confirmed — contact the GC for details.</p>
-          )}
+          <h3 className="bid-portal-scope__heading">What you&apos;re bidding on</h3>
+          <p className="bid-portal-scope__subheading">
+            The following quantities were extracted from the project plans. Your bid should cover all items listed for
+            this trade.
+          </p>
+          {(() => {
+            const scopeItems = Array.isArray(data.scope_items) ? data.scope_items : []
+            const tradeLabel = data.trade_name || data.tradeName || 'This trade'
+            if (scopeItems.length > 0) {
+              const n = scopeItems.length
+              const countLine = `${n === 1 ? '1 line item' : `${n} line items`} · ${tradeLabel}`
+              return (
+                <>
+                  <p className="bid-portal-scope-count">{countLine}</p>
+                  <div className="bid-portal-scope-table-wrap">
+                    <table className="bid-portal-scope-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Description</th>
+                          <th scope="col" className="bid-portal-scope-table__qty">
+                            Qty
+                          </th>
+                          <th scope="col" className="bid-portal-scope-table__unit">
+                            Unit
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scopeItems.map((item, i) => (
+                          <tr key={i} className="bid-portal-scope-row">
+                            <td className="bid-portal-scope-table__desc">{item.description || '—'}</td>
+                            <td className="bid-portal-scope-table__qty">
+                              {Number.isFinite(Number(item.quantity))
+                                ? Number(item.quantity).toLocaleString()
+                                : '—'}
+                            </td>
+                            <td className="bid-portal-scope-table__unit">{item.unit || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            }
+            return (
+              <div className="bid-portal-scope__empty-block">
+                <p className="bid-portal-scope__empty-title">Scope to be confirmed</p>
+                <p className="bid-portal-scope__empty-text">
+                  The GC has not yet run a takeoff. Contact them directly for scope details.
+                </p>
+                {data.gc_name ? (
+                  <p className="bid-portal-scope__gc-name">
+                    <span className="bid-portal-scope__gc-label">General contractor:</span> {data.gc_name}
+                  </p>
+                ) : null}
+              </div>
+            )
+          })()}
+          <p className="bid-portal-scope-disclaimer">
+            Quantities are for reference only and should be verified against the project plans. Contact the GC with any
+            questions.
+          </p>
         </div>
       </div>
+
+      {(data.gc_name || data.gc_email) && (
+        <div className="bid-portal-contact-bar" role="note">
+          <span>Questions about this scope? Contact</span>
+          {data.gc_email ? (
+            <a
+              href={`mailto:${data.gc_email}?subject=${encodeURIComponent(
+                `Bid question — ${data.project_name || data.projectName || 'Project'}`
+              )}`}
+              className="bid-portal-contact-bar__link"
+            >
+              {data.gc_name?.trim() || data.gc_email}
+            </a>
+          ) : (
+            <span className="bid-portal-contact-bar__name">{data.gc_name}</span>
+          )}
+        </div>
+      )}
 
       {/* Your Bid form card */}
       <div className="bid-portal-card">

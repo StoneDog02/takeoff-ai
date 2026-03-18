@@ -2,6 +2,7 @@ require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
+const fs = require('fs')
 
 const takeoffRoutes = require('./routes/takeoff')
 const buildListsRoutes = require('./routes/build-lists')
@@ -49,6 +50,45 @@ app.post(
 
 app.use(express.json())
 
+const clientDist = path.join(__dirname, '../client/dist')
+
+/**
+ * Subcontractor bid portal links go to /bid/:token.
+ * If the API is on a different host than the SPA (e.g. Render API + Vercel client),
+ * set PUBLIC_APP_URL to the SPA origin — we redirect here so old emails still work.
+ */
+app.get('/bid/:token', (req, res) => {
+  const token = encodeURIComponent(req.params.token)
+  const raw = (process.env.PUBLIC_APP_URL || process.env.APP_URL || '').trim().replace(/\/$/, '')
+  const reqHost = (req.get('host') || '').toLowerCase()
+
+  if (raw) {
+    try {
+      const base = raw.startsWith('http') ? raw : `https://${raw}`
+      const appHost = new URL(base).host.toLowerCase()
+      if (!reqHost || appHost !== reqHost) {
+        return res.redirect(302, `${base}/bid/${token}`)
+      }
+    } catch (e) {
+      console.warn('[bid portal] PUBLIC_APP_URL / APP_URL invalid:', e.message)
+    }
+  }
+
+  const indexHtml = path.join(clientDist, 'index.html')
+  if (fs.existsSync(indexHtml)) {
+    return res.sendFile(indexHtml)
+  }
+
+  res
+    .status(503)
+    .type('html')
+    .send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bid portal</title></head><body style="font-family:system-ui,sans-serif;padding:2rem;max-width:28rem;line-height:1.5">
+<h1 style="font-size:1.25rem">Bid link can’t load here</h1>
+<p>This address is the API server. Set <strong>PUBLIC_APP_URL</strong> in your server environment to your <strong>web app URL</strong> (same site where you use Takeoff). New invite emails will use that link; existing links will redirect once <code>PUBLIC_APP_URL</code> is set.</p>
+<p>Example: <code>PUBLIC_APP_URL=https://your-app.vercel.app</code></p>
+</body></html>`)
+})
+
 const { requireAuth } = require('./middleware/auth')
 
 app.use('/api/me', requireAuth, meRoutes)
@@ -92,13 +132,19 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Server error' })
 })
 
-// Optional: serve client build in production
-const clientDist = path.join(__dirname, '../client/dist')
+// Optional: serve client build in production (same host as API)
 app.use(express.static(clientDist))
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next()
-  res.sendFile(path.join(clientDist, 'index.html'), (err) => {
-    if (err) next()
+  const indexHtml = path.join(clientDist, 'index.html')
+  if (!fs.existsSync(indexHtml)) {
+    return res.status(404).type('text').send(`Not found. Set PUBLIC_APP_URL for bid links, or deploy the client build next to the API.`)
+  }
+  res.sendFile(indexHtml, (err) => {
+    if (err) {
+      console.error('[spa]', err.message)
+      res.status(500).type('text').send('Could not load app')
+    }
   })
 })
 

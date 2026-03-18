@@ -547,7 +547,14 @@ export const api = {
     },
     async createSubcontractor(
       projectId: string,
-      body: { name: string; trade: string; email?: string; phone?: string; dispatch_portal?: boolean }
+      body: {
+        name: string
+        trade: string
+        email?: string
+        phone?: string
+        dispatch_portal?: boolean
+        response_deadline?: string | null
+      }
     ): Promise<Subcontractor> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, {
@@ -653,7 +660,14 @@ export const api = {
     /** Dispatch a bid to a subcontractor: generates portal token, stores it, and returns the portal URL (email sent/logged server-side). */
     async dispatchBid(
       projectId: string,
-      body: { trade_package_id: string; subcontractor_id: string; amount?: number; notes?: string }
+      body: {
+        trade_package_id: string
+        subcontractor_id: string
+        amount?: number
+        notes?: string
+        /** ISO date string; omit to leave unchanged on re-dispatch */
+        response_deadline?: string | null
+      }
     ): Promise<{ token: string; portal_url: string }> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/dispatch`, {
@@ -950,7 +964,27 @@ export interface EstimatePortalResponse {
   actioned_at?: string | null
 }
 
+export interface BidPortalScopeItem {
+  description: string
+  quantity: number
+  unit: string
+}
+
 export interface BidPortalResponse {
+  /** Canonical portal fields (snake_case) */
+  project_name: string
+  project_address: string
+  gc_name: string | null
+  /** Company contact email for scope questions (mailto); null if not configured */
+  gc_email?: string | null
+  trade_name: string
+  sub_name: string
+  dispatched_at: string | null
+  /** ISO date when the GC expects a response; omitted or null if not set */
+  response_deadline?: string | null
+  /** Takeoff lines for this trade; may be omitted on older API responses */
+  scope_items?: BidPortalScopeItem[]
+  /** Legacy camelCase (mirrors snake_case where applicable) */
   projectName: string
   address: string
   tradeName: string

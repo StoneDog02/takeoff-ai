@@ -22,6 +22,13 @@ async function ensureBuildPlansBucket() {
 
 const router = express.Router()
 
+/** ISO timestamptz or null; invalid dates become null. */
+function parseBidResponseDeadline(v) {
+  if (v == null || v === '') return null
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
@@ -1189,7 +1196,10 @@ router.post('/:id/subcontractors', loadProject, async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const projectId = req.params.id
-    const { name, trade, email, phone, dispatch_portal } = req.body || {}
+    const subBody = req.body || {}
+    const { name, trade, email, phone, dispatch_portal } = subBody
+    const hasSubResponseDeadline = Object.prototype.hasOwnProperty.call(subBody, 'response_deadline')
+    const subResponseDeadline = hasSubResponseDeadline ? parseBidResponseDeadline(subBody.response_deadline) : undefined
     const subEmail = email != null ? String(email).trim() : ''
     const tradeTag = trade != null ? String(trade).trim() : ''
 
@@ -1242,11 +1252,11 @@ router.post('/:id/subcontractors', loadProject, async (req, res, next) => {
 
     const token = crypto.randomUUID()
     let subBidId
+    const dispatchTs = new Date().toISOString()
     if (existing?.data?.id) {
-      await supabase
-        .from('sub_bids')
-        .update({ portal_token: token, amount: 0, notes: null })
-        .eq('id', existing.data.id)
+      const subUpd = { portal_token: token, amount: 0, notes: null, dispatched_at: dispatchTs }
+      if (hasSubResponseDeadline) subUpd.response_deadline = subResponseDeadline
+      await supabase.from('sub_bids').update(subUpd).eq('id', existing.data.id)
       subBidId = existing.data.id
     } else {
       const bidIns = await supabase
@@ -1257,6 +1267,8 @@ router.post('/:id/subcontractors', loadProject, async (req, res, next) => {
           amount: 0,
           awarded: false,
           portal_token: token,
+          dispatched_at: dispatchTs,
+          response_deadline: hasSubResponseDeadline ? subResponseDeadline : null,
         })
         .select('id')
         .single()
@@ -1647,7 +1659,10 @@ router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const projectId = req.params.id
-    const { trade_package_id, subcontractor_id, amount, notes } = req.body || {}
+    const body = req.body || {}
+    const { trade_package_id, subcontractor_id, amount, notes } = body
+    const hasResponseDeadline = Object.prototype.hasOwnProperty.call(body, 'response_deadline')
+    const responseDeadline = hasResponseDeadline ? parseBidResponseDeadline(body.response_deadline) : undefined
     if (!trade_package_id || !subcontractor_id) {
       return res.status(400).json({ error: 'trade_package_id and subcontractor_id are required' })
     }
@@ -1672,8 +1687,11 @@ router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
     const bidAmount = amount != null ? Number(amount) : 0
     const bidNotes = notes != null ? String(notes) : null
 
+    const dispatchTs = new Date().toISOString()
     if (existing?.data?.id) {
-      await supabase.from('sub_bids').update({ portal_token: token, amount: bidAmount, notes: bidNotes }).eq('id', existing.data.id)
+      const upd = { portal_token: token, amount: bidAmount, notes: bidNotes, dispatched_at: dispatchTs }
+      if (hasResponseDeadline) upd.response_deadline = responseDeadline
+      await supabase.from('sub_bids').update(upd).eq('id', existing.data.id)
     } else {
       await supabase.from('sub_bids').insert({
         trade_package_id,
@@ -1682,6 +1700,8 @@ router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
         notes: bidNotes,
         awarded: false,
         portal_token: token,
+        dispatched_at: dispatchTs,
+        response_deadline: hasResponseDeadline ? responseDeadline : null,
       })
     }
 
@@ -1740,11 +1760,13 @@ router.post('/:id/bid-sheet/resend', loadProject, async (req, res, next) => {
     const projRes = await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()
     if (projRes.data && projRes.data.name) projectName = projRes.data.name
 
+    const resendTs = new Date().toISOString()
     if (subEmail) {
       await sendBidPortalEmail({ to: subEmail, projectName, portalUrl, isResend: true })
     } else {
       console.log('[bid-sheet/resend] No sub email; portal link:', portalUrl)
     }
+    await supabase.from('sub_bids').update({ dispatched_at: resendTs }).eq('id', bidRes.data.id)
 
     return res.status(200).json({ ok: true, portal_url: portalUrl })
   } catch (err) {

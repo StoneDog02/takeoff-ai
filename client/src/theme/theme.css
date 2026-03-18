@@ -16195,6 +16195,55 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   margin: 0;
   font-style: italic;
 }
+.bid-portal-scope__heading {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-text-dark);
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.01em;
+}
+.bid-portal-scope__subheading {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+  margin: 0 0 1.125rem;
+}
+.bid-portal-scope-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 0.25rem;
+}
+.bid-portal-scope-table__desc {
+  min-width: 10rem;
+}
+.bid-portal-scope-table__qty,
+.bid-portal-scope-table__unit {
+  white-space: nowrap;
+}
+.bid-portal-scope__empty-block {
+  padding: 0.75rem 0 0.25rem;
+}
+.bid-portal-scope__empty-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0 0 0.5rem;
+}
+.bid-portal-scope__empty-text {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+  margin: 0 0 0.5rem;
+}
+.bid-portal-scope__gc-name {
+  font-size: 0.8125rem;
+  color: var(--color-text-dark);
+  margin: 0;
+}
+.bid-portal-scope__gc-label {
+  color: var(--color-muted);
+  font-weight: 500;
+  margin-right: 0.25rem;
+}
 .bid-portal-card--header .bid-portal-card__body {
   padding-bottom: 1.25rem;
 }
@@ -16221,7 +16270,12 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-accent);
-  margin: 0;
+  margin: 0.75rem 0 0;
+}
+.bid-portal-header__meta {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border, var(--border, #e2e8f0));
 }
 .bid-portal-form__title {
   font-size: 0.75rem;
@@ -16421,15 +16475,99 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   color: var(--text-muted, #64748b);
   margin: 0 0 6px;
 }
-.bid-portal-scope-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
+
+.bid-portal-scope-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+.bid-portal-scope-table thead th {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted, #64748b);
+  padding: 8px 0;
+  border-bottom: 1.5px solid var(--border, #e2e8f0);
+  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.bid-portal-scope-table thead th:nth-child(2),
+.bid-portal-scope-table thead th:nth-child(3) {
+  text-align: right;
+}
+.bid-portal-scope-table tbody td {
   padding: 10px 0;
   border-bottom: 1px solid var(--border, #e2e8f0);
   font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  vertical-align: top;
 }
+.bid-portal-scope-table tbody td:nth-child(2),
+.bid-portal-scope-table tbody td:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bid-portal-scope-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.bid-portal-scope-count {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #64748b);
+  margin: 0 0 12px;
+}
+.bid-portal-scope-disclaimer {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.bid-portal-contact-bar {
+  background: var(--bg-base, #f8fafc);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bid-portal-contact-bar__link {
+  color: var(--blue, #2563eb);
+  text-decoration: none;
+  font-weight: 600;
+}
+.bid-portal-contact-bar__link:hover {
+  text-decoration: underline;
+}
+.bid-portal-contact-bar__name {
+  font-weight: 600;
+  color: var(--text-primary, #1a1a24);
+}
+.bid-portal-meta-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.bid-portal-meta-row__item {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+.bid-portal-meta-row__label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.bid-portal-meta-row__deadline {
+  font-weight: 700;
+  color: var(--blue, #2563eb);
+}
+
 .bid-portal-submit-btn {
   width: 100%;
   height: 48px;
