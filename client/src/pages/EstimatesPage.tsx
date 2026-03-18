@@ -153,28 +153,10 @@ export function EstimatesPage() {
           onClick={() => setShowSettings(false)}
         >
           <div
-            className="estimates-detail-panel__inner"
+            className="estimates-detail-panel__inner estimates-detail-panel__inner--products-drawer"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="estimates-detail-panel__header">
-              <div className="estimates-detail-panel__meta">
-                <div>
-                  <div className="estimates-detail-panel__type-id">Library</div>
-                  <h3 className="estimates-detail-panel__title">Products & Services</h3>
-                </div>
-                <button
-                  type="button"
-                  className="estimates-detail-panel__close"
-                  onClick={() => setShowSettings(false)}
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            <div style={{ padding: '20px 28px', flex: 1 }}>
-              <CustomProductLibrary />
-            </div>
+            <CustomProductLibrary onClose={() => setShowSettings(false)} />
           </div>
         </div>
       )}

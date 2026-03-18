@@ -1,11 +1,40 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import type { CustomProduct } from '@/types/global'
 import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import AddProductModal, { type AddProductModalPayload } from '@/components/estimates/AddProductModal'
+import { ProductsDrawer, type ProductsDrawerProduct, type ProductsDrawerType } from '@/components/estimates/ProductsDrawer'
 
 const UNIT_OPTIONS = ['ea', 'hr', 'sqft', 'lf', 'gal', 'sheet', 'load', 'flat']
 
-export function CustomProductLibrary() {
+function itemTypeToDrawerType(itemType?: string | null): ProductsDrawerType {
+  const t = (itemType || 'service').toLowerCase()
+  if (t === 'labor') return 'labor'
+  if (t === 'product' || t === 'material') return 'material'
+  if (t === 'sub') return 'sub'
+  if (t === 'equipment') return 'equipment'
+  return 'service'
+}
+
+function toDrawerProduct(p: CustomProduct): ProductsDrawerProduct {
+  return {
+    id: p.id,
+    name: p.name,
+    desc: p.description?.trim() || undefined,
+    type: itemTypeToDrawerType(p.item_type),
+    trades: p.trades?.filter(Boolean) as string[] | undefined,
+    unit: p.unit,
+    price: Number(p.default_unit_price) || 0,
+    taxable: !!p.taxable,
+  }
+}
+
+export interface CustomProductLibraryProps {
+  /** When set, drawer close button calls this (e.g. dismiss portal). */
+  onClose?: () => void
+}
+
+export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
   const [products, setProducts] = useState<CustomProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<CustomProduct | null>(null)
@@ -57,18 +86,23 @@ export function CustomProductLibrary() {
     setCreating(false)
   }
 
-  const saveCreate = async () => {
-    if (!form.name.trim()) return
+  const saveCreate = async (payload: AddProductModalPayload) => {
     if (USE_MOCK_ESTIMATES) {
       closeModal()
       return
     }
     try {
       await estimatesApi.createCustomProduct({
-        name: form.name.trim(),
-        description: form.description.trim() || undefined,
-        unit: form.unit,
-        default_unit_price: form.default_unit_price,
+        name: payload.name.trim(),
+        description: payload.description.trim() || undefined,
+        unit: payload.unit,
+        default_unit_price: payload.type === 'sub' ? (payload.billedPrice ?? payload.price) : payload.price,
+        item_type: payload.type,
+        sub_cost: payload.subCost,
+        markup_pct: payload.markupPct,
+        billed_price: payload.billedPrice,
+        trades: payload.trades,
+        taxable: payload.taxable,
       })
       load()
       closeModal()
@@ -112,95 +146,36 @@ export function CustomProductLibrary() {
     }
   }
 
-  const [psSearch, setPsSearch] = useState('')
-  const [psFilter, setPsFilter] = useState<'all' | 'labor' | 'material' | 'service'>('all')
-  const filteredProducts = products.filter((p) => {
-    const q = psSearch.toLowerCase()
-    if (q && !p.name.toLowerCase().includes(q) && !(p.description || '').toLowerCase().includes(q)) return false
-    if (psFilter !== 'all') {
-      const type = (p.item_type || 'service') as string
-      if (psFilter === 'labor' && type !== 'service') return false
-      if (psFilter === 'material' && type !== 'product') return false
-      if (psFilter === 'service' && type !== 'service') return false
-    }
-    return true
-  })
-  const psFilterOptions: { value: 'all' | 'labor' | 'material' | 'service'; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'labor', label: 'Labor' },
-    { value: 'material', label: 'Materials' },
-    { value: 'service', label: 'Services' },
-  ]
+  const drawerProducts = useMemo(() => products.map(toDrawerProduct), [products])
+
+  const resolveProduct = (dp: ProductsDrawerProduct) =>
+    products.find((x) => String(x.id) === String(dp.id))
 
   if (loading) {
-    return <div className="estimates-content-empty">Loading…</div>
+    return (
+      <div className="pdr-root" style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted, #888)' }}>
+        Loading…
+      </div>
+    )
   }
 
   return (
-    <div>
-      <div className="est-card">
-        <div className="estimates-ps-toolbar">
-          <div className="estimates-ps-toolbar-left">
-            <div className="estimates-ledger__search-wrap" style={{ maxWidth: 240 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-              <input type="text" placeholder="Search products…" value={psSearch} onChange={(e) => setPsSearch(e.target.value)} />
-            </div>
-            <div className="estimates-ledger__filter-group">
-              {psFilterOptions.map((f) => (
-                <button key={f.value} type="button" className={`estimates-ledger__filter-btn ${psFilter === f.value ? 'active' : ''}`} onClick={() => setPsFilter(f.value)}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button type="button" className="btn btn-primary" onClick={openCreate}>
-            Add product
-          </button>
-        </div>
-        <table className="estimates-ps-table">
-          <thead>
-            <tr>
-              <th style={{ width: 200 }}>Name</th>
-              <th>Description</th>
-              <th style={{ width: 80 }}>Category</th>
-              <th className="r" style={{ width: 70 }}>Unit</th>
-              <th className="r" style={{ width: 110 }}>Default Price</th>
-              <th style={{ width: 100 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {filteredProducts.length === 0 ? (
-              <tr>
-                <td colSpan={6}>
-                  <div className="estimates-ledger__empty">
-                    <div className="estimates-ledger__empty-title">No products found</div>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              filteredProducts.map((p) => (
-                <tr key={p.id} onClick={() => openEdit(p)}>
-                  <td>
-                    <div className="estimates-ps-name">{p.name}</div>
-                    {p.description && <div className="estimates-ps-desc">{p.description}</div>}
-                  </td>
-                  <td><span className="estimates-ps-desc">{p.description || '—'}</span></td>
-                  <td><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{p.item_type || 'service'}</span></td>
-                  <td className="r"><span className="estimates-ps-unit">{p.unit}</span></td>
-                  <td className="r"><span className="estimates-ps-price">${Number(p.default_unit_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></td>
-                  <td>
-                    <div className="estimates-ps-row-actions" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="btn btn-ghost" style={{ padding: '4px 9px', fontSize: 11.5 }} onClick={() => openEdit(p)}>Edit</button>
-                      <button type="button" className="btn btn-ghost" style={{ padding: '4px 9px', fontSize: 11.5, color: 'var(--red-light)' }} onClick={() => deleteProduct(p.id)}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      {(creating || editing) && (
+    <>
+      <ProductsDrawer
+        products={drawerProducts}
+        onClose={onClose ?? (() => {})}
+        onAdd={openCreate}
+        onEdit={(dp) => {
+          const full = resolveProduct(dp)
+          if (full) openEdit(full)
+        }}
+        onDelete={(dp) => {
+          void deleteProduct(String(dp.id))
+        }}
+      />
+
+      {creating && <AddProductModal onClose={closeModal} onSubmit={saveCreate} />}
+      {editing && (
         <div
           className="add-product-modal-overlay"
           onClick={closeModal}
@@ -214,13 +189,13 @@ export function CustomProductLibrary() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="add-product-title" className="add-product-modal-title">
-              {creating ? 'Add product' : 'Edit product'}
+              Edit product
             </h2>
             <form
               className="add-product-form"
               onSubmit={(e) => {
                 e.preventDefault()
-                creating ? saveCreate() : saveEdit()
+                saveEdit()
               }}
             >
               <div className="add-product-form-row">
@@ -262,7 +237,9 @@ export function CustomProductLibrary() {
                   className="add-product-form-select"
                 >
                   {UNIT_OPTIONS.map((u) => (
-                    <option key={u} value={u}>{u}</option>
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -271,7 +248,9 @@ export function CustomProductLibrary() {
                   Default unit price
                 </label>
                 <div className="add-product-form-price-wrap">
-                  <span className="add-product-form-price-prefix" aria-hidden>$</span>
+                  <span className="add-product-form-price-prefix" aria-hidden>
+                    $
+                  </span>
                   <input
                     id="add-product-price"
                     type="number"
@@ -279,7 +258,10 @@ export function CustomProductLibrary() {
                     step={0.01}
                     value={form.default_unit_price}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, default_unit_price: parseFloat((e.target as HTMLInputElement).value) || 0 }))
+                      setForm((f) => ({
+                        ...f,
+                        default_unit_price: parseFloat((e.target as HTMLInputElement).value) || 0,
+                      }))
                     }
                     className="add-product-form-input price"
                     placeholder="0.00"
@@ -290,32 +272,22 @@ export function CustomProductLibrary() {
                 <button type="button" className="btn btn-ghost" onClick={closeModal}>
                   Cancel
                 </button>
-                {creating ? (
-                  <button type="submit" className="btn btn-primary">
-                    Create product
-                  </button>
-                ) : (
-                  <>
-                    {editing && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ color: 'var(--red-light)', marginRight: 'auto' }}
-                        onClick={() => editing && deleteProduct(editing.id)}
-                      >
-                        Delete
-                      </button>
-                    )}
-                    <button type="submit" className="btn btn-primary">
-                      Save changes
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ color: 'var(--red-light)', marginRight: 'auto' }}
+                  onClick={() => deleteProduct(editing.id)}
+                >
+                  Delete
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Save changes
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

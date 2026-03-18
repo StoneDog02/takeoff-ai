@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/api/client'
 import { estimatesApi } from '@/api/estimates'
-import type { Job, PipelineMilestone, Project } from '@/types/global'
+import type { CustomProduct, Job, PipelineMilestone, Project } from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
+import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 
 const PLAN_TYPES = ['residential', 'commercial', 'civil'] as const
 type PlanType = (typeof PLAN_TYPES)[number]
@@ -116,6 +117,26 @@ function linesFromEstimate(lineItems: EstimateLineItem[]): WizardLine[] {
   }))
 }
 
+function presetCategoryLabel(itemType?: string): string {
+  const t = (itemType || 'service').toLowerCase()
+  if (t === 'labor') return 'Labor'
+  if (t === 'product') return 'Product'
+  if (t === 'sub') return 'Sub'
+  if (t === 'equipment') return 'Equipment'
+  if (t === 'material') return 'Material'
+  return 'Service'
+}
+
+function presetCategoryClass(itemType?: string): string {
+  const t = (itemType || 'service').toLowerCase()
+  if (t === 'labor') return 'labor'
+  if (t === 'product') return 'product'
+  if (t === 'sub') return 'sub'
+  if (t === 'equipment') return 'equipment'
+  if (t === 'material') return 'material'
+  return 'service'
+}
+
 export function EstimateBuilderModal({
   jobs: _jobs,
   onClose,
@@ -141,6 +162,8 @@ export function EstimateBuilderModal({
   /** Revise mode: line item ids from loaded estimate (for delete-before-re-add on save). */
   const [loadedLineItemIds, setLoadedLineItemIds] = useState<string[]>([])
   const [reviseLoadDone, setReviseLoadDone] = useState(!isReviseMode)
+  /** Resets step-2 catalog search state when the wizard is reset. */
+  const [presetCatalogResetKey, setPresetCatalogResetKey] = useState(0)
 
   useEffect(() => {
     if (!isReviseMode || !estimateId) return
@@ -297,6 +320,7 @@ export function EstimateBuilderModal({
     setSavedAndSent(false)
     setCreatedProjectName('')
     setSavedEstimateId(null)
+    setPresetCatalogResetKey((k) => k + 1)
   }
 
   // ─── Success state ─────────────────────────────────────────────────────────
@@ -442,6 +466,7 @@ export function EstimateBuilderModal({
                 lines={lines}
                 setLines={setLines}
                 hasPrefill={Boolean(prefillLineItems?.length)}
+                resetKey={presetCatalogResetKey}
               />
             )}
             {step === 2 && !isBuildMode && <Step2ReviewCreate data={data} />}
@@ -506,6 +531,7 @@ export function EstimateBuilderModal({
           </div>
         </div>
       </div>
+
     </div>
   )
 }
@@ -609,12 +635,47 @@ function Step2LineItems({
   lines,
   setLines,
   hasPrefill,
+  resetKey,
 }: {
   lines: WizardLine[]
   setLines: React.Dispatch<React.SetStateAction<WizardLine[]>>
   hasPrefill: boolean
+  resetKey: number
 }) {
   const [prefillBannerDismissed, setPrefillBannerDismissed] = useState(false)
+  const [products, setProducts] = useState<CustomProduct[]>([])
+  const [loadingProducts, setLoadingProducts] = useState(true)
+  const [catalogQuery, setCatalogQuery] = useState('')
+
+  useEffect(() => {
+    setCatalogQuery('')
+    setPrefillBannerDismissed(false)
+  }, [resetKey])
+
+  useEffect(() => {
+    if (USE_MOCK_ESTIMATES) {
+      setProducts(MOCK_CUSTOM_PRODUCTS)
+      setLoadingProducts(false)
+      return
+    }
+    setLoadingProducts(true)
+    estimatesApi
+      .getCustomProducts()
+      .then(setProducts)
+      .catch(() => setProducts([]))
+      .finally(() => setLoadingProducts(false))
+  }, [])
+
+  const filteredProducts = catalogQuery.trim()
+    ? products.filter((p) => {
+        const q = catalogQuery.toLowerCase()
+        return (
+          p.name.toLowerCase().includes(q) ||
+          (p.description ?? '').toLowerCase().includes(q) ||
+          (p.item_type ?? '').toLowerCase().includes(q)
+        )
+      })
+    : products
 
   const updateLine = (idx: number, updates: Partial<WizardLine>) => {
     setLines((prev) => {
@@ -633,6 +694,20 @@ function Step2LineItems({
       ...prev,
       { id: Date.now(), name: '', qty: 1, unit: 'ea', price: 0 },
     ])
+  }
+
+  const addPreset = (product: CustomProduct) => {
+    setLines((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        name: product.name,
+        qty: 1,
+        unit: product.unit || 'ea',
+        price: product.default_unit_price || 0,
+      },
+    ])
+    setCatalogQuery('')
   }
 
   return (
@@ -660,6 +735,62 @@ function Step2LineItems({
             </button>
           </div>
         )}
+
+        <div className="estimate-wizard-presets-panel">
+          <div className="estimate-wizard-presets-head">
+            <div>
+              <div className="estimate-wizard-presets-title">Quick select presets</div>
+              <div className="estimate-wizard-presets-sub">
+                Tap a service or product to add it as a line item, then adjust quantity or price.
+              </div>
+            </div>
+            <div className="estimate-wizard-presets-head-actions">
+              <div className="estimate-wizard-presets-search">
+                <span className="estimate-wizard-presets-search-icon" aria-hidden>⌕</span>
+                <input
+                  type="text"
+                  value={catalogQuery}
+                  onChange={(e) => setCatalogQuery(e.target.value)}
+                  placeholder="Search services / products…"
+                  className="estimate-wizard-input estimate-wizard-presets-search-input"
+                />
+              </div>
+            </div>
+          </div>
+
+          {loadingProducts ? (
+            <div className="estimate-wizard-presets-empty">Loading presets…</div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="estimate-wizard-presets-empty">
+              No presets found. Add more in Products & Services.
+            </div>
+          ) : (
+            <div className="estimate-wizard-presets-grid">
+              {filteredProducts.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  className="estimate-wizard-preset-card"
+                  onClick={() => addPreset(product)}
+                >
+                  <div className="estimate-wizard-preset-card-top">
+                    <span className={`estimate-wizard-preset-pill estimate-wizard-preset-pill--${presetCategoryClass(product.item_type)}`}>
+                      {presetCategoryLabel(product.item_type)}
+                    </span>
+                    <span className="estimate-wizard-preset-price">
+                      ${Number(product.default_unit_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      /{product.unit}
+                    </span>
+                  </div>
+                  <div className="estimate-wizard-preset-name">{product.name}</div>
+                  {product.description ? (
+                    <div className="estimate-wizard-preset-desc">{product.description}</div>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="estimate-wizard-lines-header">
           <span className="estimate-wizard-label">Item</span>
@@ -716,7 +847,7 @@ function Step2LineItems({
           className="estimate-wizard-add-line-btn"
           onClick={addLine}
         >
-          + Add line item
+          + Add custom line item
         </button>
       </div>
     </div>

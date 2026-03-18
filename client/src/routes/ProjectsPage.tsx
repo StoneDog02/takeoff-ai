@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
 import type { DashboardProject } from '@/api/client'
@@ -23,8 +24,10 @@ import type { BuilderPhase, BuilderMilestone } from '@/components/projects/Sched
 import { formatDate, dayjs, formatRelative } from '@/lib/date'
 import { SetupWizard, SetupBanner, EMPTY_WIZARD_PROJECT, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
 import { EstimateBuilderModal, type PrefillClientInfo, type LineItem } from '@/components/estimates/EstimateBuilderModal'
+import { CustomProductLibrary } from '@/components/estimates/CustomProductLibrary'
 import { type InitialEstimateLine } from '@/components/estimates/EstimateBuilder'
 import { estimatesApi } from '@/api/estimates'
+import { allTradesReadyForEstimate } from '@/lib/estimatingTrades'
 
 export interface NewProjectFormData {
   name: string
@@ -126,10 +129,15 @@ export function ProjectsPage() {
   const [buildEstimateBlankMode, setBuildEstimateBlankMode] = useState(false)
   const [buildEstimateBidSheet, setBuildEstimateBidSheet] = useState<BidSheet | null | undefined>(undefined)
   const [buildEstimateBidSheetFetched, setBuildEstimateBidSheetFetched] = useState(false)
+  const [showProductLibrary, setShowProductLibrary] = useState(false)
   /** Bid sheet for EstimatingWorkspace when project status is estimating (overview). */
   const [workspaceBidSheet, setWorkspaceBidSheet] = useState<BidSheet | null | undefined>(undefined)
   /** Timestamp (ms) of last bid sheet fetch for Stage 2 "Last updated X seconds ago". */
   const [lastBidSheetUpdated, setLastBidSheetUpdated] = useState<number | null>(null)
+  /** Estimating overview: GC chose to bypass takeoff (unlocks bid sheet + build estimate). */
+  const [estimatingTakeoffBypassed, setEstimatingTakeoffBypassed] = useState(false)
+  /** Estimating overview: GC chose to skip bid collection (unlocks build estimate). */
+  const [estimatingBidSheetSkipped, setEstimatingBidSheetSkipped] = useState(false)
   /** Takeoff in progress (lives in parent so progress continues when user leaves Takeoff tab). */
   const [takeoffInProgress, setTakeoffInProgress] = useState(false)
   const [takeoffProgress, setTakeoffProgress] = useState(0)
@@ -255,6 +263,16 @@ export function ProjectsPage() {
       .finally(() => setLoading(false))
   }, [id])
 
+  useEffect(() => {
+    setEstimatingTakeoffBypassed(false)
+    setEstimatingBidSheetSkipped(false)
+    setShowProductLibrary(false)
+  }, [id])
+
+  useEffect(() => {
+    console.log('[ProjectsPage] product library state', { id, showProductLibrary })
+  }, [id, showProductLibrary])
+
   const refetchEstimatesForList = useCallback(() => {
     if (projects.length === 0) return
     estimatesApi
@@ -274,6 +292,11 @@ export function ProjectsPage() {
       })
       .catch(() => setEstimatesByProjectId({}))
   }, [projects])
+
+  const openProductLibrary = useCallback(() => {
+    console.log('[ProjectsPage] open product library click', { id, showProductLibrary })
+    setShowProductLibrary(true)
+  }, [id, showProductLibrary])
 
   // List view: fetch estimates for awaiting_approval column (project id → linked estimate)
   useEffect(() => {
@@ -450,7 +473,55 @@ export function ProjectsPage() {
     if (!buildEstimateBidSheetFetched) return []
     const lines: InitialEstimateLine[] = []
     const categories = takeoffs[0]?.material_list?.categories ?? []
+    const bidSheet = buildEstimateBidSheet
+    const packages = bidSheet?.trade_packages ?? []
+    const packagesById = new Map(packages.map((p) => [p.id, p]))
+    const packagesByTag = new Map(packages.map((p) => [p.trade_tag, p]))
+    const subsById = new Map(subcontractors.map((s) => [s.id, s]))
+    const awardedBidByTag = new Map<string, import('@/types/global').SubBid>()
+    for (const b of bidSheet?.sub_bids ?? []) {
+      if (!b.awarded) continue
+      const pkg = packagesById.get(b.trade_package_id)
+      if (pkg && !awardedBidByTag.has(pkg.trade_tag)) awardedBidByTag.set(pkg.trade_tag, b)
+    }
+
+    const selfPerformOk = (pkg: (typeof packages)[0]) =>
+      !!pkg.gc_self_perform &&
+      Array.isArray(pkg.gc_estimate_lines) &&
+      pkg.gc_estimate_lines.length > 0 &&
+      pkg.gc_estimate_lines.some((l) => {
+        const q = Number(l.quantity) || 0
+        const p = Number(l.unit_price) || 0
+        return q * p > 0 || p > 0
+      })
+
     for (const cat of categories) {
+      const tag = cat.name
+      const awarded = awardedBidByTag.get(tag)
+      const pkg = packagesByTag.get(tag)
+      if (awarded && subcontractors.length > 0) {
+        const sub = subsById.get(awarded.subcontractor_id)
+        lines.push({
+          description: `${tag} — ${sub?.name ?? 'Subcontractor'}`,
+          quantity: 1,
+          unit: 'job',
+          unit_price: Number(awarded.amount) || 0,
+          section: tag,
+        })
+        continue
+      }
+      if (pkg && selfPerformOk(pkg)) {
+        for (const el of pkg.gc_estimate_lines ?? []) {
+          lines.push({
+            description: el.description || 'Line item',
+            quantity: Number(el.quantity) || 1,
+            unit: el.unit || 'ea',
+            unit_price: Number(el.unit_price) || 0,
+            section: `${tag} (your work)`,
+          })
+        }
+        continue
+      }
       for (const item of cat.items ?? []) {
         const qty = item.quantity ?? 1
         const unitPrice = item.cost_estimate ?? 0
@@ -459,32 +530,49 @@ export function ProjectsPage() {
           quantity: qty,
           unit: item.unit ?? 'ea',
           unit_price: unitPrice,
-          section: cat.name,
+          section: tag,
         })
       }
     }
-    const bidSheet = buildEstimateBidSheet
-    if (bidSheet?.sub_bids && bidSheet?.trade_packages && subcontractors.length > 0) {
-      const subsById = new Map(subcontractors.map((s) => [s.id, s]))
-      const packagesById = new Map(bidSheet.trade_packages.map((p) => [p.id, p]))
-      for (const b of bidSheet.sub_bids) {
-        if (!b.awarded) continue
-        const pkg = packagesById.get(b.trade_package_id)
-        const sub = subsById.get(b.subcontractor_id)
-        const trade = pkg?.trade_tag ?? 'Trade'
-        const subName = sub?.name ?? 'Sub'
-        const amount = Number(b.amount) || 0
+
+    const coveredTags = new Set(categories.map((c) => c.name))
+    for (const b of bidSheet?.sub_bids ?? []) {
+      if (!b.awarded) continue
+      const pkg = packagesById.get(b.trade_package_id)
+      if (!pkg || coveredTags.has(pkg.trade_tag)) continue
+      coveredTags.add(pkg.trade_tag)
+      const sub = subsById.get(b.subcontractor_id)
+      lines.push({
+        description: `${pkg.trade_tag} — ${sub?.name ?? 'Subcontractor'}`,
+        quantity: 1,
+        unit: 'job',
+        unit_price: Number(b.amount) || 0,
+        section: pkg.trade_tag,
+      })
+    }
+    for (const pkg of packages) {
+      if (coveredTags.has(pkg.trade_tag) || !selfPerformOk(pkg)) continue
+      coveredTags.add(pkg.trade_tag)
+      for (const el of pkg.gc_estimate_lines ?? []) {
         lines.push({
-          description: `${trade} — ${subName}`,
-          quantity: 1,
-          unit: 'job',
-          unit_price: amount,
-          section: '',
+          description: el.description || 'Line item',
+          quantity: Number(el.quantity) || 1,
+          unit: el.unit || 'ea',
+          unit_price: Number(el.unit_price) || 0,
+          section: `${pkg.trade_tag} (your work)`,
         })
       }
     }
     return lines
   }, [buildEstimateBidSheetFetched, takeoffs, buildEstimateBidSheet, subcontractors])
+
+  const estimateStageReady = useMemo(
+    () =>
+      estimatingBidSheetSkipped ||
+      estimatingTakeoffBypassed ||
+      allTradesReadyForEstimate(workspaceBidSheet ?? null, takeoffs),
+    [estimatingBidSheetSkipped, estimatingTakeoffBypassed, workspaceBidSheet, takeoffs]
+  )
 
   const buildEstimatePrefillClientInfo: PrefillClientInfo | undefined = useMemo(() => {
     if (!project) return undefined
@@ -769,6 +857,13 @@ export function ProjectsPage() {
                   </svg>
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); openProductLibrary() }}
+                className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
+              >
+                Products & Services
+              </button>
               <button type="button" onClick={() => setNewProjectOpen(true)} className="projects-list-new-btn">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -1218,13 +1313,22 @@ export function ProjectsPage() {
           </div>
           <div className="project-overview-hero-actions relative" ref={heroMenuRef}>
             {project?.status === 'estimating' && (
-              <button
-                type="button"
-                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate"
-                onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
-              >
-                Build Estimate →
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate"
+                  onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
+                >
+                  Build Estimate →
+                </button>
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
+                  onClick={(e) => { e.stopPropagation(); openProductLibrary() }}
+                >
+                  Products & Services
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -1424,12 +1528,32 @@ export function ProjectsPage() {
                 onRefreshTakeoffs={() => id && api.projects.getTakeoffs(id).then((toffs) => setTakeoffs(toffs?.length ? toffs : []))}
                 onRefreshSubcontractors={refreshSubcontractors}
                 onBuildEstimate={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
-                hasAwardedBids={(workspaceBidSheet?.sub_bids?.some((b) => b.awarded)) ?? false}
+                estimateStageReady={estimateStageReady}
+                takeoffBypassed={estimatingTakeoffBypassed}
+                onBypassTakeoff={() => setEstimatingTakeoffBypassed(true)}
+                bidSheetSkipped={estimatingBidSheetSkipped}
+                onSkipBidSheet={() => setEstimatingBidSheetSkipped(true)}
                 onViewFullTakeoff={() => setActiveTab('takeoff')}
                 onViewBidSheet={() => setActiveTab('bidsheet')}
                 onRefreshBidSheet={refreshWorkspaceBidSheet}
                 lastBidSheetUpdated={lastBidSheetUpdated}
-                onResendBid={id ? (subBidId) => api.projects.resendBid(id, subBidId).then(() => {}) : undefined}
+                onResendBid={id ? (subBidId) => api.projects.resendBid(id, subBidId).then(() => { refreshWorkspaceBidSheet() }) : undefined}
+                onSetAwarded={
+                  id
+                    ? async (subBidId, awarded) => {
+                        await api.projects.setSubBidAwarded(id, subBidId, awarded)
+                        refreshWorkspaceBidSheet()
+                      }
+                    : undefined
+                }
+                onRemoveSubBid={
+                  id
+                    ? async (subBidId) => {
+                        await api.projects.deleteSubBid(id, subBidId)
+                        refreshWorkspaceBidSheet()
+                      }
+                    : undefined
+                }
                 onStartTakeoff={startTakeoff}
                 takeoffResult={takeoffResult}
                 takeoffError={takeoffError}
@@ -1967,6 +2091,27 @@ export function ProjectsPage() {
           }}
         />
       )}
+      {showProductLibrary && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="estimates-detail-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Products & Services library"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setShowProductLibrary(false)
+              }}
+            >
+              <div
+                className="estimates-detail-panel__inner estimates-detail-panel__inner--products-drawer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <CustomProductLibrary onClose={() => setShowProductLibrary(false)} />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 }

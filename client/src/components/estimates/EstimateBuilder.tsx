@@ -11,6 +11,9 @@ function catalogCategoryClass(itemType: string | undefined): string {
   if (!itemType) return 'materials'
   const t = itemType.toLowerCase()
   if (t === 'labor') return 'labor'
+  if (t === 'sub') return 'sub'
+  if (t === 'equipment') return 'materials'
+  if (t === 'material') return 'materials'
   if (t === 'service') return 'service'
   return 'materials'
 }
@@ -401,7 +404,17 @@ export function EstimateBuilder({
                                 onClick={() => addFromProduct(p)}
                               >
                                 <span className={`estimates-catalog-dropdown-item-cat ${catalogCategoryClass(p.item_type)}`}>
-                                  {p.item_type === 'labor' ? 'Labor' : p.item_type === 'service' ? 'Service' : 'Materials'}
+                                  {p.item_type === 'labor'
+                                    ? 'Labor'
+                                    : p.item_type === 'service'
+                                      ? 'Service'
+                                      : p.item_type === 'sub'
+                                        ? 'Sub'
+                                        : p.item_type === 'equipment'
+                                          ? 'Equipment'
+                                          : p.item_type === 'material'
+                                            ? 'Material'
+                                            : 'Materials'}
                                 </span>
                                 <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500, color: 'var(--text-primary)' }}>{p.name}</span>
                                 <span style={{ fontSize: 13, color: 'var(--text-muted)', flexShrink: 0 }}>

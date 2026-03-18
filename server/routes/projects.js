@@ -1187,20 +1187,108 @@ router.get('/:id/subcontractors', loadProject, async (req, res, next) => {
 router.post('/:id/subcontractors', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
-    const { name, trade, email, phone } = req.body || {}
-    const { data, error } = await supabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const { name, trade, email, phone, dispatch_portal } = req.body || {}
+    const subEmail = email != null ? String(email).trim() : ''
+    const tradeTag = trade != null ? String(trade).trim() : ''
+
+    const { data: sub, error } = await supabase
       .from('subcontractors')
       .insert({
-        project_id: req.params.id,
+        project_id: projectId,
         name: name || '',
-        trade: trade || '',
-        email: email || '',
-        phone: phone || '',
+        trade: tradeTag,
+        email: subEmail,
+        phone: phone != null ? String(phone) : '',
       })
       .select()
       .single()
     if (error) throw error
-    res.status(201).json(data)
+
+    if (!dispatch_portal) {
+      return res.status(201).json(sub)
+    }
+
+    if (!tradeTag) {
+      return res.status(400).json({ error: 'trade is required when dispatch_portal is true' })
+    }
+
+    const { data: pkgs } = await supabase.from('trade_packages').select('id, trade_tag').eq('project_id', projectId)
+    let tradePackageId
+    const found = (pkgs || []).find((p) => p.trade_tag === tradeTag)
+    if (found) {
+      tradePackageId = found.id
+    } else {
+      const ins = await supabase
+        .from('trade_packages')
+        .insert({
+          project_id: projectId,
+          trade_tag: tradeTag,
+          line_items: [],
+        })
+        .select('id')
+        .single()
+      if (ins.error || !ins.data) throw ins.error || new Error('Failed to create trade package')
+      tradePackageId = ins.data.id
+    }
+
+    const existing = await supabase
+      .from('sub_bids')
+      .select('id')
+      .eq('trade_package_id', tradePackageId)
+      .eq('subcontractor_id', sub.id)
+      .maybeSingle()
+
+    const token = crypto.randomUUID()
+    let subBidId
+    if (existing?.data?.id) {
+      await supabase
+        .from('sub_bids')
+        .update({ portal_token: token, amount: 0, notes: null })
+        .eq('id', existing.data.id)
+      subBidId = existing.data.id
+    } else {
+      const bidIns = await supabase
+        .from('sub_bids')
+        .insert({
+          trade_package_id: tradePackageId,
+          subcontractor_id: sub.id,
+          amount: 0,
+          awarded: false,
+          portal_token: token,
+        })
+        .select('id')
+        .single()
+      if (bidIns.error || !bidIns.data) throw bidIns.error || new Error('Failed to create sub bid')
+      subBidId = bidIns.data.id
+    }
+
+    const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || req.protocol + '://' + (req.get('host') || 'localhost')
+    const portalUrl = `${baseUrl.replace(/\/$/, '')}/bid/${token}`
+
+    let projectName = ''
+    const projRes = await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()
+    if (projRes.data?.name) projectName = projRes.data.name
+
+    let emailSent = false
+    if (subEmail) {
+      try {
+        await sendBidPortalEmail({ to: subEmail, projectName, portalUrl, isResend: false })
+        emailSent = true
+      } catch (e) {
+        console.warn('[subcontractors] Bid portal email failed:', e?.message || e)
+      }
+    } else {
+      console.log('[subcontractors/dispatch_portal] No email; portal link:', portalUrl)
+    }
+
+    return res.status(201).json({
+      subcontractor: sub,
+      portal_url: portalUrl,
+      sub_bid_id: subBidId,
+      email_sent: emailSent,
+    })
   } catch (err) {
     next(err)
   }
@@ -1437,6 +1525,84 @@ router.delete('/:id/bid-documents/:docId', loadProject, async (req, res, next) =
   }
 })
 
+/** GC in-house scope + estimate lines (creates trade package if needed). Shared by bid-sheet + legacy paths. */
+async function handleGcSelfPerform(req, res, next) {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const { trade_tag, gc_self_perform, estimate_lines } = req.body || {}
+    if (trade_tag == null || !String(trade_tag).trim()) {
+      return res.status(400).json({ error: 'trade_tag is required' })
+    }
+    const tag = String(trade_tag).trim()
+    const wantSelf = !!gc_self_perform
+    const lines = Array.isArray(estimate_lines) ? estimate_lines : []
+
+    if (wantSelf) {
+      if (lines.length === 0) {
+        return res.status(400).json({ error: 'Add at least one priced line item for this scope.' })
+      }
+      const hasValue = lines.some((l) => {
+        const q = Number(l.quantity) || 0
+        const p = Number(l.unit_price) || 0
+        return q * p > 0 || p > 0
+      })
+      if (!hasValue) {
+        return res.status(400).json({ error: 'Enter a unit price (and quantity) so this scope has a dollar amount.' })
+      }
+    }
+
+    const normalized = lines.map((l) => ({
+      description: String(l.description || '').trim() || 'Line item',
+      quantity: Math.max(0, Number(l.quantity) || 0) || 1,
+      unit: String(l.unit || 'ea').trim() || 'ea',
+      unit_price: Math.max(0, Number(l.unit_price) || 0),
+    }))
+
+    const { data: existingList, error: findErr } = await supabase
+      .from('trade_packages')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('trade_tag', tag)
+      .limit(1)
+    if (findErr) throw findErr
+
+    let pkgId
+    if (existingList?.length) {
+      pkgId = existingList[0].id
+      const { error: upErr } = await supabase
+        .from('trade_packages')
+        .update({
+          gc_self_perform: wantSelf,
+          gc_estimate_lines: wantSelf ? normalized : [],
+        })
+        .eq('id', pkgId)
+      if (upErr) throw upErr
+    } else {
+      const { data: ins, error: insErr } = await supabase
+        .from('trade_packages')
+        .insert({
+          project_id: projectId,
+          trade_tag: tag,
+          line_items: [],
+          gc_self_perform: wantSelf,
+          gc_estimate_lines: wantSelf ? normalized : [],
+        })
+        .select('id')
+        .single()
+      if (insErr) throw insErr
+      pkgId = ins.id
+    }
+
+    const { data: pkg, error: pkgErr } = await supabase.from('trade_packages').select('*').eq('id', pkgId).single()
+    if (pkgErr) throw pkgErr
+    res.json({ trade_package: pkg })
+  } catch (err) {
+    next(err)
+  }
+}
+
 // --- Bid sheet ---
 router.get('/:id/bid-sheet', loadProject, async (req, res, next) => {
   try {
@@ -1469,6 +1635,11 @@ router.get('/:id/bid-sheet', loadProject, async (req, res, next) => {
     next(err)
   }
 })
+
+/** POST …/bid-sheet/gc-self-perform — primary path (with other bid-sheet APIs). */
+router.post('/:id/bid-sheet/gc-self-perform', loadProject, handleGcSelfPerform)
+/** POST …/trade-packages/gc-self-perform — legacy/alternate path. */
+router.post('/:id/trade-packages/gc-self-perform', loadProject, handleGcSelfPerform)
 
 /** POST /projects/:id/bid-sheet/dispatch — generate portal token for a sub bid, store it, and send portal link (email TODO). */
 router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
@@ -1581,6 +1752,64 @@ router.post('/:id/bid-sheet/resend', loadProject, async (req, res, next) => {
   }
 })
 
+/** PATCH /projects/:id/bid-sheet/sub-bids/:bidId — set awarded (only one awarded per trade package when true). */
+router.patch('/:id/bid-sheet/sub-bids/:bidId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const bidId = req.params.bidId
+    const awarded = !!req.body?.awarded
+
+    const pkgRes = await supabase.from('trade_packages').select('id').eq('project_id', projectId)
+    const packageIds = (pkgRes.data || []).map((p) => p.id)
+    const bidRes = await supabase.from('sub_bids').select('id, trade_package_id').eq('id', bidId).maybeSingle()
+    if (bidRes.error || !bidRes.data || !packageIds.includes(bidRes.data.trade_package_id)) {
+      return res.status(404).json({ error: 'Sub bid not found' })
+    }
+    const pkgId = bidRes.data.trade_package_id
+    if (awarded) {
+      await supabase.from('sub_bids').update({ awarded: false }).eq('trade_package_id', pkgId)
+      await supabase.from('sub_bids').update({ awarded: true }).eq('id', bidId)
+    } else {
+      await supabase.from('sub_bids').update({ awarded: false }).eq('id', bidId)
+    }
+    return res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** DELETE /projects/:id/bid-sheet/sub-bids/:bidId — remove declined bid row only. */
+router.delete('/:id/bid-sheet/sub-bids/:bidId', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const bidId = req.params.bidId
+
+    const pkgRes = await supabase.from('trade_packages').select('id').eq('project_id', projectId)
+    const packageIds = (pkgRes.data || []).map((p) => p.id)
+    const bidRes = await supabase
+      .from('sub_bids')
+      .select('id, trade_package_id, response_status')
+      .eq('id', bidId)
+      .maybeSingle()
+    if (bidRes.error || !bidRes.data || !packageIds.includes(bidRes.data.trade_package_id)) {
+      return res.status(404).json({ error: 'Sub bid not found' })
+    }
+    const st = String(bidRes.data.response_status || '').toLowerCase()
+    if (st !== 'declined') {
+      return res.status(400).json({ error: 'Only declined bids can be removed this way' })
+    }
+    const { error: delErr } = await supabase.from('sub_bids').delete().eq('id', bidId)
+    if (delErr) throw delErr
+    return res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.put('/:id/bid-sheet', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
@@ -1588,18 +1817,33 @@ router.put('/:id/bid-sheet', loadProject, async (req, res, next) => {
     const { trade_packages, sub_bids, cost_buckets, proposal_lines } = req.body || {}
 
     if (Array.isArray(trade_packages)) {
-      const existing = await supabase.from('trade_packages').select('id').eq('project_id', projectId)
+      const existing = await supabase.from('trade_packages').select('id, gc_self_perform, gc_estimate_lines').eq('project_id', projectId)
       const existingIds = (existing.data || []).map((p) => p.id)
+      const existingById = new Map((existing.data || []).map((p) => [p.id, p]))
       for (const pkg of trade_packages) {
         const row = {
           project_id: projectId,
           trade_tag: pkg.trade_tag,
           line_items: pkg.line_items || [],
         }
+        if (pkg.gc_self_perform !== undefined) row.gc_self_perform = !!pkg.gc_self_perform
+        if (pkg.gc_estimate_lines !== undefined) row.gc_estimate_lines = pkg.gc_estimate_lines
         if (pkg.id && existingIds.includes(pkg.id)) {
-          await supabase.from('trade_packages').update({ trade_tag: row.trade_tag, line_items: row.line_items }).eq('id', pkg.id)
+          const prev = existingById.get(pkg.id)
+          const updatePayload = {
+            trade_tag: row.trade_tag,
+            line_items: row.line_items,
+            gc_self_perform: row.gc_self_perform !== undefined ? row.gc_self_perform : prev?.gc_self_perform,
+            gc_estimate_lines:
+              row.gc_estimate_lines !== undefined ? row.gc_estimate_lines : prev?.gc_estimate_lines || [],
+          }
+          await supabase.from('trade_packages').update(updatePayload).eq('id', pkg.id)
         } else {
-          await supabase.from('trade_packages').insert(row)
+          await supabase.from('trade_packages').insert({
+            ...row,
+            gc_self_perform: row.gc_self_perform ?? false,
+            gc_estimate_lines: row.gc_estimate_lines ?? [],
+          })
         }
       }
       const toRemove = existingIds.filter((id) => !trade_packages.some((p) => p.id === id))

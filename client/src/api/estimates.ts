@@ -243,6 +243,12 @@ export const estimatesApi = {
     description?: string
     unit?: string
     default_unit_price: number
+    item_type?: 'service' | 'product' | 'labor' | 'sub' | 'material' | 'equipment'
+    sub_cost?: number
+    markup_pct?: number
+    billed_price?: number
+    trades?: string[]
+    taxable?: boolean
   }): Promise<CustomProduct> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/custom-products`, {
@@ -256,7 +262,7 @@ export const estimatesApi = {
   async updateCustomProduct(
     id: string,
     updates: Partial<
-      Pick<CustomProduct, 'name' | 'description' | 'unit' | 'default_unit_price'>
+      Pick<CustomProduct, 'name' | 'description' | 'unit' | 'default_unit_price' | 'item_type' | 'sub_cost' | 'markup_pct' | 'billed_price' | 'trades' | 'taxable'>
     >
   ): Promise<CustomProduct> {
     const headers = await getAuthHeaders()

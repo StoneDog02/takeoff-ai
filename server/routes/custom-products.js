@@ -28,7 +28,7 @@ router.post('/', async (req, res) => {
   const supabase = getSupabase(req)
   if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
   try {
-    const { name, description, unit, default_unit_price } = req.body
+    const { name, description, unit, default_unit_price, item_type, sub_cost, markup_pct, billed_price, trades, taxable } = req.body
     const { data, error } = await supabase
       .from('custom_products')
       .insert({
@@ -37,6 +37,12 @@ router.post('/', async (req, res) => {
         description: description || null,
         unit: unit || 'ea',
         default_unit_price: Number(default_unit_price) || 0,
+        item_type: ['service', 'product', 'labor', 'sub', 'material', 'equipment'].includes(item_type) ? item_type : null,
+        sub_cost: sub_cost != null ? Number(sub_cost) : null,
+        markup_pct: markup_pct != null ? Number(markup_pct) : null,
+        billed_price: billed_price != null ? Number(billed_price) : null,
+        trades: Array.isArray(trades) ? trades : [],
+        taxable: !!taxable,
       })
       .select()
       .single()
@@ -54,12 +60,18 @@ router.patch('/:id', async (req, res) => {
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const { id } = req.params
-    const { name, description, unit, default_unit_price } = req.body
+    const { name, description, unit, default_unit_price, item_type, sub_cost, markup_pct, billed_price, trades, taxable } = req.body
     const updates = {}
     if (name !== undefined) updates.name = name
     if (description !== undefined) updates.description = description
     if (unit !== undefined) updates.unit = unit
     if (default_unit_price !== undefined) updates.default_unit_price = Number(default_unit_price)
+    if (item_type !== undefined) updates.item_type = ['service', 'product', 'labor', 'sub', 'material', 'equipment'].includes(item_type) ? item_type : null
+    if (sub_cost !== undefined) updates.sub_cost = sub_cost != null ? Number(sub_cost) : null
+    if (markup_pct !== undefined) updates.markup_pct = markup_pct != null ? Number(markup_pct) : null
+    if (billed_price !== undefined) updates.billed_price = billed_price != null ? Number(billed_price) : null
+    if (trades !== undefined) updates.trades = Array.isArray(trades) ? trades : []
+    if (taxable !== undefined) updates.taxable = !!taxable
     const { data, error } = await supabase
       .from('custom_products')
       .update(updates)

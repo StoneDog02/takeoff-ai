@@ -545,7 +545,10 @@ export const api = {
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, { headers })
       return handleResponse<Subcontractor[]>(res)
     },
-    async createSubcontractor(projectId: string, body: { name: string; trade: string; email: string; phone?: string }): Promise<Subcontractor> {
+    async createSubcontractor(
+      projectId: string,
+      body: { name: string; trade: string; email?: string; phone?: string; dispatch_portal?: boolean }
+    ): Promise<Subcontractor> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, {
         method: 'POST',
@@ -553,6 +556,28 @@ export const api = {
         body: JSON.stringify(body),
       })
       return handleResponse<Subcontractor>(res)
+    },
+    /** Create subcontractor + portal bid, token, and email (if email provided). */
+    async createSubcontractorWithPortalInvite(
+      projectId: string,
+      body: { name: string; trade: string; email?: string; phone?: string }
+    ): Promise<{
+      subcontractor: Subcontractor
+      portal_url: string
+      sub_bid_id: string
+      email_sent: boolean
+    }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({
+          ...body,
+          email: body.email?.trim() ?? '',
+          dispatch_portal: true,
+        }),
+      })
+      return handleResponse(res)
     },
     async updateSubcontractor(projectId: string, subId: string, body: Partial<Subcontractor>): Promise<Subcontractor> {
       const headers = await getAuthHeaders()
@@ -647,6 +672,43 @@ export const api = {
         body: JSON.stringify({ sub_bid_id: subBidId }),
       })
       return handleResponse<{ ok: boolean; portal_url?: string }>(res)
+    },
+    async setSubBidAwarded(projectId: string, subBidId: string, awarded: boolean): Promise<{ ok: boolean }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/sub-bids/${subBidId}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ awarded }),
+      })
+      return handleResponse<{ ok: boolean }>(res)
+    },
+    async deleteSubBid(projectId: string, subBidId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/sub-bids/${subBidId}`, {
+        method: 'DELETE',
+        headers,
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
+    },
+    /** GC self-performs a trade scope with estimate line items (creates trade package if needed). Pass gc_self_perform false to clear. */
+    async setGcSelfPerform(
+      projectId: string,
+      body: {
+        trade_tag: string
+        gc_self_perform: boolean
+        estimate_lines: { description: string; quantity: number; unit: string; unit_price: number }[]
+      }
+    ): Promise<{ trade_package: import('@/types/global').TradePackage }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/gc-self-perform`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse(res)
     },
   },
 

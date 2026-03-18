@@ -196,6 +196,10 @@ export interface TradePackage {
   project_id: string
   trade_tag: string
   line_items: TakeoffItem[]
+  /** GC doing this trade in-house (priced via gc_estimate_lines). */
+  gc_self_perform?: boolean
+  /** Line items for estimate when GC self-performs this scope. */
+  gc_estimate_lines?: { description: string; quantity: number; unit: string; unit_price: number }[]
 }
 
 export interface SubBid {
@@ -204,6 +208,10 @@ export interface SubBid {
   subcontractor_id: string
   amount: number
   notes?: string
+  /** Sub’s availability / timing note from portal. */
+  availability?: string | null
+  /** PDF or file URL from portal bid submission. */
+  quote_url?: string | null
   awarded?: boolean
   /** Set when bid is dispatched; used for sub portal link /bid/[token]. */
   portal_token?: string | null
@@ -332,7 +340,7 @@ export interface Invoice {
   due_date?: string
 }
 
-export type CustomProductItemType = 'service' | 'product' | 'labor'
+export type CustomProductItemType = 'service' | 'product' | 'labor' | 'sub' | 'material' | 'equipment'
 
 export interface CustomProduct {
   id: string
@@ -343,6 +351,11 @@ export interface CustomProduct {
   default_unit_price: number
   /** Optional: service or product (QuickBooks-style). */
   item_type?: CustomProductItemType
+  sub_cost?: number | null
+  markup_pct?: number | null
+  billed_price?: number | null
+  trades?: string[] | null
+  taxable?: boolean | null
   created_at: string
 }
 
