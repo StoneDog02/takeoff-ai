@@ -958,6 +958,13 @@ export interface EstimatePortalResponse {
   milestones: { label: string; amount: number; percentage?: number }[]
   notes: string | null
   terms: string | null
+  section_notes?: {
+    section: string
+    gc_note: string | null
+    sub_notes: { subcontractor: string; text: string }[]
+  }[]
+  /** Maps section header key → subcontractor | gc_self_perform | scope_detail */
+  section_work_types?: Record<string, string>
   status: string
   sent_at: string | null
   viewed_at: string | null

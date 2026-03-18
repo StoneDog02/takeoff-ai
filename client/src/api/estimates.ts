@@ -35,6 +35,9 @@ async function handleResponse<T>(res: Response): Promise<T> {
 /** Estimate with line_items (from GET /estimates/:id) */
 export interface EstimateWithLines extends Estimate {
   line_items: EstimateLineItem[]
+  client_notes?: string | null
+  client_terms?: string | null
+  estimate_groups_meta?: unknown
 }
 
 export const estimatesApi = {
@@ -73,7 +76,18 @@ export const estimatesApi = {
 
   async updateEstimate(
     id: string,
-    updates: Partial<Pick<Estimate, 'job_id' | 'title' | 'status' | 'total_amount' | 'recipient_emails'>>
+    updates: Partial<
+      Pick<
+        Estimate,
+        | 'job_id'
+        | 'title'
+        | 'status'
+        | 'total_amount'
+        | 'recipient_emails'
+        | 'client_notes'
+        | 'client_terms'
+      >
+    > & { estimate_groups_meta?: unknown | null }
   ): Promise<Estimate> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${id}`, {

@@ -95,7 +95,17 @@ router.patch('/:id', async (req, res) => {
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const { id } = req.params
-    const { job_id, title, status, total_amount, recipient_emails, sent_at } = req.body
+    const {
+      job_id,
+      title,
+      status,
+      total_amount,
+      recipient_emails,
+      sent_at,
+      client_notes,
+      client_terms,
+      estimate_groups_meta,
+    } = req.body
     const updates = { updated_at: new Date().toISOString() }
     if (job_id !== undefined) updates.job_id = job_id
     if (title !== undefined) updates.title = title
@@ -103,6 +113,11 @@ router.patch('/:id', async (req, res) => {
     if (total_amount !== undefined) updates.total_amount = Number(total_amount)
     if (recipient_emails !== undefined) updates.recipient_emails = recipient_emails
     if (sent_at !== undefined) updates.sent_at = sent_at
+    if (client_notes !== undefined) updates.client_notes = client_notes == null || client_notes === '' ? null : String(client_notes)
+    if (client_terms !== undefined) updates.client_terms = client_terms == null || client_terms === '' ? null : String(client_terms)
+    if (estimate_groups_meta !== undefined) {
+      updates.estimate_groups_meta = estimate_groups_meta == null ? null : estimate_groups_meta
+    }
     const { data, error } = await supabase
       .from('estimates')
       .update(updates)

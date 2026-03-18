@@ -55,7 +55,9 @@ router.get('/:token', async (req, res, next) => {
 
     const { data: est, error: estErr } = await supabase
       .from('estimates')
-      .select('id, job_id, user_id, title, status, total_amount, invoiced_amount, recipient_emails, sent_at, viewed_at, actioned_at, changes_requested_at, changes_requested_message')
+      .select(
+        'id, job_id, user_id, title, status, total_amount, invoiced_amount, recipient_emails, sent_at, viewed_at, actioned_at, changes_requested_at, changes_requested_message, client_notes, client_terms, estimate_groups_meta'
+      )
       .eq('client_token', token)
       .maybeSingle()
     if (estErr) throw estErr
@@ -89,6 +91,45 @@ router.get('/:token', async (req, res, next) => {
     }
     const estimateNumber = est.id ? `EST-${String(est.id).slice(-6).toUpperCase()}` : ''
     const totalAmount = Number(est.total_amount) || 0
+    const section_notes = (() => {
+      const out = []
+      const meta = est.estimate_groups_meta
+      if (!Array.isArray(meta)) return out
+      for (const g of meta) {
+        if (!g || typeof g !== 'object' || g.source === 'custom') continue
+        const sec = g.categoryName != null ? String(g.categoryName).trim() : ''
+        if (!sec) continue
+        const gc = g.gcSectionNote != null ? String(g.gcSectionNote).trim() : ''
+        const subs = Array.isArray(g.subNotes)
+          ? g.subNotes
+              .map((n) => ({
+                subcontractor:
+                  n && n.subcontractor != null ? String(n.subcontractor).trim() : 'Subcontractor',
+                text: n && n.text != null ? String(n.text).trim() : '',
+              }))
+              .filter((n) => n.text)
+          : []
+        if (gc || subs.length) out.push({ section: sec, gc_note: gc || null, sub_notes: subs })
+      }
+      return out
+    })()
+
+    const section_work_types = (() => {
+      const map = {}
+      const meta = est.estimate_groups_meta
+      if (!Array.isArray(meta)) return map
+      for (const g of meta) {
+        if (!g || typeof g !== 'object' || g.source === 'custom') continue
+        const key = g.categoryName != null ? String(g.categoryName).trim() : ''
+        if (!key) continue
+        if (g.source === 'bid') map[key] = 'subcontractor'
+        else if (g.source === 'takeoff') {
+          map[key] = /\(your\s*work\)\s*$/i.test(key) ? 'gc_self_perform' : 'scope_detail'
+        }
+      }
+      return map
+    })()
+
     milestones.forEach((m) => {
       if (totalAmount > 0) {
         m.percentage = Math.round((Number(m.amount) / totalAmount) * 100)
@@ -112,8 +153,10 @@ router.get('/:token', async (req, res, next) => {
       total: totalAmount,
       invoiced_amount: Number(est.invoiced_amount) || 0,
       milestones,
-      notes: null,
-      terms: null,
+      notes: est.client_notes != null && String(est.client_notes).trim() ? String(est.client_notes).trim() : null,
+      terms: est.client_terms != null && String(est.client_terms).trim() ? String(est.client_terms).trim() : null,
+      section_notes,
+      section_work_types,
       status: (est.status || 'sent').toLowerCase(),
       sent_at: est.sent_at || null,
       viewed_at: est.viewed_at || null,

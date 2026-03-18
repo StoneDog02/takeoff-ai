@@ -51,6 +51,10 @@ export function CompanyProfileSection() {
           phone: c.phone ?? '',
           email: c.email ?? '',
           website: c.website ?? undefined,
+          defaultEstimateMarkupPct:
+            c.defaultEstimateMarkupPct != null && Number.isFinite(Number(c.defaultEstimateMarkupPct))
+              ? Number(c.defaultEstimateMarkupPct)
+              : null,
         })
         if (c.logoUrl) setLogoPreview(c.logoUrl)
       }
@@ -221,6 +225,29 @@ export function CompanyProfileSection() {
                 value={profile.website ?? ''}
                 onChange={(e) => update('website', e.target.value || undefined)}
                 placeholder="https://example.com"
+              />
+            </Field>
+          </FieldRow>
+          <FieldRow cols="1fr 1fr">
+            <Field
+              label="Default estimate markup"
+              hint="Takeoff & sub-bid category rows when building an estimate. Leave blank to use 15%."
+            >
+              <Input
+                type="number"
+                min={0}
+                max={500}
+                step={0.5}
+                value={profile.defaultEstimateMarkupPct ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value.trim()
+                  if (v === '') update('defaultEstimateMarkupPct', null)
+                  else {
+                    const n = Number(v)
+                    update('defaultEstimateMarkupPct', Number.isFinite(n) ? n : null)
+                  }
+                }}
+                placeholder="15"
               />
             </Field>
           </FieldRow>

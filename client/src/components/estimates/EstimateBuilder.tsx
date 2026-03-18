@@ -36,6 +36,8 @@ export type InitialEstimateLine = {
   unit: string
   unit_price: number
   section?: string
+  subcontractor_note?: string
+  subcontractor_name?: string
 }
 
 interface EstimateBuilderProps {

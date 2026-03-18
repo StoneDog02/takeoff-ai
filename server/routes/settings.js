@@ -78,6 +78,7 @@ router.get('/', async (req, res, next) => {
 })
 
 function rowToCompany(row) {
+  const m = row.default_estimate_markup_pct
   return {
     name: row.name || '',
     logoUrl: row.logo_url || null,
@@ -92,12 +93,14 @@ function rowToCompany(row) {
     phone: row.phone || '',
     email: row.email || '',
     website: row.website || null,
+    defaultEstimateMarkupPct:
+      m != null && !Number.isNaN(Number(m)) ? Number(m) : null,
   }
 }
 
 function companyToRow(company, userId) {
   const a = company?.address || {}
-  return {
+  const row = {
     user_id: userId,
     name: company?.name ?? '',
     logo_url: company?.logoUrl ?? null,
@@ -112,6 +115,16 @@ function companyToRow(company, userId) {
     website: company?.website ?? null,
     updated_at: new Date().toISOString(),
   }
+  if (company && 'defaultEstimateMarkupPct' in company) {
+    const v = company.defaultEstimateMarkupPct
+    if (v === null || v === '' || v === undefined) {
+      row.default_estimate_markup_pct = null
+    } else {
+      const pct = Number(v)
+      row.default_estimate_markup_pct = Number.isFinite(pct) ? Math.min(500, Math.max(0, pct)) : null
+    }
+  }
+  return row
 }
 
 /** PUT /api/settings/company */
@@ -122,7 +135,17 @@ router.put('/company', async (req, res, next) => {
     const userId = req.user?.id
     if (!userId) return res.status(401).json({ error: 'Unauthorized' })
 
-    const row = companyToRow(req.body, userId)
+    let row = companyToRow(req.body, userId)
+    if (!('defaultEstimateMarkupPct' in (req.body || {}))) {
+      const { data: prev } = await db
+        .from('company_settings')
+        .select('default_estimate_markup_pct')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (prev?.default_estimate_markup_pct != null) {
+        row = { ...row, default_estimate_markup_pct: prev.default_estimate_markup_pct }
+      }
+    }
     const { data, error } = await db
       .from('company_settings')
       .upsert(row, { onConflict: 'user_id' })

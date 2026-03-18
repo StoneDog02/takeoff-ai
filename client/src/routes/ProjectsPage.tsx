@@ -23,7 +23,12 @@ import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects
 import type { BuilderPhase, BuilderMilestone } from '@/components/projects/ScheduleBuilder'
 import { formatDate, dayjs, formatRelative } from '@/lib/date'
 import { SetupWizard, SetupBanner, EMPTY_WIZARD_PROJECT, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
-import { EstimateBuilderModal, type PrefillClientInfo, type LineItem } from '@/components/estimates/EstimateBuilderModal'
+import {
+  EstimateBuilderModal,
+  type PrefillClientInfo,
+  type LineItem,
+  type TakeoffPickItem,
+} from '@/components/estimates/EstimateBuilderModal'
 import { CustomProductLibrary } from '@/components/estimates/CustomProductLibrary'
 import { type InitialEstimateLine } from '@/components/estimates/EstimateBuilder'
 import { estimatesApi } from '@/api/estimates'
@@ -507,6 +512,8 @@ export function ProjectsPage() {
           unit: 'job',
           unit_price: Number(awarded.amount) || 0,
           section: tag,
+          subcontractor_note: awarded.notes?.trim() || undefined,
+          subcontractor_name: sub?.name,
         })
         continue
       }
@@ -548,6 +555,8 @@ export function ProjectsPage() {
         unit: 'job',
         unit_price: Number(b.amount) || 0,
         section: pkg.trade_tag,
+        subcontractor_note: b.notes?.trim() || undefined,
+        subcontractor_name: sub?.name,
       })
     }
     for (const pkg of packages) {
@@ -587,13 +596,39 @@ export function ProjectsPage() {
   }, [project])
 
   const buildEstimatePrefillLineItems: LineItem[] = useMemo(() => {
-    return buildEstimateInitialLines.map((l) => ({
-      name: l.description,
-      qty: l.quantity,
-      unit: l.unit,
-      price: l.unit_price,
-    }))
+    return buildEstimateInitialLines.map((l) => {
+      const isBid = l.unit === 'job' && l.description.includes(' — ')
+      return {
+        name: l.description,
+        qty: l.quantity,
+        unit: l.unit,
+        price: l.unit_price,
+        section: l.section,
+        source: isBid ? ('bid' as const) : ('takeoff' as const),
+        subcontractor_note: l.subcontractor_note,
+        subcontractor_name: l.subcontractor_name,
+      }
+    })
   }, [buildEstimateInitialLines])
+
+  const buildEstimateTakeoffPickItems: TakeoffPickItem[] = useMemo(() => {
+    const cats = takeoffs[0]?.material_list?.categories ?? []
+    const out: TakeoffPickItem[] = []
+    for (const cat of cats) {
+      for (const item of cat.items ?? []) {
+        const d = (item.description ?? '').trim()
+        if (!d) continue
+        out.push({
+          description: d,
+          qty: Number(item.quantity) || 1,
+          unit: item.unit ?? 'ea',
+          price: item.cost_estimate ?? 0,
+          category: cat.name,
+        })
+      }
+    }
+    return out
+  }, [takeoffs])
 
   const handleDeleteProject = async () => {
     if (!deleteConfirmProject) return
@@ -2076,6 +2111,7 @@ export function ProjectsPage() {
           projectId={project.id}
           prefillClientInfo={buildEstimatePrefillClientInfo ?? undefined}
           prefillLineItems={buildEstimateBlankMode ? undefined : (buildEstimatePrefillLineItems.length > 0 ? buildEstimatePrefillLineItems : undefined)}
+          takeoffPickItems={buildEstimateTakeoffPickItems.length > 0 ? buildEstimateTakeoffPickItems : undefined}
           onClose={() => {
             setBuildEstimateOpen(false)
             setBuildEstimateBlankMode(false)

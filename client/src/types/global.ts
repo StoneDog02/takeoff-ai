@@ -276,6 +276,11 @@ export interface Estimate {
   /** Client message when they requested changes. */
   changes_requested_message?: string | null
   changes_requested_at?: string | null
+  /** Shown on client portal (whole-document GC notes). */
+  client_notes?: string | null
+  client_terms?: string | null
+  /** Snapshot of wizard line-item groups (revise + per-section notes for portal). */
+  estimate_groups_meta?: unknown
 }
 
 export interface EstimateLineItem {
@@ -413,6 +418,8 @@ export interface CompanyProfile {
   phone: string
   email: string
   website?: string
+  /** Default % markup for takeoff/bid category rows in Build Estimate; null = use app default (15%). */
+  defaultEstimateMarkupPct?: number | null
 }
 
 export type UserRole =
