@@ -4,6 +4,7 @@ const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstima
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
+const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -424,12 +425,14 @@ router.post('/:id/send', async (req, res) => {
     const clientDisplayName = client_name && String(client_name).trim() ? String(client_name).trim() : 'there'
 
     if (clientEmail) {
+      const documentKind = isChangeOrderEstimateTitle(data.title) ? 'change_order' : 'estimate'
       await sendEstimatePortalEmail({
         to: clientEmail,
         clientName: clientDisplayName,
         gcName: gcDisplayName,
         projectName: projectDisplayName,
         portalUrl,
+        documentKind,
       })
     } else {
       console.log('[estimates/send] No recipient email; portal link:', portalUrl)

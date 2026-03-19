@@ -11,16 +11,17 @@ const { renderBidPortalEmail } = require('../emails/bidPortalEmail')
 
 /**
  * Send "estimate ready for review" email to client.
- * @param {{ to: string, clientName?: string, gcName?: string, projectName?: string, portalUrl: string }} opts
+ * @param {{ to: string, clientName?: string, gcName?: string, projectName?: string, portalUrl: string, documentKind?: 'estimate' | 'change_order' }} opts
  * @returns {{ sent: boolean, error?: unknown }}
  */
-async function sendEstimatePortalEmail({ to, clientName, gcName, projectName, portalUrl }) {
+async function sendEstimatePortalEmail({ to, clientName, gcName, projectName, portalUrl, documentKind = 'estimate' }) {
   const from = getPortalFrom()
   const { subject, html, text } = renderEstimatePortalEmail({
     clientName: clientName || 'there',
     gcName: gcName || 'Your contractor',
     projectName: projectName || 'your project',
     portalUrl,
+    documentKind,
   })
   const result = await sendEmail({ from, to, subject, html, text })
   if (result.sent) {

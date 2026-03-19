@@ -1258,6 +1258,7 @@ router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next)
       gcName: gcDisplayName,
       projectName,
       portalUrl,
+      documentKind: 'change_order',
     })
 
     res.status(201).json({

@@ -67,6 +67,8 @@ export type EstimateClientFacingDocumentProps = {
   sectionNotes?: ClientSectionNote[] | null
   /** From estimate_groups_meta: section key → subcontractor | gc_self_perform | scope_detail */
   sectionWorkTypes?: Record<string, string> | null
+  /** When set from portal API for change orders sent from the CO flow */
+  portalDocumentKind?: 'estimate' | 'change_order'
 }
 
 export type SectionWorkKind = 'subcontractor' | 'gc_self_perform' | 'scope_detail'
@@ -124,6 +126,7 @@ export function EstimateClientFacingDocument({
   terms,
   sectionNotes = null,
   sectionWorkTypes = null,
+  portalDocumentKind = 'estimate',
 }: EstimateClientFacingDocumentProps) {
   const subtotal =
     Math.round(lineItems.reduce((sum, i) => sum + Number(i.total), 0) * 100) / 100
@@ -180,16 +183,19 @@ export function EstimateClientFacingDocument({
     )
   }
 
+  const isChangeOrder = portalDocumentKind === 'change_order'
+  const heroHeadline = isChangeOrder ? 'New Change Order?' : companyDisplayName
+
   return (
     <div className="estimate-portal-doc estimate-doc--elevated">
       <div className="estimate-doc__hero">
         <div className="estimate-doc__hero-left">
           <h1 className="estimate-doc__company-name estimate-portal-doc__company-name">
-            {companyDisplayName}
+            {heroHeadline}
           </h1>
         </div>
         <div className="estimate-doc__hero-right">
-          <span className="estimate-doc__status-badge">ESTIMATE</span>
+          <span className="estimate-doc__status-badge">{isChangeOrder ? 'CHANGE ORDER' : 'ESTIMATE'}</span>
           {estimateNumber ? <span className="estimate-doc__doc-title">{estimateNumber}</span> : null}
           <span className="estimate-doc__hero-contact">
             Date issued: {formatPortalDate(dateIssued)}

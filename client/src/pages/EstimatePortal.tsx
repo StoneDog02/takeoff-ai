@@ -19,10 +19,13 @@ function LoadingSpinner() {
 }
 
 function AcceptedView({ data }: { data: EstimatePortalResponse }) {
+  const isCo = data.portal_document_kind === 'change_order'
   return (
     <div className="estimate-portal-card estimate-portal-card--success">
       <div className="estimate-portal-card__body">
-        <h2 className="estimate-portal-title">You&apos;ve approved this estimate.</h2>
+        <h2 className="estimate-portal-title">
+          {isCo ? "You've approved this change order." : "You've approved this estimate."}
+        </h2>
         <p className="estimate-portal-message">{data.gcName} will be in touch to get started.</p>
         <div className="estimate-portal-meta">
           <span className="estimate-portal-meta__project">{data.projectName}</span>
@@ -34,10 +37,13 @@ function AcceptedView({ data }: { data: EstimatePortalResponse }) {
 }
 
 function DeclinedView({ data }: { data: EstimatePortalResponse }) {
+  const isCo = data.portal_document_kind === 'change_order'
   return (
     <div className="estimate-portal-card">
       <div className="estimate-portal-card__body">
-        <h2 className="estimate-portal-title">You&apos;ve declined this estimate.</h2>
+        <h2 className="estimate-portal-title">
+          {isCo ? "You've declined this change order." : "You've declined this estimate."}
+        </h2>
         <div className="estimate-portal-meta">
           <span className="estimate-portal-meta__project">{data.projectName}</span>
           <span className="estimate-portal-meta__total">{formatPortalCurrency(data.total)}</span>
@@ -49,11 +55,12 @@ function DeclinedView({ data }: { data: EstimatePortalResponse }) {
 
 /** Full-page green success after approving. */
 function ApprovedSuccessPage({ data }: { data: EstimatePortalResponse }) {
+  const isCo = data.portal_document_kind === 'change_order'
   return (
     <div className="estimate-portal-card estimate-portal-card--success estimate-portal-success-page">
       <div className="estimate-portal-card__body">
         <div className="estimate-portal-success-page__icon">✓</div>
-        <h2 className="estimate-portal-title">Estimate Approved!</h2>
+        <h2 className="estimate-portal-title">{isCo ? 'Change Order Approved!' : 'Estimate Approved!'}</h2>
         <p className="estimate-portal-message estimate-portal-success-page__project">{data.projectName}</p>
         <p className="estimate-portal-message estimate-portal-success-page__total">{formatPortalCurrency(data.total)}</p>
         <div className="estimate-portal-success-page__next">
@@ -69,12 +76,13 @@ function ApprovedSuccessPage({ data }: { data: EstimatePortalResponse }) {
 
 /** Confirmation after requesting changes. */
 function ChangesSentPage({ data }: { data: EstimatePortalResponse }) {
+  const isCo = data.portal_document_kind === 'change_order'
   return (
     <div className="estimate-portal-card">
       <div className="estimate-portal-card__body">
         <h2 className="estimate-portal-title">Feedback sent</h2>
         <p className="estimate-portal-message">
-          Your feedback has been sent. {data.gcName} will review and send a revised estimate.
+          Your feedback has been sent. {data.gcName} will review and send a revised {isCo ? 'change order' : 'estimate'}.
         </p>
       </div>
     </div>
@@ -83,10 +91,11 @@ function ChangesSentPage({ data }: { data: EstimatePortalResponse }) {
 
 /** Neutral confirmation after declining. */
 function DeclinedConfirmPage({ data }: { data: EstimatePortalResponse }) {
+  const isCo = data.portal_document_kind === 'change_order'
   return (
     <div className="estimate-portal-card">
       <div className="estimate-portal-card__body">
-        <h2 className="estimate-portal-title">Estimate declined</h2>
+        <h2 className="estimate-portal-title">{isCo ? 'Change order declined' : 'Estimate declined'}</h2>
         <p className="estimate-portal-message">{data.gcName} has been notified.</p>
         <div className="estimate-portal-meta">
           <span className="estimate-portal-meta__project">{data.projectName}</span>
@@ -161,10 +170,13 @@ function ActiveReviewView({
     }
   }
 
+  const portalKind = data.portal_document_kind ?? 'estimate'
+
   return (
     <>
       <EstimateClientFacingDocument
         companyDisplayName={data.company?.trim() || 'Your Estimate'}
+        portalDocumentKind={portalKind}
         estimateNumber={data.estimate_number}
         dateIssued={data.date_issued ?? data.sent_at}
         expiryDate={data.expiry_date}
@@ -227,7 +239,8 @@ function ActiveReviewView({
               Are you sure?
             </h2>
             <p className="estimate-portal-modal__text">
-              This will notify {data.gcName} that you&apos;ve declined.
+              This will notify {data.gcName} that you&apos;ve declined this{' '}
+              {data.portal_document_kind === 'change_order' ? 'change order' : 'estimate'}.
             </p>
             <div className="estimate-portal-modal__actions">
               <button
@@ -266,7 +279,11 @@ function ActiveReviewView({
               onClick={handleApprove}
               disabled={approving}
             >
-              {approving ? 'Approving…' : 'Approve Estimate'}
+              {approving
+                ? 'Approving…'
+                : data.portal_document_kind === 'change_order'
+                  ? 'Approve Change Order'
+                  : 'Approve Estimate'}
             </button>
             <button
               type="button"

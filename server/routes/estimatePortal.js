@@ -10,6 +10,7 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
+const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 
 const router = express.Router()
 
@@ -139,9 +140,12 @@ router.get('/:token', async (req, res, next) => {
       }
     })
 
+    const portal_document_kind = isChangeOrderEstimateTitle(est.title) ? 'change_order' : 'estimate'
+
     return res.json({
       estimate_id: est.id,
       estimate_number: estimateNumber,
+      portal_document_kind,
       date_issued: est.sent_at || null,
       expiry_date: null,
       projectName: (project && project.name) ? project.name : est.title || 'Estimate',

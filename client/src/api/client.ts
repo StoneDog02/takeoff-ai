@@ -1011,6 +1011,8 @@ export const api = {
 export interface EstimatePortalResponse {
   estimate_id?: string
   estimate_number?: string
+  /** Present from portal API: change-order sends use change_order */
+  portal_document_kind?: 'estimate' | 'change_order'
   date_issued?: string | null
   expiry_date?: string | null
   projectName: string
