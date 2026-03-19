@@ -49,6 +49,9 @@ function normalizeCategoryKey(item: BudgetLineItem): string {
 /** Order for "By Category" rows so Labor, Materials, etc. appear consistently. */
 const CATEGORY_ORDER: string[] = ['labor', 'materials', 'subs', 'equipment', 'permits', 'overhead', 'other']
 
+/** How often to refetch change orders + budget while Budget tab is open (Realtime fallback). */
+const CHANGE_ORDER_POLL_MS = 5000
+
 /** Map estimate lines to budget-shaped rows; merge actuals from saved budget lines when labels match within category. */
 function budgetLinesFromEstimateLineItems(
   projectId: string,
@@ -236,6 +239,21 @@ export function BudgetTab({
     return () => {
       sb.removeChannel(channel)
     }
+  }, [projectId, refetchChangeOrders, onRemoteBudgetRefresh])
+
+  /**
+   * Polling fallback: Realtime often isn’t wired (table not in `supabase_realtime` publication, or no session).
+   * While this tab is mounted, refetch on this interval — worst-case delay after client clicks Approve ≈ CHANGE_ORDER_POLL_MS.
+   */
+  useEffect(() => {
+    if (!projectId) return undefined
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      refetchChangeOrders()
+      void onRemoteBudgetRefresh?.()
+    }
+    const id = window.setInterval(tick, CHANGE_ORDER_POLL_MS)
+    return () => window.clearInterval(id)
   }, [projectId, refetchChangeOrders, onRemoteBudgetRefresh])
 
   useLayoutEffect(() => {
