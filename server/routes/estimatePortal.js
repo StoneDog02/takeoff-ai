@@ -243,7 +243,8 @@ router.post('/:token/approve', async (req, res, next) => {
     if (!est) return res.status(404).json({ error: 'Invalid or expired link' })
     if ((est.status || '').toLowerCase() === 'accepted') {
       // Heal: first approve may have succeeded while budget sync failed, or sync was added later
-      if (est.job_id) {
+      // Skip for change-order portal estimates: budget already reflects the CO row; syncing would double-count.
+      if (est.job_id && !est.source_change_order_id) {
         try {
           await applyApprovedEstimateGroupsToBudget(supabase, est.job_id, est.id)
         } catch (budgetErr) {
@@ -278,10 +279,12 @@ router.post('/:token/approve', async (req, res, next) => {
         projUpdates.estimate_approved_at = now
       }
       await supabase.from('projects').update(projUpdates).eq('id', est.job_id)
-      try {
-        await applyApprovedEstimateGroupsToBudget(supabase, est.job_id, est.id)
-      } catch (budgetErr) {
-        console.error('[estimate-portal] budget sync after approve', budgetErr)
+      if (!est.source_change_order_id) {
+        try {
+          await applyApprovedEstimateGroupsToBudget(supabase, est.job_id, est.id)
+        } catch (budgetErr) {
+          console.error('[estimate-portal] budget sync after approve', budgetErr)
+        }
       }
     }
 

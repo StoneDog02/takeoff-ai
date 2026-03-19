@@ -716,6 +716,17 @@ export function ProjectsPage() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [activeTab, id])
 
+  const refreshBudgetFromServer = useCallback(async () => {
+    if (!id) return
+    const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
+    try {
+      const bud = await api.projects.getBudget(id)
+      setBudget(bud?.items?.length ? bud : { items: [], summary: bud.summary ?? emptySummary })
+    } catch {
+      /* ignore */
+    }
+  }, [id])
+
   const refreshMedia = () => {
     if (id) {
       api.projects.getMedia(id).then(setMedia)
@@ -2724,6 +2735,7 @@ export function ProjectsPage() {
                 hasEstimateBudgetPreview ? (awaitingApprovalEstimatePreview?.lineItems ?? null) : null
               }
               budgetAwaitingEstimateApproval={hasEstimateBudgetPreview}
+              onRemoteBudgetRefresh={refreshBudgetFromServer}
               onSave={async (items) => {
               await api.projects.updateBudget(project.id, items)
               // Refetch so we get merged actuals (awarded bids, time entries) instead of raw DB rows

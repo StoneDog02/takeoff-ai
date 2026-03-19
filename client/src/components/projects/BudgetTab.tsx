@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '@/api/client'
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient'
 import type { BudgetLineItem, ChangeOrder, EstimateLineItem } from '@/types/global'
 import { budgetCategoryKeyFromEstimateSection } from '@/lib/budgetCategoryFromEstimateSection'
 import {
@@ -124,6 +125,8 @@ export interface BudgetTabProps {
   provisionalEstimateLineItems?: EstimateLineItem[] | null
   /** When true with `provisionalEstimateLineItems`, line items are estimate-based, greyed, and not editable. */
   budgetAwaitingEstimateApproval?: boolean
+  /** Refetch budget from API (KPIs + line items) when change orders update remotely, e.g. client portal approval. */
+  onRemoteBudgetRefresh?: () => void | Promise<void>
 }
 
 type SectionId = 'budget' | 'changeorders' | 'forecast'
@@ -140,6 +143,7 @@ export function BudgetTab({
   estimateApprovedAt,
   provisionalEstimateLineItems = null,
   budgetAwaitingEstimateApproval = false,
+  onRemoteBudgetRefresh,
 }: BudgetTabProps) {
   const [list, setList] = useState<BudgetLineItem[]>(() => items)
   const [viewMode, setViewMode] = useState<'category' | 'item'>('category')
@@ -192,10 +196,46 @@ export function BudgetTab({
     setList(items)
   }, [items, provisionalMode])
 
-  useEffect(() => {
+  const refetchChangeOrders = useCallback(() => {
     if (!projectId) return
     api.projects.getChangeOrders(projectId).then(setChangeOrders).catch(() => setChangeOrders([]))
   }, [projectId])
+
+  useEffect(() => {
+    refetchChangeOrders()
+  }, [refetchChangeOrders])
+
+  /** Live updates when the client approves a CO in the portal (requires Realtime on `project_change_orders` in Supabase). */
+  useEffect(() => {
+    if (!projectId) return
+
+    const pullAll = () => {
+      refetchChangeOrders()
+      void onRemoteBudgetRefresh?.()
+    }
+
+    if (!isSupabaseConfigured || !supabase) return undefined
+
+    const channel = supabase
+      .channel(`project_change_orders:${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'project_change_orders',
+          filter: `project_id=eq.${projectId}`,
+        },
+        () => {
+          pullAll()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [projectId, refetchChangeOrders, onRemoteBudgetRefresh])
 
   useLayoutEffect(() => {
     if (!coMenuOpenId) {
