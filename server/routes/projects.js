@@ -5,7 +5,7 @@ const { runTakeoff } = require('../claude/takeoff')
 const { TRADE_MAP, TRADE_ORDER } = require('../claude/trade-definitions')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
-const { sendBidPortalEmail } = require('../lib/sendPortalEmails')
+const { sendBidPortalEmail, sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
 
@@ -1153,6 +1153,118 @@ router.delete('/:id/change-orders/:coId', loadProject, async (req, res, next) =>
       .eq('project_id', req.params.id)
     if (error) throw error
     res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
+const CHANGE_ORDER_CATEGORY_LABELS = {
+  labor: 'Labor',
+  materials: 'Materials',
+  subs: 'Subcontractors',
+  equipment: 'Equipment',
+  permits: 'Permits & Fees',
+  overhead: 'Overhead',
+  other: 'Other',
+}
+
+/**
+ * POST /projects/:id/change-orders/:coId/send
+ * Create a one-line estimate from a change order and send through the estimate portal flow.
+ */
+router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase || !req.user?.id) return res.status(401).json({ error: 'Unauthorized' })
+    const projectId = req.params.id
+    const { coId } = req.params
+    const { recipient_emails, client_name, gc_name } = req.body || {}
+
+    const { data: co, error: coErr } = await supabase
+      .from('project_change_orders')
+      .select('id, project_id, description, amount, status, category')
+      .eq('id', coId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+    if (coErr) throw coErr
+    if (!co) return res.status(404).json({ error: 'Change order not found' })
+
+    const fallbackEmails = req.project?.client_email ? [String(req.project.client_email).trim()] : []
+    const outEmails = Array.isArray(recipient_emails)
+      ? recipient_emails.map((e) => String(e || '').trim()).filter(Boolean)
+      : fallbackEmails
+    if (!outEmails.length) {
+      return res.status(400).json({ error: 'No recipient email found. Add a client email or provide recipient_emails.' })
+    }
+
+    const amount = Math.max(0, Number(co.amount) || 0)
+    const categoryKey = String(co.category || 'other').toLowerCase()
+    const sectionLabel = CHANGE_ORDER_CATEGORY_LABELS[categoryKey] || CHANGE_ORDER_CATEGORY_LABELS.other
+    const estimateTitle = `Change Order${co.status === 'Approved' ? ' (Approved)' : ''}: ${String(co.description || '').slice(0, 80)}`
+
+    const { data: estimate, error: estErr } = await supabase
+      .from('estimates')
+      .insert({
+        job_id: projectId,
+        user_id: req.user.id,
+        title: estimateTitle,
+        status: 'draft',
+        total_amount: amount,
+        recipient_emails: outEmails,
+      })
+      .select('id')
+      .single()
+    if (estErr) throw estErr
+
+    const { error: lineErr } = await supabase
+      .from('estimate_line_items')
+      .insert({
+        estimate_id: estimate.id,
+        product_id: null,
+        description: String(co.description || 'Change order').trim() || 'Change order',
+        quantity: 1,
+        unit: 'ls',
+        unit_price: amount,
+        total: amount,
+        section: sectionLabel,
+      })
+    if (lineErr) throw lineErr
+
+    const clientToken = crypto.randomUUID()
+    const { error: sendPrepErr } = await supabase
+      .from('estimates')
+      .update({
+        client_token: clientToken,
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', estimate.id)
+    if (sendPrepErr) throw sendPrepErr
+
+    const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || (req.protocol + '://' + (req.get('host') || 'localhost'))
+    const portalUrl = `${baseUrl.replace(/\/$/, '')}/estimate/${clientToken}`
+    const clientDisplayName = client_name && String(client_name).trim()
+      ? String(client_name).trim()
+      : (req.project?.assigned_to_name || 'there')
+    const gcDisplayName = gc_name && String(gc_name).trim()
+      ? String(gc_name).trim()
+      : 'Your contractor'
+    const projectName = req.project?.name || 'your project'
+
+    await sendEstimatePortalEmail({
+      to: outEmails[0],
+      clientName: clientDisplayName,
+      gcName: gcDisplayName,
+      projectName,
+      portalUrl,
+    })
+
+    res.status(201).json({
+      estimate_id: estimate.id,
+      portal_url: portalUrl,
+      recipient_emails: outEmails,
+    })
   } catch (err) {
     next(err)
   }

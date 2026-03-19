@@ -110,6 +110,8 @@ export interface BudgetTabProps {
   items: BudgetLineItem[]
   onSave: (items: BudgetLineItem[]) => Promise<void>
   schedulePhases?: unknown[]
+  clientEmail?: string | null
+  clientName?: string | null
   /** When set, labor actual is auto-pulled from time entries; show hint in UI. */
   laborActualFromTimeEntries?: number
   /** When set, subs actual is auto-pulled from bid sheet awarded; show hint in UI. */
@@ -130,6 +132,8 @@ export function BudgetTab({
   projectId,
   items,
   onSave,
+  clientEmail,
+  clientName,
   laborActualFromTimeEntries,
   subsActualFromBidSheet,
   approvedChangeOrdersTotal,
@@ -163,6 +167,7 @@ export function BudgetTab({
   const [coModalOpen, setCoModalOpen] = useState(false)
   const [editingCoId, setEditingCoId] = useState<string | null>(null)
   const [coSaving, setCoSaving] = useState(false)
+  const [coSendingId, setCoSendingId] = useState<string | null>(null)
   const [coError, setCoError] = useState<string | null>(null)
   const [coMenuOpenId, setCoMenuOpenId] = useState<string | null>(null)
   const [coMenuAnchor, setCoMenuAnchor] = useState<{ top: number; right: number } | null>(null)
@@ -219,9 +224,14 @@ export function BudgetTab({
     [postApprovalLinesSum, approvedCOs]
   )
   const pendingCOs = useMemo(() => changeOrders.filter((c) => c.status === 'Pending').reduce((s, c) => s + c.amount, 0), [changeOrders])
+  const originalBudget = originalEstimateBaseline > 0 ? originalEstimateBaseline : baselineBudget
+  const adjustedBudget = baselineBudget + approvedCOs
   const totalBudget = baselineBudget + approvedCOs
   const variance = totalBudget - totalActual
-  const budgetPct = totalBudget ? Math.round((totalActual / totalBudget) * 100) : 0
+  const originalBudgetPct = originalBudget > 0 ? Math.round((totalActual / originalBudget) * 100) : 0
+  const adjustedBudgetPct = adjustedBudget > 0 ? Math.round((totalActual / adjustedBudget) * 100) : 0
+  const varianceOriginal = originalBudget - totalActual
+  const varianceAdjusted = adjustedBudget - totalActual
   const forecastTotal = totalActual + approvedCOs
   const forecastVariance = totalBudget - forecastTotal
 
@@ -325,6 +335,25 @@ export function BudgetTab({
       } else {
         const created = await api.projects.createChangeOrder(projectId, payload)
         setChangeOrders((prev) => [created, ...prev])
+        // Auto-send newly created COs so PMs don't need a second manual step.
+        const defaultEmail = (clientEmail || '').trim()
+        let recipients: string[] = defaultEmail ? [defaultEmail] : []
+        if (recipients.length === 0 && typeof window !== 'undefined' && window.prompt) {
+          const entered = window.prompt('Client email for this change order:')
+          const v = (entered || '').trim()
+          if (v) recipients = [v]
+        }
+        if (recipients.length > 0) {
+          const sent = await api.projects.sendChangeOrderToClient(projectId, created.id, {
+            recipient_emails: recipients,
+            client_name: clientName || undefined,
+          })
+          if (typeof window !== 'undefined' && window.alert) {
+            window.alert(`Change order sent to ${sent.recipient_emails.join(', ')}.\n\nPortal: ${sent.portal_url}`)
+          }
+        } else if (typeof window !== 'undefined' && window.alert) {
+          window.alert('Change order saved, but no client email was provided so it was not sent.')
+        }
       }
       setCoModalOpen(false)
       setNewCO(defaultCOForm())
@@ -333,7 +362,7 @@ export function BudgetTab({
     } finally {
       setCoSaving(false)
     }
-  }, [newCO, editingCoId, projectId, defaultCOForm])
+  }, [newCO, editingCoId, projectId, defaultCOForm, clientEmail, clientName])
 
   const openEditCO = useCallback((co: ChangeOrder) => {
     setNewCO({ description: co.description, amount: String(co.amount), status: co.status, date: co.date, category: co.category || 'other' })
@@ -356,6 +385,35 @@ export function BudgetTab({
       // leave state unchanged on error
     }
   }, [projectId])
+
+  const handleSendChangeOrder = useCallback(async (co: ChangeOrder) => {
+    if (!projectId) return
+    const defaultEmail = (clientEmail || '').trim()
+    let recipients: string[] = defaultEmail ? [defaultEmail] : []
+    if (recipients.length === 0 && typeof window !== 'undefined' && window.prompt) {
+      const entered = window.prompt('Client email for this change order:')
+      const v = (entered || '').trim()
+      if (!v) return
+      recipients = [v]
+    }
+    if (recipients.length === 0) return
+    setCoSendingId(co.id)
+    try {
+      const sent = await api.projects.sendChangeOrderToClient(projectId, co.id, {
+        recipient_emails: recipients,
+        client_name: clientName || undefined,
+      })
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert(`Change order sent to ${sent.recipient_emails.join(', ')}.\n\nPortal: ${sent.portal_url}`)
+      }
+    } catch (err) {
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert(err instanceof Error ? err.message : 'Failed to send change order')
+      }
+    } finally {
+      setCoSendingId(null)
+    }
+  }, [projectId, clientEmail, clientName])
 
   // Donut segments
   const donutTotal = totalActual || 1
@@ -656,38 +714,52 @@ export function BudgetTab({
       {/* Top KPI Row */}
       <div className="budget-kpi-row" style={provisionalMode ? { opacity: 0.92 } : undefined}>
         <div className="budget-kpi-card">
-          <div className="budget-kpi-label">Total Budget</div>
-          <div className="budget-kpi-value">{totalBudget ? fmt(totalBudget) : '—'}</div>
+          <div className="budget-kpi-label">Original Budget</div>
+          <div className="budget-kpi-value">{originalBudget ? fmt(originalBudget) : '—'}</div>
           {provisionalMode && (
             <div className="budget-kpi-sub" style={{ color: '#b45309' }}>Estimated — pending approval</div>
           )}
+          <div className="budget-kpi-sub" style={{ color: 'var(--text-muted)' }}>
+            Accepted estimate baseline (fixed)
+          </div>
+        </div>
+        <div className="budget-kpi-card">
+          <div className="budget-kpi-label">Adjusted Budget</div>
+          <div className="budget-kpi-value">{adjustedBudget ? fmt(adjustedBudget) : '—'}</div>
           {approvedCOs > 0 && (
             <div className="budget-kpi-sub" style={{ color: 'var(--green, #16a34a)' }}>+{fmt(approvedCOs)} in approved COs</div>
+          )}
+          {approvedCOs <= 0 && (
+            <div className="budget-kpi-sub" style={{ color: 'var(--text-muted)' }}>No approved CO impact yet</div>
           )}
         </div>
         <div className="budget-kpi-card">
           <div className="budget-kpi-label">Actual Spend</div>
-          <div className="budget-kpi-value" style={{ color: budgetPct > 95 ? 'var(--red)' : undefined }}>{totalActual ? fmt(totalActual) : '—'}</div>
-          <div className="budget-kpi-sub" style={{ color: budgetPct > 95 ? 'var(--red)' : 'var(--text-muted)' }}>{budgetPct}% of budget used</div>
+          <div className="budget-kpi-value" style={{ color: adjustedBudgetPct > 95 ? 'var(--red)' : undefined }}>{totalActual ? fmt(totalActual) : '—'}</div>
+          <div className="budget-kpi-sub" style={{ color: adjustedBudgetPct > 95 ? 'var(--red)' : 'var(--text-muted)' }}>
+            {adjustedBudgetPct}% of adjusted budget used
+          </div>
           <div className="budget-kpi-bar">
             <div
               className="budget-kpi-bar-fill"
               style={{
-                width: `${Math.min(100, budgetPct)}%`,
-                background: budgetPct > 95 ? 'var(--red)' : budgetPct > 80 ? '#f59e0b' : 'var(--green, #16a34a)',
+                width: `${Math.min(100, adjustedBudgetPct)}%`,
+                background: adjustedBudgetPct > 95 ? 'var(--red)' : adjustedBudgetPct > 80 ? '#f59e0b' : 'var(--green, #16a34a)',
               }}
             />
           </div>
         </div>
         <div className="budget-kpi-card">
           <div className="budget-kpi-label">Variance</div>
-          <div className="budget-kpi-value" style={{ color: variance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{fmtSigned(variance)}</div>
-          <div className="budget-kpi-sub" style={{ color: variance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{variance >= 0 ? 'Under budget' : 'Over budget'}</div>
-        </div>
-        <div className="budget-kpi-card">
-          <div className="budget-kpi-label">Forecast to Complete</div>
-          <div className="budget-kpi-value">{totalActual > 0 ? fmt(forecastTotal) : '—'}</div>
-          <div className="budget-kpi-sub" style={{ color: forecastVariance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>{fmtSigned(forecastVariance)} projected variance</div>
+          <div className="budget-kpi-sub" style={{ color: varianceOriginal >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>
+            Original vs actual: {fmtSigned(varianceOriginal)}
+          </div>
+          <div className="budget-kpi-sub" style={{ color: varianceAdjusted >= 0 ? 'var(--green, #16a34a)' : 'var(--red)' }}>
+            Adjusted vs actual: {fmtSigned(varianceAdjusted)}
+          </div>
+          <div className="budget-kpi-sub" style={{ color: 'var(--text-muted)' }}>
+            Original used: {originalBudgetPct}% · Adjusted used: {adjustedBudgetPct}%
+          </div>
         </div>
       </div>
 
@@ -983,6 +1055,27 @@ export function BudgetTab({
                   }}
                 >
                   <button type="button" onClick={() => { setCoMenuOpenId(null); openEditCO(co); }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--text-primary)', background: '#fff', border: 'none', cursor: 'pointer' }} onMouseOver={(e) => { e.currentTarget.style.background = '#f1f5f9' }} onMouseOut={(e) => { e.currentTarget.style.background = '#fff' }}>Edit</button>
+                  <button
+                    type="button"
+                    disabled={coSendingId === co.id}
+                    onClick={() => { setCoMenuOpenId(null); handleSendChangeOrder(co) }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                      fontSize: 12,
+                      color: '#1d4ed8',
+                      background: '#fff',
+                      border: 'none',
+                      cursor: coSendingId === co.id ? 'not-allowed' : 'pointer',
+                      opacity: coSendingId === co.id ? 0.6 : 1,
+                    }}
+                    onMouseOver={(e) => { if (coSendingId !== co.id) e.currentTarget.style.background = '#f1f5f9' }}
+                    onMouseOut={(e) => { e.currentTarget.style.background = '#fff' }}
+                  >
+                    {coSendingId === co.id ? 'Sending…' : 'Send to customer'}
+                  </button>
                   {co.status === 'Pending' && (
                     <button type="button" onClick={() => handleApproveChangeOrder(co.id)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--green, #16a34a)', background: '#fff', border: 'none', cursor: 'pointer' }} onMouseOver={(e) => { e.currentTarget.style.background = '#f1f5f9' }} onMouseOut={(e) => { e.currentTarget.style.background = '#fff' }}>Approve</button>
                   )}

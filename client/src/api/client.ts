@@ -547,6 +547,31 @@ export const api = {
         throw new Error((data as { error?: string }).error || res.statusText)
       }
     },
+    async sendChangeOrderToClient(
+      projectId: string,
+      coId: string,
+      body?: {
+        recipient_emails?: string[]
+        client_name?: string
+        gc_name?: string
+      }
+    ): Promise<{
+      estimate_id: string
+      portal_url: string
+      recipient_emails: string[]
+    }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders/${coId}/send`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body || {}),
+      })
+      return handleResponse<{
+        estimate_id: string
+        portal_url: string
+        recipient_emails: string[]
+      }>(res)
+    },
     async getTrades(): Promise<{ key: string; label: string; csiDivision: string }[]> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/trades`, { headers })

@@ -1861,7 +1861,7 @@ export function ProjectsPage() {
     { id: 'overview' as const, label: 'Overview', icon: 'grid' },
     { id: 'worktypes' as const, label: 'Work Types & Pay', icon: 'briefcase' },
     { id: 'crew' as const, label: 'Crew', icon: 'people' },
-    { id: 'budget' as const, label: 'Budget', icon: 'dollar' },
+    { id: 'budget' as const, label: 'Change Orders', icon: 'dollar' },
     { id: 'schedule' as const, label: 'Schedule', icon: 'calendar' },
     { id: 'media' as const, label: 'Job Walk Media', icon: 'image' },
     { id: 'takeoff' as const, label: 'Takeoff', icon: 'document' },
@@ -2705,6 +2705,8 @@ export function ProjectsPage() {
               projectId={project.id}
               items={budget?.items ?? []}
               schedulePhases={builderPhases}
+              clientEmail={project.client_email ?? null}
+              clientName={project.assigned_to_name ?? null}
               laborActualFromTimeEntries={budget?.labor_actual_from_time_entries}
               subsActualFromBidSheet={budget?.subs_actual_from_bid_sheet}
               approvedChangeOrdersTotal={budget?.approved_change_orders_total}
