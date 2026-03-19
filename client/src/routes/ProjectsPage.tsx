@@ -80,8 +80,48 @@ function normStatus(s: string): string {
 
 function colMatchesStatus(colKey: string, status: string): boolean {
   const normalized = normStatus(status)
-  if (colKey === 'backlog' && normalized === 'planning') return true
+  /** Estimate approved — legacy awaiting_job_creation had no column; same as backlog */
+  if (colKey === 'backlog' && (normalized === 'planning' || normalized === 'awaiting_job_creation')) return true
   return colKey === normalized
+}
+
+/** Human-readable status for list/cards (backlog + legacy approved state). */
+function displayProjectStatusLabel(status: string | undefined): string {
+  const n = normStatus(status ?? '')
+  if (n === 'awaiting_job_creation' || n === 'backlog') return 'Backlog'
+  if (n === 'on_hold') return 'On Hold'
+  if (n === 'awaiting_approval') return 'Awaiting Approval'
+  if (n === 'estimating') return 'Estimating'
+  if (n === 'planning') return 'Planning'
+  if (n === 'active') return 'Active'
+  if (n === 'completed') return 'Completed'
+  const s = status ?? 'active'
+  return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ')
+}
+
+/** Each bid dispatch can create a duplicate subcontractors row; show one row per person in Team. */
+function groupSubcontractorsForTeamDisplay(
+  subs: Subcontractor[]
+): { dedupeKey: string; name: string; tradeLine: string }[] {
+  const map = new Map<string, { name: string; trades: Set<string> }>()
+  for (const s of subs) {
+    const email = (s.email || '').trim().toLowerCase()
+    const dedupeKey = email ? `email:${email}` : `name:${(s.name || '').trim().toLowerCase()}`
+    const trade = (s.trade || '').trim() || 'Subcontractor'
+    if (!map.has(dedupeKey)) {
+      map.set(dedupeKey, { name: s.name || '—', trades: new Set([trade]) })
+    } else {
+      map.get(dedupeKey)!.trades.add(trade)
+    }
+  }
+  return [...map.entries()].map(([dedupeKey, v]) => {
+    const trades = [...v.trades].sort((a, b) => a.localeCompare(b))
+    return {
+      dedupeKey,
+      name: v.name,
+      tradeLine: trades.length === 1 ? trades[0] : trades.join(' · '),
+    }
+  })
 }
 
 if (typeof window !== 'undefined') {
@@ -129,6 +169,14 @@ export function ProjectsPage() {
   const [activity, setActivity] = useState<ProjectActivityItem[]>([])
   const [buildPlans, setBuildPlans] = useState<ProjectBuildPlan[]>([])
   const [heroMenuOpen, setHeroMenuOpen] = useState(false)
+  const [activateModalOpen, setActivateModalOpen] = useState(false)
+  /** When set, activation modal targets this project (board); detail flow clears this. */
+  const [pendingActivateProjectId, setPendingActivateProjectId] = useState<string | null>(null)
+  const [activateStartDate, setActivateStartDate] = useState('')
+  const [activateEndDate, setActivateEndDate] = useState('')
+  const [activateSubmitting, setActivateSubmitting] = useState(false)
+  const [activateError, setActivateError] = useState<string | null>(null)
+  const [activateSuccessToast, setActivateSuccessToast] = useState<string | null>(null)
   const heroMenuRef = useRef<HTMLDivElement>(null)
   const [buildEstimateOpen, setBuildEstimateOpen] = useState(false)
   const [buildEstimateBlankMode, setBuildEstimateBlankMode] = useState(false)
@@ -243,6 +291,50 @@ export function ProjectsPage() {
     document.addEventListener('click', onDocClick, true)
     return () => document.removeEventListener('click', onDocClick, true)
   }, [heroMenuOpen])
+
+  useEffect(() => {
+    if (id && pendingActivateProjectId && id !== pendingActivateProjectId) {
+      setPendingActivateProjectId(null)
+      setActivateModalOpen(false)
+    }
+  }, [id, pendingActivateProjectId])
+
+  useEffect(() => {
+    if (!activateModalOpen) return
+    setActivateError(null)
+    if (pendingActivateProjectId && id === pendingActivateProjectId && project?.id === pendingActivateProjectId && project.status === 'backlog') {
+      setActivateStartDate((project.expected_start_date || '').slice(0, 10))
+      setActivateEndDate((project.expected_end_date || '').slice(0, 10))
+      return
+    }
+    if (pendingActivateProjectId) {
+      const row = projects.find(
+        (p) => p.id === pendingActivateProjectId && colMatchesStatus('backlog', p.status ?? '')
+      )
+      if (row) {
+        setActivateStartDate((row.expected_start_date || '').slice(0, 10))
+        setActivateEndDate((row.expected_end_date || '').slice(0, 10))
+      }
+    } else if (project && normStatus(project.status ?? '') === 'backlog') {
+      setActivateStartDate((project.expected_start_date || '').slice(0, 10))
+      setActivateEndDate((project.expected_end_date || '').slice(0, 10))
+    }
+  }, [
+    activateModalOpen,
+    pendingActivateProjectId,
+    id,
+    projects,
+    project?.id,
+    project?.status,
+    project?.expected_start_date,
+    project?.expected_end_date,
+  ])
+
+  useEffect(() => {
+    if (!activateSuccessToast) return
+    const t = window.setTimeout(() => setActivateSuccessToast(null), 4000)
+    return () => window.clearTimeout(t)
+  }, [activateSuccessToast])
 
   // When navigating to a project (by id), always open on overview unless URL has an explicit tab
   useEffect(() => {
@@ -417,6 +509,29 @@ export function ProjectsPage() {
       })
       .catch(() => {})
       .finally(() => setBudgetTabLoading(false))
+  }, [activeTab, id])
+
+  // Overview "Budget vs Actual" used stale budget if estimate was accepted after first load; refetch on overview + tab focus
+  useEffect(() => {
+    if (!id || activeTab !== 'overview') return
+    const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
+    const apply = () => {
+      api.projects
+        .getBudget(id)
+        .then((bud) => {
+          setBudget(bud?.items?.length ? bud : { items: [], summary: bud?.summary ?? emptySummary })
+        })
+        .catch(() => {})
+    }
+    apply()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        api.projects.get(id).then(setProject).catch(() => {})
+        apply()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
   }, [activeTab, id])
 
   const refreshMedia = () => {
@@ -753,6 +868,173 @@ export function ProjectsPage() {
     }
   }
 
+  const activateBoardRow = pendingActivateProjectId
+    ? projects.find(
+        (p) => p.id === pendingActivateProjectId && colMatchesStatus('backlog', p.status ?? '')
+      ) ?? null
+    : null
+  const activateDetailTarget =
+    !pendingActivateProjectId && id && project?.status === 'backlog'
+      ? project
+      : pendingActivateProjectId &&
+          id === pendingActivateProjectId &&
+          project?.status === 'backlog'
+        ? project
+        : null
+  const showActivateProjectModal =
+    activateModalOpen && (activateBoardRow != null || activateDetailTarget != null)
+  const activateContextId = activateBoardRow?.id ?? activateDetailTarget?.id ?? ''
+  const activateContextClient =
+    activateBoardRow != null
+      ? (activateBoardRow.assigned_to_name || activateBoardRow.client || '—').trim() || '—'
+      : (activateDetailTarget?.assigned_to_name?.trim() || '—')
+  const activateContextApproved =
+    activateBoardRow != null
+      ? (activateBoardRow.budget_total ?? activateBoardRow.estimated_value ?? 0)
+      : (budget?.summary?.predicted_total ?? 0)
+
+  const activateProjectModalEl =
+    showActivateProjectModal && activateContextId ? (
+      <div
+        className="projects-convert-modal-overlay projects-activate-modal-overlay"
+        role="presentation"
+        tabIndex={-1}
+        onClick={() => {
+          if (!activateSubmitting) {
+            setActivateModalOpen(false)
+            setPendingActivateProjectId(null)
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && !activateSubmitting) {
+            setActivateModalOpen(false)
+            setPendingActivateProjectId(null)
+          }
+        }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="activate-project-dialog-title"
+          className="activate-project-modal"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 id="activate-project-dialog-title">
+            Activate this project?
+          </h2>
+          <div className="activate-project-summary-card">
+            <div className="activate-project-summary-badge-row">
+              <span className="activate-project-approved-badge">Approved</span>
+            </div>
+            <div className="activate-project-summary-row">
+              <span>Client</span>
+              <span>{activateContextClient}</span>
+            </div>
+            {activateContextApproved > 0 ? (
+              <div className="activate-project-summary-row total">
+                <span>Approved estimate</span>
+                <span>
+                  {new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    maximumFractionDigits: 0,
+                  }).format(activateContextApproved)}
+                </span>
+              </div>
+            ) : null}
+          </div>
+          <div className="projects-activate-dates">
+            <div className="projects-activate-date-field">
+              <label className="projects-activate-date-label" htmlFor="activate-start-date">
+                Start date <span className="text-[var(--red)]">*</span>
+              </label>
+              <div className="projects-activate-date-input-wrap">
+                <input
+                  id="activate-start-date"
+                  type="date"
+                  className="d-date-in projects-activate-d-date"
+                  value={activateStartDate}
+                  onChange={(e) => setActivateStartDate(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div className="projects-activate-date-field">
+              <label className="projects-activate-date-label" htmlFor="activate-end-date">
+                End date <span className="projects-activate-date-optional">(optional)</span>
+              </label>
+              <div className="projects-activate-date-input-wrap">
+                <input
+                  id="activate-end-date"
+                  type="date"
+                  className="d-date-in projects-activate-d-date"
+                  value={activateEndDate}
+                  onChange={(e) => setActivateEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <p className="activate-project-info-line">
+            Moving to Active will unlock scheduling, crew assignment, and progress invoicing.
+          </p>
+          {activateError && (
+            <p className="projects-activate-error" role="alert">
+              {activateError}
+            </p>
+          )}
+          <div className="activate-project-modal-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={activateSubmitting}
+              onClick={() => {
+                if (!activateSubmitting) {
+                  setActivateModalOpen(false)
+                  setPendingActivateProjectId(null)
+                }
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="activate-project-confirm-btn"
+              disabled={activateSubmitting || !activateStartDate.trim()}
+              onClick={async () => {
+                if (!activateContextId || !activateStartDate.trim()) return
+                setActivateSubmitting(true)
+                setActivateError(null)
+                try {
+                  await api.projects.update(activateContextId, {
+                    status: 'active',
+                    expected_start_date: activateStartDate.trim(),
+                    expected_end_date: activateEndDate.trim() || undefined,
+                  })
+                  setActivateModalOpen(false)
+                  setPendingActivateProjectId(null)
+                  setDetailRefreshTrigger((t) => t + 1)
+                  api.dashboard.getProjects().then(setProjects).catch(() => {})
+                  setActivateSuccessToast('Project activated.')
+                } catch (err) {
+                  setActivateError(err instanceof Error ? err.message : 'Activation failed')
+                } finally {
+                  setActivateSubmitting(false)
+                }
+              }}
+            >
+              {activateSubmitting ? 'Activating…' : 'Activate Project →'}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null
+
+  const activateSuccessToastEl = activateSuccessToast ? (
+    <div className="projects-activate-success-toast" role="status">
+      {activateSuccessToast}
+    </div>
+  ) : null
+
   if (id === undefined) {
     const filterMatch = (p: DashboardProject) => {
       if (filter === 'all') return true
@@ -818,6 +1100,19 @@ export function ProjectsPage() {
               </div>
             )
           })() : null}
+          {col.key === 'backlog' ? (
+            <button
+              type="button"
+              className="projects-board-card-activate"
+              onClick={(e) => {
+                e.stopPropagation()
+                setPendingActivateProjectId(p.id)
+                setActivateModalOpen(true)
+              }}
+            >
+              Activate →
+            </button>
+          ) : null}
           <button
             type="button"
             className="projects-board-card-delete"
@@ -1005,8 +1300,10 @@ export function ProjectsPage() {
                   const spentTotal = p.spent_total ?? 0
                   const budgetPct = budgetTotal > 0 ? Math.round((spentTotal / budgetTotal) * 100) : 0
                   const currentPhase = p.phases?.find((ph) => !ph.completed)?.name ?? (p.phases?.length ? p.phases[p.phases.length - 1]?.name : null)
+                  const sn = normStatus(p.status ?? '')
+                  const isBacklogLike = sn === 'backlog' || sn === 'awaiting_job_creation' || sn === 'planning'
                   const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
-                    (p.status ?? '') === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } :
+                    isBacklogLike ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } :
                     (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
                     (p.status ?? '') === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } :
                     { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' }
@@ -1028,7 +1325,7 @@ export function ProjectsPage() {
                       </div>
                       <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
-                        {p.status === 'on_hold' ? 'On Hold' : (p.status ?? 'Active').charAt(0).toUpperCase() + (p.status ?? 'active').slice(1)}
+                        {displayProjectStatusLabel(p.status)}
                       </span>
                       <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{currentPhase ?? '—'}</span>
                       <div>
@@ -1198,6 +1495,8 @@ export function ProjectsPage() {
               startTime={takeoffStartTime}
             />
           )}
+          {activateProjectModalEl}
+          {activateSuccessToastEl}
         </div>
       </div>
     )
@@ -1220,6 +1519,8 @@ export function ProjectsPage() {
             startTime={takeoffStartTime}
           />
         )}
+        {activateProjectModalEl}
+        {activateSuccessToastEl}
       </div>
     )
   }
@@ -1246,7 +1547,10 @@ export function ProjectsPage() {
 
   const budgetSummary = budget?.summary ?? { predicted_total: 0, actual_total: 0, profitability: 0 }
   const approvedCOTotal = budget?.approved_change_orders_total ?? 0
-  const revisedBudget = budgetSummary.predicted_total + approvedCOTotal
+  const linePredictedPlusCo = budgetSummary.predicted_total + approvedCOTotal
+  const estVal = Number(project?.estimated_value) || 0
+  const revisedBudget =
+    linePredictedPlusCo > 0 ? linePredictedPlusCo : estVal > 0 ? estVal + approvedCOTotal : linePredictedPlusCo
   const isUnderBudget = revisedBudget > 0 && budgetSummary.actual_total <= revisedBudget
   const timelineStart = phases.length
     ? phases.reduce((min, p) => (p.start_date < min ? p.start_date : min), phases[0].start_date)
@@ -1288,8 +1592,19 @@ export function ProjectsPage() {
     { id: 'bidsheet' as const, label: 'Bid Sheet', icon: 'checklist' },
   ]
 
-  const statusKey = (project?.status ?? 'active').toLowerCase().replace(' ', '_')
-  const statusPillStyle = statusKey === 'active' ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } : statusKey === 'planning' ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' } : statusKey === 'on_hold' ? { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' } : statusKey === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } : { bg: '#f8fafc', text: '#64748b', dot: '#94a3b8' }
+  const statusKey = (project?.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
+  const statusPillStyle =
+    statusKey === 'active'
+      ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' }
+      : statusKey === 'planning'
+        ? { bg: '#fefce8', text: '#a16207', dot: '#eab308' }
+        : statusKey === 'backlog' || statusKey === 'awaiting_job_creation'
+          ? { bg: '#eff6ff', text: '#1e40af', dot: '#3b82f6' }
+          : statusKey === 'on_hold'
+            ? { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' }
+            : statusKey === 'completed'
+              ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' }
+              : { bg: '#f8fafc', text: '#64748b', dot: '#94a3b8' }
   const addressDisplay = [project?.address_line_1, project?.city].filter(Boolean).join(', ') || '—'
   const BUDGET_ITEM_COLORS: Record<string, string> = { Labor: '#6366f1', Materials: '#0ea5e9', Subcontractors: '#8b5cf6' }
   const TAG_COLORS: Record<string, { bg: string; text: string }> = { Media: { bg: '#eff6ff', text: '#1d4ed8' }, Time: { bg: '#f0fdf4', text: '#15803d' }, Budget: { bg: '#fefce8', text: '#a16207' }, Bid: { bg: '#fdf4ff', text: '#7e22ce' }, Schedule: { bg: '#fff7ed', text: '#c2410c' }, Takeoff: { bg: '#eff6ff', text: '#1d4ed8' } }
@@ -1339,7 +1654,7 @@ export function ProjectsPage() {
             <div className="project-overview-badges">
               <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1.5" style={{ background: statusPillStyle.bg, color: statusPillStyle.text }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusPillStyle.dot }} />
-                {project?.status === 'on_hold' ? 'On Hold' : (project?.status ?? 'Active').charAt(0).toUpperCase() + (project?.status ?? 'active').slice(1).replace('_', ' ')}
+                {displayProjectStatusLabel(project?.status)}
               </span>
             </div>
             <h1 className="project-overview-title">
@@ -1364,6 +1679,15 @@ export function ProjectsPage() {
                   Products & Services
                 </button>
               </>
+            )}
+            {project?.status === 'backlog' && (
+              <button
+                type="button"
+                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate"
+                onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
+              >
+                Activate Project →
+              </button>
             )}
             <button
               type="button"
@@ -1616,6 +1940,20 @@ export function ProjectsPage() {
               onOpenWizard={() => setSetupWizardOpen(true)}
             />
           )}
+          {project.status === 'backlog' && (
+            <div className="project-backlog-banner">
+              <p className="project-backlog-banner-text">
+                This project is approved and ready to start. Set a start date and activate when you&apos;re ready to begin.
+              </p>
+              <button
+                type="button"
+                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate shrink-0"
+                onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
+              >
+                Activate Project →
+              </button>
+            </div>
+          )}
           <div className="project-overview-body">
           {/* Col 1 – Project Breakdown + Milestones */}
           <div className="flex flex-col gap-[18px]">
@@ -1720,7 +2058,8 @@ export function ProjectsPage() {
                       return { assignment: a, name: emp?.name ?? a.employee_id, role: a.role_on_job || emp?.role || '—' }
                     })
                   const hasRoster = rosterRows.length > 0
-                  const hasSubs = subcontractors.length > 0
+                  const subTeamRows = groupSubcontractorsForTeamDisplay(subcontractors)
+                  const hasSubs = subTeamRows.length > 0
                   if (!hasRoster && !hasSubs) return <p className="text-sm text-[var(--text-muted)]">No team members yet.</p>
                   return (
                     <>
@@ -1734,12 +2073,12 @@ export function ProjectsPage() {
                           <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
                         </div>
                       ))}
-                      {subcontractors.map((s, i) => (
-                        <div key={s.id} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][(rosterRows.length + i) % 3] }}>{s.name.slice(0, 2).toUpperCase()}</div>
+                      {subTeamRows.map((row, i) => (
+                        <div key={row.dedupeKey} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][(rosterRows.length + i) % 3] }}>{row.name.slice(0, 2).toUpperCase()}</div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">{s.name}</div>
-                            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{s.trade}</div>
+                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">{row.name}</div>
+                            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.tradeLine}</div>
                           </div>
                           <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
                         </div>
@@ -2076,6 +2415,9 @@ export function ProjectsPage() {
           }}
         />
       )}
+
+      {activateProjectModalEl}
+      {activateSuccessToastEl}
 
       {bulkSendOpen && project && (
         <BulkSendModal

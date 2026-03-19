@@ -233,6 +233,14 @@ export function EstimateBuilder({
         })
       }
       await estimatesApi.updateEstimate(eid!, { total_amount: subtotal })
+      try {
+        const fin = await estimatesApi.getEstimate(eid!)
+        if (fin.status === 'accepted' && fin.job_id) {
+          await estimatesApi.syncProjectBudgetFromEstimate(eid!)
+        }
+      } catch (syncErr) {
+        console.error('[EstimateBuilder] budget sync', syncErr)
+      }
       onSaved(eid!)
     } catch (err) {
       console.error(err)

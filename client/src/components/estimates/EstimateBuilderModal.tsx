@@ -435,7 +435,13 @@ export function EstimateBuilderModal({
   /** Resets step-2 catalog search state when the wizard is reset. */
   const [presetCatalogResetKey, setPresetCatalogResetKey] = useState(0)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const previewOpenRef = useRef(false)
+  previewOpenRef.current = previewOpen
   const [gcCompanyName, setGcCompanyName] = useState('')
+
+  const closePreviewOnly = useCallback(() => {
+    queueMicrotask(() => setPreviewOpen(false))
+  }, [])
 
   useEffect(() => {
     if (!isBuildMode) return
@@ -491,10 +497,17 @@ export function EstimateBuilderModal({
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      if (previewOpenRef.current) {
+        e.preventDefault()
+        e.stopPropagation()
+        setPreviewOpen(false)
+        return
+      }
+      onClose()
     }
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
+    document.addEventListener('keydown', handleEscape, true)
+    return () => document.removeEventListener('keydown', handleEscape, true)
   }, [onClose])
 
   const canNext = () => step === 1 && !!data.projectName.trim()
@@ -551,6 +564,14 @@ export function EstimateBuilderModal({
         setSavedEstimateId(estimateId)
         setSaved(true)
         onSave?.(estimateId)
+        try {
+          const fin = await estimatesApi.getEstimate(estimateId)
+          if (fin.status === 'accepted' && projectId) {
+            await estimatesApi.syncProjectBudgetFromEstimate(estimateId)
+          }
+        } catch (syncErr) {
+          console.error('[EstimateBuilderModal] budget sync', syncErr)
+        }
       } else {
         const created = await estimatesApi.createEstimate({
           job_id: projectId,
@@ -701,7 +722,7 @@ export function EstimateBuilderModal({
   return (
     <div
       className="estimate-builder-modal-overlay"
-      onClick={onClose}
+      onClick={previewOpen ? undefined : onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="estimate-builder-wizard-title"
@@ -919,7 +940,11 @@ export function EstimateBuilderModal({
             aria-labelledby="estimate-wizard-preview-title"
             tabIndex={-1}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setPreviewOpen(false)
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.stopPropagation()
+                setPreviewOpen(false)
+              }
             }}
           >
             <div className="estimate-wizard-preview-banner" id="estimate-wizard-preview-title">
@@ -929,7 +954,11 @@ export function EstimateBuilderModal({
               <button
                 type="button"
                 className="estimate-wizard-preview-close btn btn-ghost"
-                onClick={() => setPreviewOpen(false)}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  closePreviewOnly()
+                }}
               >
                 Close
               </button>

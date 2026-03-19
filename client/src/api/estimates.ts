@@ -153,6 +153,16 @@ export const estimatesApi = {
     return handleResponse<void>(res)
   },
 
+  /** After saving line items on an already-accepted estimate, refresh the project budget. */
+  async syncProjectBudgetFromEstimate(estimateId: string): Promise<{ ok: boolean }> {
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/estimates/${estimateId}/sync-project-budget`, {
+      method: 'POST',
+      headers,
+    })
+    return handleResponse<{ ok: boolean }>(res)
+  },
+
   async convertToInvoice(
     estimateId: string,
     options?: { due_date?: string; amount?: number }

@@ -2,13 +2,14 @@
  * Public estimate portal API — token-gated, no auth.
  * GET /api/estimates/portal/:token — estimate with project info, line items, GC info, status. 404 if not found.
  * PATCH /api/estimates/portal/:token/viewed — set viewed_at, status = 'viewed' if currently sent. Idempotent.
- * POST /api/estimates/portal/:token/approve — status = accepted, actioned_at. Update project to awaiting_job_creation.
+ * POST /api/estimates/portal/:token/approve — status = accepted, actioned_at. Move project to backlog (ready to schedule / start work).
  * POST /api/estimates/portal/:token/request-changes — { message }, status = changes_requested, store message. Notify GC.
  * POST /api/estimates/portal/:token/decline — status = declined, actioned_at.
  * Rate limited. None require session auth.
  */
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { replaceProjectBudgetFromEstimate } = require('../lib/budgetFromEstimate')
 
 const router = express.Router()
 
@@ -194,7 +195,7 @@ router.patch('/:token/viewed', async (req, res, next) => {
   }
 })
 
-/** POST /api/estimates/portal/:token/approve — set status = accepted, actioned_at. Update project to awaiting_job_creation. Returns confirmation. */
+/** POST /api/estimates/portal/:token/approve — set status = accepted, actioned_at. Project → backlog. Returns confirmation. */
 router.post('/:token/approve', async (req, res, next) => {
   try {
     const supabase = defaultSupabase
@@ -210,6 +211,14 @@ router.post('/:token/approve', async (req, res, next) => {
     if (fetchErr) throw fetchErr
     if (!est) return res.status(404).json({ error: 'Invalid or expired link' })
     if ((est.status || '').toLowerCase() === 'accepted') {
+      // Heal: first approve may have succeeded while budget sync failed, or sync was added later
+      if (est.job_id) {
+        try {
+          await replaceProjectBudgetFromEstimate(supabase, est.job_id, est.id)
+        } catch (budgetErr) {
+          console.error('[estimate-portal] budget sync (already approved)', budgetErr)
+        }
+      }
       return res.json({ status: 'accepted', message: 'Already approved' })
     }
     if ((est.status || '').toLowerCase() === 'declined') {
@@ -225,8 +234,13 @@ router.post('/:token/approve', async (req, res, next) => {
     if (est.job_id) {
       await supabase
         .from('projects')
-        .update({ status: 'awaiting_job_creation', updated_at: now })
+        .update({ status: 'backlog', updated_at: now })
         .eq('id', est.job_id)
+      try {
+        await replaceProjectBudgetFromEstimate(supabase, est.job_id, est.id)
+      } catch (budgetErr) {
+        console.error('[estimate-portal] budget sync after approve', budgetErr)
+      }
     }
 
     return res.json({ status: 'accepted', message: 'Estimate approved.' })

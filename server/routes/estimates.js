@@ -1,5 +1,6 @@
 const crypto = require('crypto')
 const express = require('express')
+const { replaceProjectBudgetFromEstimate } = require('../lib/budgetFromEstimate')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
@@ -95,6 +96,14 @@ router.patch('/:id', async (req, res) => {
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const { id } = req.params
+    const { data: prevRow, error: prevErr } = await supabase
+      .from('estimates')
+      .select('status, job_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (prevErr) throw prevErr
+    if (!prevRow) return res.status(404).json({ error: 'Not found' })
+
     const {
       job_id,
       title,
@@ -126,6 +135,18 @@ router.patch('/:id', async (req, res) => {
       .single()
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Not found' })
+
+    const prevStatus = (prevRow.status || '').toLowerCase()
+    const nextStatus = (data.status || '').toLowerCase()
+    const jobId = data.job_id || prevRow.job_id
+    if (jobId && nextStatus === 'accepted' && prevStatus !== 'accepted') {
+      try {
+        await replaceProjectBudgetFromEstimate(supabase, jobId, id)
+      } catch (budgetErr) {
+        console.error('[estimates] budget sync on accept', budgetErr)
+      }
+    }
+
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Estimate update error:', err)
@@ -144,6 +165,31 @@ router.delete('/:id', async (req, res) => {
     res.status(204).send()
   } catch (err) {
     console.error('Estimate delete error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/** POST /api/estimates/:id/sync-project-budget — replace project budget from line items (accepted estimates only). Call after bulk line edits. */
+router.post('/:id/sync-project-budget', async (req, res) => {
+  const supabase = getSupabase(req)
+  if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const { id } = req.params
+    const { data: est, error } = await supabase
+      .from('estimates')
+      .select('status, job_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (error) throw error
+    if (!est) return res.status(404).json({ error: 'Not found' })
+    if ((est.status || '').toLowerCase() !== 'accepted') {
+      return res.status(400).json({ error: 'Only accepted estimates sync to the project budget.' })
+    }
+    if (!est.job_id) return res.status(400).json({ error: 'Estimate is not linked to a project.' })
+    await replaceProjectBudgetFromEstimate(supabase, est.job_id, id)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[estimates] sync-project-budget', err)
     res.status(500).json({ error: err.message })
   }
 })
