@@ -213,11 +213,19 @@ export function ProjectsPage() {
   /** List view: estimates for awaiting_approval column (project id → estimate). */
   const [estimatesByProjectId, setEstimatesByProjectId] = useState<Record<string, Estimate>>({})
   /** List view: convert-to-job confirmation (project id, name, estimate total). */
-  const [convertConfirmProject, setConvertConfirmProject] = useState<{ id: string; name: string; estimateTotal: number } | null>(null)
+  const [convertConfirmProject, setConvertConfirmProject] = useState<{
+    id: string
+    name: string
+    estimateTotal: number
+    estimateId: string
+  } | null>(null)
   /** List view: open EstimateBuilderModal in revise mode (project id + estimate id). */
   const [reviseEstimate, setReviseEstimate] = useState<{ projectId: string; estimateId: string } | null>(null)
   /** List view: converting project to job (disable confirm button). */
   const [convertInProgress, setConvertInProgress] = useState(false)
+  /** Detail view (backlog): linked accepted estimate id for "Sync budget from estimate". */
+  const [linkedAcceptedEstimateId, setLinkedAcceptedEstimateId] = useState<string | null>(null)
+  const [syncingBudgetFromEstimate, setSyncingBudgetFromEstimate] = useState(false)
 
   const TAKEOFF_PROGRESS_MESSAGES = [
     'Uploading plan…',
@@ -401,6 +409,21 @@ export function ProjectsPage() {
     refetchEstimatesForList()
   }, [id, projects, refetchEstimatesForList])
 
+  // Detail view (backlog): resolve linked accepted estimate so we can offer "Sync budget from estimate"
+  useEffect(() => {
+    if (!id || !project || (project.status ?? '') !== 'backlog') {
+      setLinkedAcceptedEstimateId(null)
+      return
+    }
+    estimatesApi
+      .getEstimates(id)
+      .then((list) => {
+        const accepted = (list ?? []).find((e) => (e.status ?? '').toLowerCase() === 'accepted')
+        setLinkedAcceptedEstimateId(accepted?.id ?? null)
+      })
+      .catch(() => setLinkedAcceptedEstimateId(null))
+  }, [id, project?.id, project?.status])
+
   useEffect(() => {
     if (!id) return
     setLoading(true)
@@ -544,7 +567,8 @@ export function ProjectsPage() {
     if (id) api.projects.getSubcontractors(id).then(setSubcontractors)
   }
 
-  // Fetch bid sheet when opening Build Estimate modal so we can seed awarded bids
+  // Fetch project + bid sheet + budget when opening Build Estimate (always, including blank mode)
+  // so client_email / client_phone prefill and budget seed match the DB before the modal mounts.
   useEffect(() => {
     if (!buildEstimateOpen || !id) {
       if (!buildEstimateOpen) {
@@ -554,16 +578,34 @@ export function ProjectsPage() {
       return
     }
     setBuildEstimateBidSheetFetched(false)
-    api.projects
-      .getBidSheet(id)
-      .then((sheet) => {
-        setBuildEstimateBidSheet(sheet)
-        setBuildEstimateBidSheetFetched(true)
-      })
-      .catch(() => {
-        setBuildEstimateBidSheet(null)
-        setBuildEstimateBidSheetFetched(true)
-      })
+    const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const results = await Promise.allSettled([
+          api.projects.get(id),
+          api.projects.getBidSheet(id),
+          api.projects.getBudget(id),
+        ])
+        if (cancelled) return
+        const projRes = results[0]
+        const sheetRes = results[1]
+        const budRes = results[2]
+        if (projRes.status === 'fulfilled' && projRes.value) {
+          setProject(projRes.value)
+        }
+        setBuildEstimateBidSheet(sheetRes.status === 'fulfilled' ? sheetRes.value : null)
+        if (budRes.status === 'fulfilled' && budRes.value) {
+          const bud = budRes.value
+          setBudget(bud.items?.length ? bud : { items: [], summary: bud.summary ?? emptySummary })
+        }
+      } finally {
+        if (!cancelled) setBuildEstimateBidSheetFetched(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [buildEstimateOpen, id])
 
   // Fetch bid sheet when project is estimating (for EstimatingWorkspace and hero KPIs)
@@ -704,8 +746,8 @@ export function ProjectsPage() {
       projectName: project.name ?? '',
       planType: (project.plan_type as PrefillClientInfo['planType']) ?? 'residential',
       clientName: project.assigned_to_name ?? '',
-      clientEmail: '',
-      clientPhone: '',
+      clientEmail: project.client_email?.trim() ?? '',
+      clientPhone: project.client_phone?.trim() ?? '',
       projectAddress: project.address_line_1 ?? '',
     }
   }, [project])
@@ -884,6 +926,9 @@ export function ProjectsPage() {
   const showActivateProjectModal =
     activateModalOpen && (activateBoardRow != null || activateDetailTarget != null)
   const activateContextId = activateBoardRow?.id ?? activateDetailTarget?.id ?? ''
+  const activateEstimateId = activateContextId
+    ? (activateContextId === id ? linkedAcceptedEstimateId : estimatesByProjectId[activateContextId]?.id) ?? null
+    : null
   const activateContextClient =
     activateBoardRow != null
       ? (activateBoardRow.assigned_to_name || activateBoardRow.client || '—').trim() || '—'
@@ -983,6 +1028,31 @@ export function ProjectsPage() {
             </p>
           )}
           <div className="activate-project-modal-actions">
+            {activateEstimateId ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={activateSubmitting || syncingBudgetFromEstimate}
+                onClick={async () => {
+                  if (!activateEstimateId) return
+                  setSyncingBudgetFromEstimate(true)
+                  try {
+                    await estimatesApi.syncProjectBudgetFromEstimate(activateEstimateId)
+                    if (activateContextId === id) setDetailRefreshTrigger((t) => t + 1)
+                    api.dashboard.getProjects().then(setProjects).catch(() => {})
+                  } catch (err) {
+                    console.error('[ProjectsPage] activate modal sync budget', err)
+                    if (typeof window !== 'undefined' && window.alert) {
+                      window.alert(err instanceof Error ? err.message : 'Sync failed')
+                    }
+                  } finally {
+                    setSyncingBudgetFromEstimate(false)
+                  }
+                }}
+              >
+                {syncingBudgetFromEstimate ? 'Syncing…' : 'Sync budget from estimate'}
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-ghost"
@@ -1092,7 +1162,15 @@ export function ProjectsPage() {
                   <button
                     type="button"
                     className="projects-board-card-convert"
-                    onClick={(e) => { e.stopPropagation(); setConvertConfirmProject({ id: p.id, name: p.name, estimateTotal: estimate.total_amount }) }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setConvertConfirmProject({
+                        id: p.id,
+                        name: p.name,
+                        estimateTotal: estimate.total_amount,
+                        estimateId: estimate.id,
+                      })
+                    }}
                   >
                     Convert to Job →
                   </button>
@@ -1446,14 +1524,21 @@ export function ProjectsPage() {
                     className="btn btn-primary"
                     disabled={convertInProgress}
                     onClick={async () => {
+                      const pid = convertConfirmProject.id
+                      const eid = convertConfirmProject.estimateId
                       setConvertInProgress(true)
                       try {
-                        await api.projects.update(convertConfirmProject.id, {
+                        await api.projects.update(pid, {
                           status: 'backlog',
                           estimated_value: convertConfirmProject.estimateTotal,
                         })
+                        try {
+                          await api.projects.seedBudgetFromEstimate(pid, { estimateId: eid })
+                        } catch (seedErr) {
+                          console.error('[Convert to Job] seed budget from estimate', seedErr)
+                        }
                         setConvertConfirmProject(null)
-                        navigate(`/projects/${convertConfirmProject.id}`)
+                        navigate(`/projects/${pid}`)
                       } catch (err) {
                         console.error(err)
                       } finally {
@@ -1472,7 +1557,10 @@ export function ProjectsPage() {
             const prefillFromProject: PrefillClientInfo | undefined = revProj
               ? {
                   projectName: revProj.name ?? '',
-                  planType: 'residential',
+                  planType: (revProj.plan_type as PrefillClientInfo['planType']) ?? 'residential',
+                  clientName: revProj.assigned_to_name ?? revProj.client ?? '',
+                  clientEmail: revProj.client_email?.trim() ?? '',
+                  clientPhone: revProj.client_phone?.trim() ?? '',
                   projectAddress: [revProj.address_line_1, revProj.city, revProj.state, revProj.postal_code].filter(Boolean).join(', ') || undefined,
                 }
               : undefined
@@ -1724,8 +1812,8 @@ export function ProjectsPage() {
                   Client
                 </div>
                 <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.assigned_to_name || '—'}</div>
-                {(project && 'client_email' in project && (project as Project & { client_email?: string }).client_email) ? (
-                  <div className="text-[12px] text-[var(--text-muted)] mt-0.5">{(project as Project & { client_email: string }).client_email}</div>
+                {project?.client_email?.trim() ? (
+                  <div className="text-[12px] text-[var(--text-muted)] mt-0.5">{project.client_email.trim()}</div>
                 ) : null}
               </div>
               <div className="project-overview-kpi-cell">
@@ -1945,13 +2033,50 @@ export function ProjectsPage() {
               <p className="project-backlog-banner-text">
                 This project is approved and ready to start. Set a start date and activate when you&apos;re ready to begin.
               </p>
-              <button
-                type="button"
-                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate shrink-0"
-                onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
-              >
-                Activate Project →
-              </button>
+              <div className="project-backlog-banner-actions">
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-btn-ghost shrink-0"
+                  disabled={syncingBudgetFromEstimate}
+                  onClick={async () => {
+                    if (!id) return
+                    setSyncingBudgetFromEstimate(true)
+                    try {
+                      let estimateId = linkedAcceptedEstimateId
+                      if (!estimateId) {
+                        const list = await estimatesApi.getEstimates(id)
+                        const accepted = (list ?? []).find((e) => (e.status ?? '').toLowerCase() === 'accepted')
+                        estimateId = accepted?.id ?? null
+                      }
+                      if (!estimateId) {
+                        if (typeof window !== 'undefined' && window.alert) {
+                          window.alert('No accepted estimate found for this project.')
+                        }
+                        return
+                      }
+                      await estimatesApi.syncProjectBudgetFromEstimate(estimateId)
+                      setLinkedAcceptedEstimateId(estimateId)
+                      setDetailRefreshTrigger((t) => t + 1)
+                    } catch (err) {
+                      console.error('[ProjectsPage] sync budget from estimate', err)
+                      if (typeof window !== 'undefined' && window.alert) {
+                        window.alert(err instanceof Error ? err.message : 'Sync failed')
+                      }
+                    } finally {
+                      setSyncingBudgetFromEstimate(false)
+                    }
+                  }}
+                >
+                  {syncingBudgetFromEstimate ? 'Syncing…' : 'Sync budget from estimate'}
+                </button>
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate shrink-0"
+                  onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
+                >
+                  Activate Project →
+                </button>
+              </div>
             </div>
           )}
           <div className="project-overview-body">
@@ -2305,6 +2430,7 @@ export function ProjectsPage() {
               laborActualFromTimeEntries={budget?.labor_actual_from_time_entries}
               subsActualFromBidSheet={budget?.subs_actual_from_bid_sheet}
               approvedChangeOrdersTotal={budget?.approved_change_orders_total}
+              estimateApprovedAt={project.estimate_approved_at ?? null}
               onSave={async (items) => {
               await api.projects.updateBudget(project.id, items)
               // Refetch so we get merged actuals (awarded bids, time entries) instead of raw DB rows
@@ -2432,7 +2558,7 @@ export function ProjectsPage() {
         />
       )}
 
-      {buildEstimateOpen && project && !buildEstimateBlankMode && !buildEstimateBidSheetFetched && (
+      {buildEstimateOpen && project && !buildEstimateBidSheetFetched && (
         <div
           className="estimate-builder-modal-overlay"
           onClick={() => setBuildEstimateOpen(false)}
@@ -2447,12 +2573,17 @@ export function ProjectsPage() {
           </div>
         </div>
       )}
-      {buildEstimateOpen && project && (buildEstimateBlankMode || buildEstimateBidSheetFetched) && (
+      {buildEstimateOpen && project && buildEstimateBidSheetFetched && (
         <EstimateBuilderModal
           jobs={[]}
           projectId={project.id}
           prefillClientInfo={buildEstimatePrefillClientInfo ?? undefined}
           prefillLineItems={buildEstimateBlankMode ? undefined : (buildEstimatePrefillLineItems.length > 0 ? buildEstimatePrefillLineItems : undefined)}
+          initialBudgetLineItems={
+            buildEstimateBlankMode || !(budget?.items && budget.items.length > 0)
+              ? undefined
+              : budget.items
+          }
           takeoffPickItems={buildEstimateTakeoffPickItems.length > 0 ? buildEstimateTakeoffPickItems : undefined}
           onClose={() => {
             setBuildEstimateOpen(false)

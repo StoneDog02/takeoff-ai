@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { api } from '@/api/client'
 import { estimatesApi } from '@/api/estimates'
 import { settingsApi } from '@/api/settings'
-import type { CustomProduct, Job, PipelineMilestone, Project } from '@/types/global'
+import type { BudgetLineItem, CustomProduct, Job, PipelineMilestone, Project } from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
 import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import {
@@ -12,6 +12,13 @@ import {
   type ClientFacingLineItem,
   type ClientSectionNote,
 } from '@/components/estimates/EstimateClientFacingDocument'
+
+import {
+  estimateBudgetCategoryFromProductItemType,
+  nextUnitForCategory,
+  unitOptionsForCategory,
+} from '@/lib/categoryUnits'
+import { cappedPctValue, hardSubtotalExcludingPctLines, lineDollarAmount } from '@/lib/estimatePctLine'
 
 const PLAN_TYPES = ['residential', 'commercial', 'civil'] as const
 type PlanType = (typeof PLAN_TYPES)[number]
@@ -50,6 +57,42 @@ export type LineItemGroupItem = {
   unitCost: number
 }
 
+function lineItemsToPctPriced(items: LineItemGroupItem[]) {
+  return items.map((i) => ({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit }))
+}
+
+function recomputeLineItemGroupTotals(groups: LineItemGroup[]): LineItemGroup[] {
+  const flat = groups.flatMap((g) => lineItemsToPctPriced(g.items))
+  const hard = hardSubtotalExcludingPctLines(flat)
+  return groups.map((g) => {
+    const costSubtotal =
+      Math.round(
+        g.items.reduce(
+          (s, i) => s + lineDollarAmount({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit }, hard),
+          0
+        ) * 100
+      ) / 100
+    const clientTotal =
+      g.source === 'custom'
+        ? costSubtotal
+        : Math.round(costSubtotal * (1 + (g.markupPct ?? 0) / 100) * 100) / 100
+    return { ...g, costSubtotal, clientTotal }
+  })
+}
+
+/** Budget bucket labels aligned with Budget tab / sync (`section` → category on accept). */
+export const ESTIMATE_GROUP_BUDGET_CATEGORIES = [
+  'Labor',
+  'Materials',
+  'Subcontractors',
+  'Equipment',
+  'Permits & Fees',
+  'Overhead',
+  'Other',
+] as const
+
+export type EstimateGroupBudgetCategory = (typeof ESTIMATE_GROUP_BUDGET_CATEGORIES)[number]
+
 /** Grouped row: category/trade with items, markup, and client total. */
 export type LineItemGroup = {
   id: string
@@ -59,6 +102,8 @@ export type LineItemGroup = {
   costSubtotal: number
   markupPct: number
   clientTotal: number
+  /** Maps estimate lines to budget category on sync; GC can override per group before send. */
+  budgetCategory: EstimateGroupBudgetCategory
   /** GC note shown to client under this scope (takeoff/bid groups). */
   gcSectionNote?: string
   /** Subcontractor bid notes (e.g. from portal). */
@@ -120,6 +165,8 @@ interface EstimateBuilderModalProps {
   prefillClientInfo?: PrefillClientInfo | null
   /** Pre-fill Step 2 Line Items (takeoff materials + awarded bids). */
   prefillLineItems?: LineItem[] | null
+  /** When set (non-empty), Step 2 seeds from project budget lines — same data as the Budget tab. */
+  initialBudgetLineItems?: BudgetLineItem[] | null
   /** Takeoff materials for “From takeoff” add-line picker (when project has takeoff). */
   takeoffPickItems?: TakeoffPickItem[] | null
 }
@@ -223,7 +270,7 @@ function sectionWorkTypesFromGroups(groups: LineItemGroup[]): Record<string, str
 function parseGroupsFromMeta(raw: unknown): LineItemGroup[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null
   try {
-    return raw.map((g: Record<string, unknown>, idx: number) => {
+    const parsed = raw.map((g: Record<string, unknown>, idx: number) => {
       const src = g.source
       const source =
         src === 'bid' || src === 'takeoff' || src === 'custom' ? src : ('custom' as const)
@@ -251,6 +298,11 @@ function parseGroupsFromMeta(raw: unknown): LineItemGroup[] | null {
         subcontractor: String(n.subcontractor ?? 'Subcontractor'),
         text: String(n.text ?? ''),
       }))
+      const budgetCategoryKeyLegacy =
+        typeof g.budgetCategoryKey === 'string' && g.budgetCategoryKey
+          ? normalizeBudgetCategoryKey(String(g.budgetCategoryKey))
+          : undefined
+      const budgetCategory = parseBudgetCategoryFromMeta(g.budgetCategory, source, budgetCategoryKeyLegacy)
       return {
         id: String(g.id ?? `g-${idx}`),
         categoryName: String(g.categoryName ?? ''),
@@ -259,16 +311,165 @@ function parseGroupsFromMeta(raw: unknown): LineItemGroup[] | null {
         costSubtotal,
         markupPct: source === 'custom' ? 0 : markupPct,
         clientTotal,
+        budgetCategory,
         gcSectionNote: g.gcSectionNote != null ? String(g.gcSectionNote) : '',
         subNotes,
       }
     })
+    return recomputeLineItemGroupTotals(parsed as LineItemGroup[])
   } catch {
     return null
   }
 }
 
 const DEFAULT_MARKUP_PCT = 15
+
+/** Aligns with Budget tab / `budget_line_items.category` and server `sectionToBudgetCategory`. */
+const ESTIMATE_BUDGET_CATEGORY_LABELS: Record<string, EstimateGroupBudgetCategory> = {
+  labor: 'Labor',
+  materials: 'Materials',
+  subs: 'Subcontractors',
+  equipment: 'Equipment',
+  permits: 'Permits & Fees',
+  overhead: 'Overhead',
+  other: 'Other',
+}
+
+const ESTIMATE_BUDGET_CATEGORY_ORDER = ['labor', 'materials', 'subs', 'equipment', 'permits', 'overhead', 'other'] as const
+
+const BUDGET_CATEGORY_LABEL_TO_KEY: Record<EstimateGroupBudgetCategory, string> = {
+  Labor: 'labor',
+  Materials: 'materials',
+  Subcontractors: 'subs',
+  Equipment: 'equipment',
+  'Permits & Fees': 'permits',
+  Overhead: 'overhead',
+  Other: 'other',
+}
+
+function budgetCategoryLabelToKey(label: EstimateGroupBudgetCategory): string {
+  return BUDGET_CATEGORY_LABEL_TO_KEY[label]
+}
+
+function budgetCategoryKeyToLabel(key: string | undefined): EstimateGroupBudgetCategory {
+  const k = normalizeBudgetCategoryKey(key)
+  return ESTIMATE_BUDGET_CATEGORY_LABELS[k] ?? 'Other'
+}
+
+function defaultBudgetCategoryForSource(source: LineItemGroup['source']): EstimateGroupBudgetCategory {
+  if (source === 'takeoff') return 'Materials'
+  if (source === 'bid') return 'Subcontractors'
+  return 'Other'
+}
+
+function parseBudgetCategoryFromMeta(
+  raw: unknown,
+  source: LineItemGroup['source'],
+  legacyKey?: string
+): EstimateGroupBudgetCategory {
+  if (typeof raw === 'string' && (ESTIMATE_GROUP_BUDGET_CATEGORIES as readonly string[]).includes(raw)) {
+    return raw as EstimateGroupBudgetCategory
+  }
+  if (legacyKey) return budgetCategoryKeyToLabel(legacyKey)
+  return defaultBudgetCategoryForSource(source)
+}
+
+function normalizeBudgetCategoryKey(raw: string | undefined): string {
+  const c = (raw || 'other').toLowerCase().trim()
+  if (c === 'subcontractors') return 'subs'
+  if ((ESTIMATE_BUDGET_CATEGORY_ORDER as readonly string[]).includes(c)) return c
+  return 'other'
+}
+
+/** Strings that map back to the same budget category when estimate lines sync to `budget_line_items`. */
+function budgetCategoryToSectionHint(key: string | undefined): string | null {
+  const k = normalizeBudgetCategoryKey(key)
+  const map: Record<string, string> = {
+    labor: 'Labor',
+    materials: 'Materials',
+    subs: 'Subcontractors',
+    equipment: 'Equipment',
+    permits: 'Permits and Fees',
+    overhead: 'Overhead',
+    other: 'Other',
+  }
+  return map[k] ?? null
+}
+
+function inferBudgetCategoryKeyFromEstimateLine(section: string | null | undefined): string {
+  const s = String(section || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .trim()
+  if (!s) return 'other'
+  if (s.includes('labor')) return 'labor'
+  if (s.includes('material')) return 'materials'
+  if (s.includes('subcontractor') || /^sub\s/.test(s) || s === 'subs') return 'subs'
+  if (s.includes('equipment')) return 'equipment'
+  if (s.includes('permit')) return 'permits'
+  if (s.includes('overhead')) return 'overhead'
+  return 'other'
+}
+
+/** Same hex values as BudgetTab `CATEGORY_COLORS` for visual parity. */
+const ESTIMATE_BUDGET_PREVIEW_CATEGORY_COLORS: Record<EstimateGroupBudgetCategory, string> = {
+  Labor: '#6366f1',
+  Materials: '#0ea5e9',
+  Subcontractors: '#8b5cf6',
+  Equipment: '#94a3b8',
+  'Permits & Fees': '#94a3b8',
+  Overhead: '#94a3b8',
+  Other: '#94a3b8',
+}
+
+function fmtBudgetTabDollars(n: number): string {
+  return `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+}
+
+function lineItemGroupBudgetPreviewDescription(g: LineItemGroup): string {
+  const name = g.categoryName?.trim()
+  if (name) return name
+  return g.items[0]?.description?.trim() || 'Line item'
+}
+
+function sortLineItemGroupsForBudgetPreview(groups: LineItemGroup[]): LineItemGroup[] {
+  const order = ESTIMATE_BUDGET_CATEGORY_ORDER as readonly string[]
+  return [...groups]
+    .map((g, idx) => ({ g, idx }))
+    .sort((a, b) => {
+      const ka = budgetCategoryLabelToKey(a.g.budgetCategory)
+      const kb = budgetCategoryLabelToKey(b.g.budgetCategory)
+      const ia = order.indexOf(ka)
+      const ib = order.indexOf(kb)
+      const sa = ia === -1 ? 999 : ia
+      const sb = ib === -1 ? 999 : ib
+      if (sa !== sb) return sa - sb
+      return a.idx - b.idx
+    })
+    .map(({ g }) => g)
+}
+
+function lineItemGroupsFromBudgetLineItems(items: BudgetLineItem[]): LineItemGroup[] {
+  if (!items?.length) return []
+  let n = 0
+  const rows = items.map((b, i) => {
+    const predicted = Math.max(0, Number(b.predicted) || 0)
+    const label = (b.label || '').trim() || 'Line item'
+    const budgetCategoryKey = normalizeBudgetCategoryKey(b.category)
+    const rowId = b.id && String(b.id).length > 0 ? b.id : `budget-seed-${n++}`
+    return {
+      id: `budget-${rowId}-${i}`,
+      categoryName: label,
+      source: 'custom' as const,
+      items: [{ id: rowId, description: label, qty: 1, unit: 'job', unitCost: predicted }],
+      costSubtotal: predicted,
+      markupPct: 0,
+      clientTotal: predicted,
+      budgetCategory: budgetCategoryKeyToLabel(budgetCategoryKey),
+    }
+  })
+  return recomputeLineItemGroupTotals(rows)
+}
 
 /** Build lineItemGroups from prefill: group takeoff by section, one row per bid, no custom yet. */
 function lineItemGroupsFromPrefill(
@@ -290,6 +491,7 @@ function lineItemGroupsFromPrefill(
         id: `bid-${section}-${itemId++}`,
         categoryName: item.name,
         source: 'bid',
+        budgetCategory: 'Subcontractors',
         items: [{ id: itemId++, description: item.name, qty: item.qty ?? 1, unit: item.unit ?? 'job', unitCost: item.price ?? 0 }],
         costSubtotal: cost,
         markupPct: m,
@@ -324,6 +526,7 @@ function lineItemGroupsFromPrefill(
       id: `takeoff-${categoryName}-${itemId++}`,
       categoryName,
       source: 'takeoff',
+      budgetCategory: 'Materials',
       items,
       costSubtotal,
       markupPct: m,
@@ -333,47 +536,72 @@ function lineItemGroupsFromPrefill(
     })
   }
   groups.push(...bidGroups)
-  return groups
+  return recomputeLineItemGroupTotals(groups)
 }
 
 /** Convert loaded estimate line items to groups (one group per line for revise mode). */
 function lineItemGroupsFromEstimate(lineItems: EstimateLineItem[]): LineItemGroup[] {
   if (!lineItems?.length) return []
-  return lineItems.map((li, i) => {
+  const rows = lineItems.map((li, i) => {
     const qty = li.quantity ?? 1
     const unitCost = li.unit_price ?? 0
-    const costSubtotal = qty * unitCost
+    const u = li.unit ?? 'ea'
+    const costSubtotal = u === 'pct' ? Number(li.total) || 0 : qty * unitCost
     return {
       id: `loaded-${li.id}-${i}`,
       categoryName: li.description ?? 'Line item',
       source: 'custom' as const,
-      items: [{ id: li.id, description: li.description ?? '', qty, unit: li.unit ?? 'ea', unitCost }],
+      items: [{ id: li.id, description: li.description ?? '', qty, unit: u, unitCost }],
       costSubtotal,
       markupPct: 0,
       clientTotal: costSubtotal,
+      budgetCategory: budgetCategoryKeyToLabel(inferBudgetCategoryKeyFromEstimateLine(li.section ?? null)),
       gcSectionNote: '',
       subNotes: [],
     }
   })
+  return recomputeLineItemGroupTotals(rows)
 }
 
 /** Flatten to stored line items: costs only (takeoff line-by-line; bid rollup); markup is total_amount − sum(lines). */
 function flattenGroupsToCostLines(
   groups: LineItemGroup[]
-): { name: string; qty: number; unit: string; price: number; section: string | null }[] {
-  const lines: { name: string; qty: number; unit: string; price: number; section: string | null }[] = []
+): { name: string; qty: number; unit: string; price: number; section: string | null; total?: number }[] {
+  const hard = hardSubtotalExcludingPctLines(
+    groups.flatMap((g) => g.items.map((i) => ({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit })))
+  )
+  const lines: { name: string; qty: number; unit: string; price: number; section: string | null; total?: number }[] = []
   for (const g of groups) {
+    const budgetSection = budgetCategoryToSectionHint(budgetCategoryLabelToKey(g.budgetCategory))
     if (g.source === 'custom' && g.items.length === 1) {
       const i = g.items[0]
-      lines.push({ name: i.description, qty: i.qty, unit: i.unit, price: i.unitCost, section: null })
+      const isPct = i.unit === 'pct'
+      lines.push({
+        name: i.description,
+        qty: i.qty,
+        unit: i.unit,
+        price: isPct ? cappedPctValue(i.unitCost) : i.unitCost,
+        section: budgetSection,
+        ...(isPct
+          ? {
+              total: lineDollarAmount({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit }, hard),
+            }
+          : {}),
+      })
     } else if (g.source === 'takeoff') {
       for (const i of g.items) {
+        const isPct = i.unit === 'pct'
         lines.push({
           name: i.description,
           qty: i.qty,
           unit: i.unit,
-          price: i.unitCost,
-          section: g.categoryName,
+          price: isPct ? cappedPctValue(i.unitCost) : i.unitCost,
+          section: budgetSection,
+          ...(isPct
+            ? {
+                total: lineDollarAmount({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit }, hard),
+              }
+            : {}),
         })
       }
     } else if (g.source === 'bid') {
@@ -382,7 +610,7 @@ function flattenGroupsToCostLines(
         qty: 1,
         unit: 'job',
         price: Math.round(g.costSubtotal * 100) / 100,
-        section: g.categoryName,
+        section: budgetSection,
       })
     }
   }
@@ -398,6 +626,7 @@ function serializeGroupsMeta(groups: LineItemGroup[]): unknown[] {
     costSubtotal: g.costSubtotal,
     markupPct: g.markupPct,
     clientTotal: g.clientTotal,
+    budgetCategory: g.budgetCategory,
     gcSectionNote: g.gcSectionNote ?? '',
     subNotes: g.subNotes ?? [],
   }))
@@ -412,10 +641,13 @@ export function EstimateBuilderModal({
   estimateId,
   prefillClientInfo,
   prefillLineItems,
+  initialBudgetLineItems,
   takeoffPickItems,
 }: EstimateBuilderModalProps) {
   const isReviseMode = projectId != null && estimateId != null
-  const isBuildMode = projectId != null && (prefillClientInfo != null || prefillLineItems != null || isReviseMode)
+  const isBuildMode =
+    projectId != null &&
+    (prefillClientInfo != null || prefillLineItems != null || initialBudgetLineItems != null || isReviseMode)
   const STEPS = isBuildMode ? STEPS_BUILD : STEPS_CREATE
 
   const [step, setStep] = useState(1)
@@ -426,12 +658,18 @@ export function EstimateBuilderModal({
   const [savedEstimateId, setSavedEstimateId] = useState<string | null>(null)
   const [data, setData] = useState<WizardData>(() => defaultWizardData(prefillClientInfo))
   const [defaultMarkupBaseline, setDefaultMarkupBaseline] = useState(DEFAULT_MARKUP_PCT)
-  const [lineItemGroups, setLineItemGroups] = useState<LineItemGroup[]>(() =>
-    isReviseMode ? [] : lineItemGroupsFromPrefill(prefillLineItems, DEFAULT_MARKUP_PCT)
-  )
+  const [lineItemGroups, setLineItemGroups] = useState<LineItemGroup[]>(() => {
+    if (isReviseMode) return []
+    if (initialBudgetLineItems?.length)
+      return lineItemGroupsFromBudgetLineItems(initialBudgetLineItems)
+    return lineItemGroupsFromPrefill(prefillLineItems, DEFAULT_MARKUP_PCT)
+  })
   /** Revise mode: line item ids from loaded estimate (for delete-before-re-add on save). */
   const [loadedLineItemIds, setLoadedLineItemIds] = useState<string[]>([])
   const [reviseLoadDone, setReviseLoadDone] = useState(!isReviseMode)
+  /** Revise mode: status of the loaded estimate (for showing Sync to budget when accepted). */
+  const [loadedEstimateStatus, setLoadedEstimateStatus] = useState<string | null>(null)
+  const [syncingBudget, setSyncingBudget] = useState(false)
   /** Resets step-2 catalog search state when the wizard is reset. */
   const [presetCatalogResetKey, setPresetCatalogResetKey] = useState(0)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -477,6 +715,7 @@ export function EstimateBuilderModal({
     estimatesApi
       .getEstimate(estimateId)
       .then((est) => {
+        setLoadedEstimateStatus(est.status ?? null)
         const metaGroups = parseGroupsFromMeta(est.estimate_groups_meta)
         setData((prev) => ({
           ...prev,
@@ -494,6 +733,27 @@ export function EstimateBuilderModal({
       .catch(() => {})
       .finally(() => setReviseLoadDone(true))
   }, [estimateId, isReviseMode])
+
+  /** Build mode: keep Step 1 in sync when project prefill arrives or updates (e.g. after parent refetches). */
+  const buildPrefillSyncKey =
+    isBuildMode && !isReviseMode && prefillClientInfo
+      ? JSON.stringify({
+          projectName: prefillClientInfo.projectName,
+          planType: prefillClientInfo.planType,
+          clientName: prefillClientInfo.clientName ?? '',
+          clientEmail: prefillClientInfo.clientEmail ?? '',
+          clientPhone: prefillClientInfo.clientPhone ?? '',
+          projectAddress: prefillClientInfo.projectAddress ?? '',
+        })
+      : ''
+  useEffect(() => {
+    if (!buildPrefillSyncKey || !prefillClientInfo) return
+    setData((prev) => ({
+      ...defaultWizardData(prefillClientInfo),
+      estimateNotes: prev.estimateNotes,
+      estimateTerms: prev.estimateTerms,
+    }))
+  }, [buildPrefillSyncKey, prefillClientInfo])
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -521,6 +781,8 @@ export function EstimateBuilderModal({
         plan_type: data.planType,
         address_line_1: data.projectAddress?.trim() || undefined,
         assigned_to_name: data.clientName?.trim() || data.clientEmail?.trim() || undefined,
+        client_email: data.clientEmail?.trim() || undefined,
+        client_phone: data.clientPhone?.trim() || undefined,
       })
       setCreatedProjectName(createdProject.name ?? data.projectName.trim())
       setSaved(true)
@@ -559,6 +821,7 @@ export function EstimateBuilderModal({
             unit: line.unit,
             unit_price: line.price,
             section: line.section,
+            ...(line.total !== undefined ? { total: line.total } : {}),
           })
         }
         setSavedEstimateId(estimateId)
@@ -585,6 +848,7 @@ export function EstimateBuilderModal({
             unit: line.unit,
             unit_price: line.price,
             section: line.section,
+            ...(line.total !== undefined ? { total: line.total } : {}),
           })
         }
         await estimatesApi.updateEstimate(eid, persistEstimatePayload())
@@ -619,6 +883,7 @@ export function EstimateBuilderModal({
             unit: line.unit,
             unit_price: line.price,
             section: line.section,
+            ...(line.total !== undefined ? { total: line.total } : {}),
           })
         }
       } else {
@@ -629,6 +894,7 @@ export function EstimateBuilderModal({
             unit: line.unit,
             unit_price: line.price,
             section: line.section,
+            ...(line.total !== undefined ? { total: line.total } : {}),
           })
         }
         await estimatesApi.updateEstimate(eid, persistEstimatePayload())
@@ -642,6 +908,17 @@ export function EstimateBuilderModal({
       setSavedAndSent(true)
       setSaved(true)
       onSave?.(eid)
+      if (estimateId && projectId) {
+        try {
+          const fin = await estimatesApi.getEstimate(eid)
+          if (fin.status === 'accepted') {
+            await estimatesApi.syncProjectBudgetFromEstimate(eid)
+            onSave?.(eid)
+          }
+        } catch (syncErr) {
+          console.error('[EstimateBuilderModal] budget sync after save & send', syncErr)
+        }
+      }
     } catch (err) {
       console.error(err)
     } finally {
@@ -651,13 +928,37 @@ export function EstimateBuilderModal({
 
   const reset = () => {
     setData(defaultWizardData(prefillClientInfo))
-    setLineItemGroups(lineItemGroupsFromPrefill(prefillLineItems, defaultMarkupBaseline))
+    setLineItemGroups(
+      recomputeLineItemGroupTotals(
+        initialBudgetLineItems?.length
+          ? lineItemGroupsFromBudgetLineItems(initialBudgetLineItems)
+          : lineItemGroupsFromPrefill(prefillLineItems, defaultMarkupBaseline)
+      )
+    )
     setStep(1)
     setSaved(false)
     setSavedAndSent(false)
     setCreatedProjectName('')
     setSavedEstimateId(null)
     setPresetCatalogResetKey((k) => k + 1)
+  }
+
+  const handleSyncToBudget = async () => {
+    const id = savedEstimateId ?? estimateId ?? null
+    if (!id || !projectId) return
+    setSyncingBudget(true)
+    try {
+      await estimatesApi.syncProjectBudgetFromEstimate(id)
+      onSave?.(id)
+    } catch (err) {
+      console.error('[EstimateBuilderModal] sync to budget', err)
+      const message = err instanceof Error ? err.message : 'Sync failed'
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert(message)
+      }
+    } finally {
+      setSyncingBudget(false)
+    }
   }
 
   // ─── Success state ─────────────────────────────────────────────────────────
@@ -690,6 +991,16 @@ export function EstimateBuilderModal({
             <button type="button" className="btn btn-primary" onClick={onClose}>
               Done
             </button>
+            {isEstimateSaved && savedEstimateId && projectId && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleSyncToBudget}
+                disabled={syncingBudget}
+              >
+                {syncingBudget ? 'Syncing…' : 'Sync to project budget'}
+              </button>
+            )}
             {!isEstimateSaved && (
               <button type="button" className="btn btn-ghost" onClick={reset}>
                 Start another
@@ -748,6 +1059,16 @@ export function EstimateBuilderModal({
             </h1>
           </div>
           <div className="estimate-wizard-topbar-right">
+            {isReviseMode && loadedEstimateStatus === 'accepted' && projectId && (
+              <button
+                type="button"
+                className="btn btn-ghost estimate-wizard-sync-budget"
+                onClick={handleSyncToBudget}
+                disabled={syncingBudget}
+              >
+                {syncingBudget ? 'Syncing…' : 'Sync to project budget'}
+              </button>
+            )}
             <button
               type="button"
               className="estimate-wizard-reset"
@@ -860,7 +1181,13 @@ export function EstimateBuilderModal({
               <Step2LineItems
                 lineItemGroups={lineItemGroups}
                 setLineItemGroups={setLineItemGroups}
-                hasPrefill={Boolean(prefillLineItems?.length)}
+                prefillBannerSource={
+                  !isReviseMode && initialBudgetLineItems?.length
+                    ? 'budget'
+                    : prefillLineItems?.length
+                      ? 'takeoff'
+                      : null
+                }
                 resetKey={presetCatalogResetKey}
                 defaultMarkupBaseline={defaultMarkupBaseline}
                 takeoffPickItems={takeoffPickItems ?? undefined}
@@ -1175,18 +1502,120 @@ function MarkupPctInline({
   )
 }
 
+/** Read-only Budget tab–style table: one row per estimate group, client total as budgeted. */
+function EstimateWizardBudgetPreview({
+  groups,
+  clientTotal,
+}: {
+  groups: LineItemGroup[]
+  clientTotal: number
+}) {
+  if (groups.length === 0) return null
+  const sorted = sortLineItemGroupsForBudgetPreview(groups)
+  return (
+    <div className="budget-tab estimate-wizard-budget-preview">
+      <div className="budget-table-card estimate-wizard-budget-preview-card">
+        <div className="budget-table-header estimate-wizard-budget-preview-header">
+          <div>
+            <div className="budget-table-title">Budget breakdown</div>
+            <div className="budget-table-sub">When approved, this will become your project budget:</div>
+          </div>
+        </div>
+        <div className="budget-table-col-headers">
+          <span>Description</span>
+          <span>Category</span>
+          <span>Unit</span>
+          <span>Budgeted</span>
+          <span>Actual</span>
+          <span>Variance</span>
+          <span />
+        </div>
+        {sorted.map((g) => {
+          const color = ESTIMATE_BUDGET_PREVIEW_CATEGORY_COLORS[g.budgetCategory] ?? '#94a3b8'
+          const budgeted = Number(g.clientTotal) || 0
+          return (
+            <div key={g.id} className="budget-table-row estimate-wizard-budget-preview-row">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: '50%',
+                    background: color,
+                    flexShrink: 0,
+                  }}
+                  aria-hidden
+                />
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {lineItemGroupBudgetPreviewDescription(g)}
+                </div>
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  background: `${color}18`,
+                  color,
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  width: 'fit-content',
+                }}
+              >
+                {g.budgetCategory}
+              </span>
+              <span className="estimate-wizard-budget-preview-dash">—</span>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                  color: 'var(--text-primary)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {fmtBudgetTabDollars(budgeted)}
+              </span>
+              <span className="estimate-wizard-budget-preview-dash">—</span>
+              <span className="estimate-wizard-budget-preview-dash">—</span>
+              <span />
+            </div>
+          )
+        })}
+        <div className="budget-table-totals estimate-wizard-budget-preview-totals">
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Client Total</span>
+          <span />
+          <span />
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            }}
+          >
+            {fmtBudgetTabDollars(clientTotal)}
+          </span>
+          <span className="estimate-wizard-budget-preview-dash estimate-wizard-budget-preview-dash--totals">—</span>
+          <span className="estimate-wizard-budget-preview-dash estimate-wizard-budget-preview-dash--totals">—</span>
+          <span />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Step 2: Line Items (build-estimate mode) ──────────────────────────────────
 function Step2LineItems({
   lineItemGroups,
   setLineItemGroups,
-  hasPrefill,
+  prefillBannerSource,
   resetKey,
   defaultMarkupBaseline,
   takeoffPickItems = [],
 }: {
   lineItemGroups: LineItemGroup[]
   setLineItemGroups: React.Dispatch<React.SetStateAction<LineItemGroup[]>>
-  hasPrefill: boolean
+  prefillBannerSource: 'budget' | 'takeoff' | null
   resetKey: number
   defaultMarkupBaseline: number
   takeoffPickItems?: TakeoffPickItem[]
@@ -1349,61 +1778,97 @@ function Step2LineItems({
   }
 
   const updateCustomGroupItem = (groupId: string, updates: Partial<LineItemGroupItem>) => {
-    setLineItemGroups((prev) =>
-      prev.map((g) => {
+    setLineItemGroups((prev) => {
+      const next = prev.map((g) => {
         if (g.id !== groupId || g.source !== 'custom' || g.items.length !== 1) return g
-        const item = { ...g.items[0], ...updates }
-        const costSubtotal = item.qty * item.unitCost
-        const categoryName = 'description' in updates && updates.description !== undefined ? updates.description : g.categoryName
-        return { ...g, categoryName, items: [item], costSubtotal, clientTotal: costSubtotal }
+        let item = { ...g.items[0], ...updates }
+        if (item.unit === 'pct' && ('unitCost' in updates || 'unit' in updates)) {
+          item = { ...item, unitCost: cappedPctValue(item.unitCost) }
+        }
+        const categoryName =
+          'description' in updates && updates.description !== undefined ? updates.description : g.categoryName
+        return { ...g, categoryName, items: [item] }
       })
-    )
+      return recomputeLineItemGroupTotals(next)
+    })
+  }
+
+  const updateGroupBudgetCategory = (groupId: string, budgetCategory: EstimateGroupBudgetCategory) => {
+    setLineItemGroups((prev) => {
+      const next = prev.map((g) => {
+        if (g.id !== groupId) return g
+        if (g.source === 'custom' && g.items.length === 1) {
+          const nextUnit = nextUnitForCategory(budgetCategory, g.items[0].unit)
+          let item = { ...g.items[0], unit: nextUnit }
+          if (item.unit === 'pct') item = { ...item, unitCost: cappedPctValue(item.unitCost) }
+          return { ...g, budgetCategory, items: [item] }
+        }
+        return { ...g, budgetCategory }
+      })
+      return recomputeLineItemGroupTotals(next)
+    })
   }
 
   const removeGroup = (groupId: string) => {
-    setLineItemGroups((prev) => prev.filter((g) => g.id !== groupId))
+    setLineItemGroups((prev) => recomputeLineItemGroupTotals(prev.filter((g) => g.id !== groupId)))
   }
 
   const addCustomLine = () => {
     const id = `custom-${Date.now()}`
-    setLineItemGroups((prev) => [
-      ...prev,
-      {
-        id,
-        categoryName: '',
-        source: 'custom',
-        items: [{ id: Date.now(), description: '', qty: 1, unit: 'ea', unitCost: 0 }],
-        costSubtotal: 0,
-        markupPct: 0,
-        clientTotal: 0,
-      },
-    ])
+    setLineItemGroups((prev) =>
+      recomputeLineItemGroupTotals([
+        ...prev,
+        {
+          id,
+          categoryName: '',
+          source: 'custom',
+          items: [
+            {
+              id: Date.now(),
+              description: '',
+              qty: 1,
+              unit: nextUnitForCategory('Other'),
+              unitCost: 0,
+            },
+          ],
+          costSubtotal: 0,
+          markupPct: 0,
+          clientTotal: 0,
+          budgetCategory: 'Other',
+        },
+      ])
+    )
     setExpandedGroupIds((prev) => new Set(prev).add(id))
   }
 
   const addFromCatalog = (product: CustomProduct) => {
     const id = `custom-${Date.now()}`
     const unitCost = product.default_unit_price ?? 0
-    setLineItemGroups((prev) => [
-      ...prev,
-      {
-        id,
-        categoryName: product.name,
-        source: 'custom',
-        items: [
-          {
-            id: Date.now(),
-            description: product.name,
-            qty: 1,
-            unit: product.unit ?? 'ea',
-            unitCost,
-          },
-        ],
-        costSubtotal: unitCost,
-        markupPct: 0,
-        clientTotal: unitCost,
-      },
-    ])
+    const budgetCategory = estimateBudgetCategoryFromProductItemType(product.item_type)
+    const unit = nextUnitForCategory(budgetCategory, product.unit ?? '')
+    setLineItemGroups((prev) =>
+      recomputeLineItemGroupTotals([
+        ...prev,
+        {
+          id,
+          categoryName: product.name,
+          source: 'custom',
+          items: [
+            {
+              id: Date.now(),
+              description: product.name,
+              qty: 1,
+              unit,
+              unitCost,
+            },
+          ],
+          costSubtotal: unitCost,
+          markupPct: 0,
+          clientTotal: unitCost,
+          budgetCategory,
+        },
+      ])
+    )
     setCatalogQuery('')
     closeAddPanels()
   }
@@ -1412,26 +1877,30 @@ function Step2LineItems({
     const id = `custom-${Date.now()}`
     const qty = Number(row.qty) || 1
     const unitCost = Number(row.price) || 0
-    setLineItemGroups((prev) => [
-      ...prev,
-      {
-        id,
-        categoryName: row.description,
-        source: 'custom',
-        items: [
-          {
-            id: Date.now(),
-            description: row.description,
-            qty,
-            unit: row.unit || 'ea',
-            unitCost,
-          },
-        ],
-        costSubtotal: qty * unitCost,
-        markupPct: 0,
-        clientTotal: qty * unitCost,
-      },
-    ])
+    const unit = nextUnitForCategory('Materials', row.unit || '')
+    setLineItemGroups((prev) =>
+      recomputeLineItemGroupTotals([
+        ...prev,
+        {
+          id,
+          categoryName: row.description,
+          source: 'custom',
+          items: [
+            {
+              id: Date.now(),
+              description: row.description,
+              qty,
+              unit,
+              unitCost,
+            },
+          ],
+          costSubtotal: qty * unitCost,
+          markupPct: 0,
+          clientTotal: qty * unitCost,
+          budgetCategory: 'Materials',
+        },
+      ])
+    )
     closeAddPanels()
   }
 
@@ -1451,6 +1920,9 @@ function Step2LineItems({
   const costTotal = lineItemGroups.reduce((s, g) => s + g.costSubtotal, 0)
   const clientTotalSum = lineItemGroups.reduce((s, g) => s + g.clientTotal, 0)
   const totalMarkupSum = clientTotalSum - costTotal
+  const hardSubtotalForPctUi = hardSubtotalExcludingPctLines(
+    lineItemGroups.flatMap((g) => g.items.map((i) => ({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit })))
+  )
 
   const fmt = (n: number) =>
     `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -1460,15 +1932,17 @@ function Step2LineItems({
       <div className="estimate-wizard-step-head">
         <h3 className="estimate-wizard-step-title">Line items</h3>
         <p className="estimate-wizard-step-sub">
-          Review pricing, add markup, and add any additional lines before saving the estimate.
+          Same categories and amounts as your project budget (for custom lines). Takeoff and bid scopes keep per-section markup below.
         </p>
       </div>
 
       <div className="estimate-wizard-lines-panel">
-        {hasPrefill && !prefillBannerDismissed && (
+        {prefillBannerSource && !prefillBannerDismissed && (
           <div className="estimate-wizard-lines-prefill-banner">
             <span>
-              Pre-loaded from your takeoff and awarded bids — review pricing and add markup before sending.
+              {prefillBannerSource === 'budget'
+                ? 'Loaded from your project budget — these rows match the Budget tab. Add more from takeoff, catalog, or custom lines as needed.'
+                : 'Pre-loaded from your takeoff and awarded bids — review pricing and add markup before sending.'}
             </span>
             <button
               type="button"
@@ -1481,24 +1955,6 @@ function Step2LineItems({
           </div>
         )}
 
-        <div className="estimate-wizard-add-line-toolbar" ref={addLineToolbarRef}>
-          <button
-            type="button"
-            className="estimate-wizard-add-line-trigger btn btn-ghost"
-            aria-expanded={addMenuOpen}
-            aria-haspopup="true"
-            onClick={() => {
-              setAddMenuOpen((o) => !o)
-              setCatalogOpen(false)
-              setTakeoffOpen(false)
-            }}
-          >
-            + Add line
-            <span className="estimate-wizard-add-line-chevron" aria-hidden>
-              {addMenuOpen ? '▲' : '▼'}
-            </span>
-          </button>
-        </div>
         {typeof document !== 'undefined' &&
           addMenuOpen &&
           createPortal(
@@ -1722,13 +2178,13 @@ function Step2LineItems({
             </div>
           )}
           <div className="estimate-wizard-groups-header">
-            <span className="estimate-wizard-groups-header__chevron-gap" aria-hidden />
             <span className="estimate-wizard-label">Category</span>
             <span className="estimate-wizard-label">Items</span>
+            <span className="estimate-wizard-label">Budget</span>
             <span className="estimate-wizard-label">Cost subtotal</span>
             <span className="estimate-wizard-label">Markup %</span>
             <span className="estimate-wizard-label">Client total</span>
-            <span aria-hidden />
+            <span className="estimate-wizard-groups-header__chevron-gap" aria-hidden />
           </div>
           {groupedRows.map((group) => {
             const expanded = expandedGroupIds.has(group.id)
@@ -1736,16 +2192,6 @@ function Step2LineItems({
             return (
               <div key={group.id} className="estimate-wizard-group-row-wrap">
                 <div className="estimate-wizard-group-row">
-                  <button
-                    type="button"
-                    className="estimate-wizard-group-chevron"
-                    onClick={() => canExpand && toggleExpanded(group.id)}
-                    aria-expanded={expanded}
-                    aria-label={expanded ? 'Collapse' : 'Expand'}
-                    disabled={!canExpand}
-                  >
-                    {canExpand ? (expanded ? '▼' : '▶') : ''}
-                  </button>
                   <div className="estimate-wizard-group-name-col">
                     <span className="estimate-wizard-group-name">{group.categoryName}</span>
                     <span
@@ -1755,6 +2201,25 @@ function Step2LineItems({
                     </span>
                   </div>
                   <span className="estimate-wizard-group-count">{group.items.length}</span>
+                  <select
+                    className="li-cat-sel estimate-wizard-group-budget-li-cat-sel"
+                    value={group.budgetCategory}
+                    onChange={(e) =>
+                      updateGroupBudgetCategory(group.id, e.target.value as EstimateGroupBudgetCategory)
+                    }
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Budget category for ${group.categoryName}`}
+                  >
+                    {ESTIMATE_BUDGET_CATEGORY_ORDER.map((key) => {
+                      const label = ESTIMATE_BUDGET_CATEGORY_LABELS[key]
+                      return (
+                        <option key={key} value={label}>
+                          {label}
+                        </option>
+                      )
+                    })}
+                  </select>
                   <span className="estimate-wizard-group-cost">{fmt(group.costSubtotal)}</span>
                   <span className="estimate-wizard-group-markup">
                     <MarkupPctInline
@@ -1764,7 +2229,16 @@ function Step2LineItems({
                     />
                   </span>
                   <span className="estimate-wizard-group-client-total">{fmt(group.clientTotal)}</span>
-                  <span aria-hidden />
+                  <button
+                    type="button"
+                    className="estimate-wizard-group-chevron estimate-wizard-group-chevron--row-end"
+                    onClick={() => canExpand && toggleExpanded(group.id)}
+                    aria-expanded={expanded}
+                    aria-label={expanded ? 'Collapse' : 'Expand'}
+                    disabled={!canExpand}
+                  >
+                    {canExpand ? (expanded ? '▼' : '▶') : ''}
+                  </button>
                 </div>
                 {expanded && group.items.length > 0 && (
                   <div className="estimate-wizard-group-items">
@@ -1779,7 +2253,9 @@ function Step2LineItems({
                         <span className="estimate-wizard-group-item-desc">{item.description}</span>
                         <span>{item.qty}</span>
                         <span>{item.unit}</span>
-                        <span>{fmt(item.unitCost)}</span>
+                        <span>
+                          {item.unit === 'pct' ? `${cappedPctValue(item.unitCost)}%` : fmt(item.unitCost)}
+                        </span>
                       </div>
                     ))}
                     <div
@@ -1826,9 +2302,10 @@ function Step2LineItems({
               <div className="estimate-wizard-groups-header estimate-wizard-groups-header--custom">
                 <span className="estimate-wizard-groups-header__chevron-gap" aria-hidden />
                 <span className="estimate-wizard-label">Description</span>
+                <span className="estimate-wizard-label">Category</span>
                 <span className="estimate-wizard-label">Qty</span>
                 <span className="estimate-wizard-label">Unit</span>
-                <span className="estimate-wizard-label">Unit price</span>
+                <span className="estimate-wizard-label">Price / %</span>
                 <span className="estimate-wizard-label">Total</span>
                 <span aria-hidden />
               </div>
@@ -1848,6 +2325,20 @@ function Step2LineItems({
                     placeholder="Description"
                     className="estimate-wizard-input estimate-wizard-line-input-name"
                   />
+                  <select
+                    value={group.budgetCategory}
+                    onChange={(e) =>
+                      updateGroupBudgetCategory(group.id, e.target.value as EstimateGroupBudgetCategory)
+                    }
+                    className="estimate-wizard-input estimate-wizard-line-input-category"
+                    aria-label="Budget category"
+                  >
+                    {ESTIMATE_GROUP_BUDGET_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="number"
                     min={0}
@@ -1856,22 +2347,63 @@ function Step2LineItems({
                     onChange={(e) => updateCustomGroupItem(group.id, { qty: Number(e.target.value) || 0 })}
                     className="estimate-wizard-input estimate-wizard-line-input-num"
                   />
-                  <input
-                    type="text"
-                    value={item.unit}
+                  <select
+                    value={item.unit || 'ea'}
                     onChange={(e) => updateCustomGroupItem(group.id, { unit: e.target.value })}
-                    placeholder="ea"
                     className="estimate-wizard-input estimate-wizard-line-input-unit"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={item.unitCost}
-                    onChange={(e) => updateCustomGroupItem(group.id, { unitCost: Number(e.target.value) || 0 })}
-                    placeholder="0"
-                    className="estimate-wizard-input estimate-wizard-line-input-price"
-                  />
+                    aria-label="Unit"
+                  >
+                    {unitOptionsForCategory(group.budgetCategory).map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                    {item.unit &&
+                    !unitOptionsForCategory(group.budgetCategory).some((opt) => opt.value === item.unit.trim()) ? (
+                      <option value={item.unit}>{item.unit}</option>
+                    ) : null}
+                  </select>
+                  {item.unit === 'pct' ? (
+                    <div className="estimate-wizard-custom-price-cell">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        value={item.unitCost}
+                        onChange={(e) =>
+                          updateCustomGroupItem(group.id, {
+                            unitCost: cappedPctValue(Number(e.target.value) || 0),
+                          })
+                        }
+                        placeholder="0"
+                        aria-label="Percentage of estimate subtotal"
+                        className="estimate-wizard-input estimate-wizard-line-input-price estimate-wizard-line-input-pct"
+                      />
+                      <span className="estimate-wizard-pct-suffix" aria-hidden>
+                        %
+                      </span>
+                      <span className="estimate-wizard-pct-equals" aria-live="polite">
+                        ={' '}
+                        {fmt(
+                          lineDollarAmount(
+                            { qty: item.qty, unitPrice: item.unitCost, unit: item.unit },
+                            hardSubtotalForPctUi
+                          )
+                        )}
+                      </span>
+                    </div>
+                  ) : (
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.unitCost}
+                      onChange={(e) => updateCustomGroupItem(group.id, { unitCost: Number(e.target.value) || 0 })}
+                      placeholder="0"
+                      className="estimate-wizard-input estimate-wizard-line-input-price"
+                    />
+                  )}
                   <span className="estimate-wizard-group-client-total">{fmt(group.clientTotal)}</span>
                   <button
                     type="button"
@@ -1885,6 +2417,25 @@ function Step2LineItems({
               </div>
             )
           })}
+        </div>
+
+        <div className="estimate-wizard-add-line-toolbar" ref={addLineToolbarRef}>
+          <button
+            type="button"
+            className="estimate-wizard-add-line-trigger btn btn-ghost"
+            aria-expanded={addMenuOpen}
+            aria-haspopup="true"
+            onClick={() => {
+              setAddMenuOpen((o) => !o)
+              setCatalogOpen(false)
+              setTakeoffOpen(false)
+            }}
+          >
+            + Add line
+            <span className="estimate-wizard-add-line-chevron" aria-hidden>
+              {addMenuOpen ? '▲' : '▼'}
+            </span>
+          </button>
         </div>
 
         {/* Running total */}
@@ -1904,6 +2455,8 @@ function Step2LineItems({
             </span>
           </div>
         </div>
+
+        <EstimateWizardBudgetPreview groups={lineItemGroups} clientTotal={clientTotalSum} />
       </div>
     </div>
   )

@@ -155,6 +155,9 @@ export interface DashboardProject {
   expected_end_date?: string | null
   estimated_value?: number | null
   assigned_to_name?: string | null
+  client_email?: string | null
+  client_phone?: string | null
+  plan_type?: ProjectPlanType | null
 }
 
 export interface Message {
@@ -235,6 +238,8 @@ export const api = {
       expected_end_date?: string
       estimated_value?: number
       assigned_to_name?: string
+      client_email?: string
+      client_phone?: string
       plan_type?: ProjectPlanType
     }): Promise<Project> {
       const headers = await getAuthHeaders()
@@ -245,7 +250,29 @@ export const api = {
       })
       return handleResponse<Project>(res)
     },
-    async update(id: string, body: Partial<Pick<Project, 'name' | 'status' | 'scope' | 'address_line_1' | 'address_line_2' | 'city' | 'state' | 'postal_code' | 'expected_start_date' | 'expected_end_date' | 'estimated_value' | 'assigned_to_name' | 'plan_type'>>): Promise<Project> {
+    async update(
+      id: string,
+      body: Partial<
+        Pick<
+          Project,
+          | 'name'
+          | 'status'
+          | 'scope'
+          | 'address_line_1'
+          | 'address_line_2'
+          | 'city'
+          | 'state'
+          | 'postal_code'
+          | 'expected_start_date'
+          | 'expected_end_date'
+          | 'estimated_value'
+          | 'assigned_to_name'
+          | 'client_email'
+          | 'client_phone'
+          | 'plan_type'
+        >
+      >
+    ): Promise<Project> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${id}`, {
         method: 'PUT',
@@ -253,6 +280,21 @@ export const api = {
         body: JSON.stringify(body),
       })
       return handleResponse<Project>(res)
+    },
+    /**
+     * Re-apply budget from accepted estimate (groups meta). Idempotent; optional estimate_id targets a specific accepted estimate.
+     */
+    async seedBudgetFromEstimate(
+      projectId: string,
+      options?: { estimateId?: string }
+    ): Promise<{ ok: boolean; estimate_id?: string; skipped?: boolean; reason?: string }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/seed-budget-from-estimate`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(options?.estimateId ? { estimate_id: options.estimateId } : {}),
+      })
+      return handleResponse<{ ok: boolean; estimate_id?: string; skipped?: boolean; reason?: string }>(res)
     },
     async delete(id: string): Promise<void> {
       const headers = await getAuthHeaders()

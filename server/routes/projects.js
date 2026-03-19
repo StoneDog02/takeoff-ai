@@ -4,6 +4,7 @@ const multer = require('multer')
 const { runTakeoff } = require('../claude/takeoff')
 const { TRADE_MAP, TRADE_ORDER } = require('../claude/trade-definitions')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const { sendBidPortalEmail } = require('../lib/sendPortalEmails')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
@@ -99,7 +100,7 @@ router.get('/', (req, res, next) => {
     }
     const { data: projects, error: projErr } = await supabase
       .from('projects')
-      .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, plan_type')
+      .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, client_email, client_phone, plan_type')
       .eq('user_id', req.user?.id)
       .order('updated_at', { ascending: false })
     if (projErr) {
@@ -235,6 +236,8 @@ router.post('/', async (req, res, next) => {
       expected_end_date,
       estimated_value,
       assigned_to_name,
+      client_email,
+      client_phone,
       plan_type,
     } = req.body || {}
     const insert = {
@@ -252,6 +255,8 @@ router.post('/', async (req, res, next) => {
     if (expected_end_date !== undefined) insert.expected_end_date = expected_end_date || null
     if (estimated_value !== undefined) insert.estimated_value = estimated_value != null ? Number(estimated_value) : null
     if (assigned_to_name !== undefined) insert.assigned_to_name = assigned_to_name || null
+    if (client_email !== undefined) insert.client_email = client_email ? String(client_email).trim() || null : null
+    if (client_phone !== undefined) insert.client_phone = client_phone ? String(client_phone).trim() || null : null
     if (plan_type !== undefined) insert.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : 'residential'
     const { data, error } = await supabase
       .from('projects')
@@ -286,6 +291,8 @@ router.put('/:id', loadProject, async (req, res, next) => {
       expected_end_date,
       estimated_value,
       assigned_to_name,
+      client_email,
+      client_phone,
       plan_type,
     } = req.body || {}
     const updates = {}
@@ -297,6 +304,8 @@ router.put('/:id', loadProject, async (req, res, next) => {
     if (expected_end_date !== undefined) updates.expected_end_date = expected_end_date || null
     if (estimated_value !== undefined) updates.estimated_value = estimated_value != null ? Number(estimated_value) : null
     if (assigned_to_name !== undefined) updates.assigned_to_name = assigned_to_name || null
+    if (client_email !== undefined) updates.client_email = client_email ? String(client_email).trim() || null : null
+    if (client_phone !== undefined) updates.client_phone = client_phone ? String(client_phone).trim() || null : null
     if (plan_type !== undefined) updates.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : req.project.plan_type
     updates.updated_at = new Date().toISOString()
     const { data, error } = await supabase
@@ -957,6 +966,10 @@ router.put('/:id/budget', loadProject, async (req, res, next) => {
         predicted: Number(it.predicted) || 0,
         actual: Number(it.actual) || 0,
         category: it.category || 'other',
+        ...(it.source !== undefined && it.source !== '' ? { source: it.source } : {}),
+        ...(it.unit != null && String(it.unit).trim() !== ''
+          ? { unit: String(it.unit).trim() }
+          : { unit: null }),
       }
       if (it.id && existingIds.includes(it.id)) {
         const { data } = await supabase.from('budget_line_items').update(row).eq('id', it.id).select().single()
@@ -973,6 +986,57 @@ router.put('/:id/budget', loadProject, async (req, res, next) => {
       items: list,
       summary: { predicted_total, actual_total, profitability: predicted_total - actual_total },
     })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * POST /projects/:id/seed-budget-from-estimate
+ * Re-applies budget rows from the accepted estimate (estimate_groups_meta). Idempotent.
+ * Optional body: { estimate_id } — must belong to this project and be accepted; otherwise latest accepted estimate for the project is used.
+ */
+router.post('/:id/seed-budget-from-estimate', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const projectId = req.params.id
+    const bodyEstimateId =
+      req.body && req.body.estimate_id != null && String(req.body.estimate_id).trim()
+        ? String(req.body.estimate_id).trim()
+        : null
+
+    let estimateId = bodyEstimateId
+
+    if (estimateId) {
+      const { data: est, error: estErr } = await supabase
+        .from('estimates')
+        .select('id, job_id, status')
+        .eq('id', estimateId)
+        .maybeSingle()
+      if (estErr) throw estErr
+      if (!est || String(est.job_id) !== String(projectId)) {
+        return res.status(400).json({ error: 'Estimate not found for this project.' })
+      }
+      if ((est.status || '').toLowerCase() !== 'accepted') {
+        return res.status(400).json({ error: 'Only accepted estimates can seed the project budget.' })
+      }
+    } else {
+      const { data: rows, error: findErr } = await supabase
+        .from('estimates')
+        .select('id')
+        .eq('job_id', projectId)
+        .eq('status', 'accepted')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+      if (findErr) throw findErr
+      if (!rows || !rows.length) {
+        return res.json({ ok: true, skipped: true, reason: 'no_accepted_estimate' })
+      }
+      estimateId = rows[0].id
+    }
+
+    await applyApprovedEstimateGroupsToBudget(supabase, projectId, estimateId)
+    res.json({ ok: true, estimate_id: estimateId })
   } catch (err) {
     next(err)
   }

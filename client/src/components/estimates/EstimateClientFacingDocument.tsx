@@ -258,7 +258,9 @@ export function EstimateClientFacingDocument({
                     <td className="estimate-doc__td-qty estimate-doc__num">{item.quantity}</td>
                     <td className="estimate-doc__td-unit">{item.unit}</td>
                     <td className="estimate-doc__td-rate estimate-doc__num">
-                      {formatPortalCurrency(item.unit_price)}
+                      {item.unit === 'pct'
+                        ? `${Math.min(100, Math.max(0, Number(item.unit_price) || 0))}%`
+                        : formatPortalCurrency(item.unit_price)}
                     </td>
                     <td className="estimate-doc__amount estimate-doc__num">
                       {formatPortalCurrency(item.total)}

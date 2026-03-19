@@ -14,6 +14,8 @@ export interface Project {
   scope?: string
   created_at?: string
   updated_at?: string
+  /** First time an estimate was accepted for this project (ISO). Used for post-approval budget / CO UX. */
+  estimate_approved_at?: string | null
   user_id?: string
   address_line_1?: string
   address_line_2?: string
@@ -24,6 +26,9 @@ export interface Project {
   expected_end_date?: string
   estimated_value?: number
   assigned_to_name?: string
+  /** Primary client contact (from New Project / New Estimate wizard). */
+  client_email?: string | null
+  client_phone?: string | null
   plan_type?: ProjectPlanType
 }
 
@@ -110,6 +115,11 @@ export interface BudgetLineItem {
   predicted: number
   actual: number
   category: string
+  /** Unit of measure (e.g. hr, sf, ls) when set in Budget tab. */
+  unit?: string | null
+  /** Set when row was created from an approved estimate (`budget_line_items.source`). */
+  source?: string | null
+  created_at?: string | null
 }
 
 export interface ChangeOrder {

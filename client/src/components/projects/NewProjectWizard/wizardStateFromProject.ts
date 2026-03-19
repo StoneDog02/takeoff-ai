@@ -52,6 +52,8 @@ export function wizardStateFromProject(
     endDate: project.expected_end_date ?? '',
     client: project.assigned_to_name ?? '',
     clientName: project.assigned_to_name ?? undefined,
+    clientEmail: project.client_email?.trim() || undefined,
+    clientPhone: project.client_phone?.trim() || undefined,
     budget: budgetItems.reduce((s, i) => s + (i.predicted ?? 0), 0),
     description: project.scope ?? undefined,
     planType,

@@ -9,7 +9,7 @@
  */
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
-const { replaceProjectBudgetFromEstimate } = require('../lib/budgetFromEstimate')
+const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 
 const router = express.Router()
 
@@ -214,7 +214,7 @@ router.post('/:token/approve', async (req, res, next) => {
       // Heal: first approve may have succeeded while budget sync failed, or sync was added later
       if (est.job_id) {
         try {
-          await replaceProjectBudgetFromEstimate(supabase, est.job_id, est.id)
+          await applyApprovedEstimateGroupsToBudget(supabase, est.job_id, est.id)
         } catch (budgetErr) {
           console.error('[estimate-portal] budget sync (already approved)', budgetErr)
         }
@@ -232,12 +232,18 @@ router.post('/:token/approve', async (req, res, next) => {
       .eq('id', est.id)
 
     if (est.job_id) {
-      await supabase
+      const { data: projRow } = await supabase
         .from('projects')
-        .update({ status: 'backlog', updated_at: now })
+        .select('estimate_approved_at')
         .eq('id', est.job_id)
+        .maybeSingle()
+      const projUpdates = { status: 'backlog', updated_at: now }
+      if (projRow && !projRow.estimate_approved_at) {
+        projUpdates.estimate_approved_at = now
+      }
+      await supabase.from('projects').update(projUpdates).eq('id', est.job_id)
       try {
-        await replaceProjectBudgetFromEstimate(supabase, est.job_id, est.id)
+        await applyApprovedEstimateGroupsToBudget(supabase, est.job_id, est.id)
       } catch (budgetErr) {
         console.error('[estimate-portal] budget sync after approve', budgetErr)
       }

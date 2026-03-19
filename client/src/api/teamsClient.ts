@@ -18,6 +18,9 @@ function toProject(p: Awaited<ReturnType<typeof api.projects.list>>[number]): Pr
     expected_end_date: p.expected_end_date ?? undefined,
     estimated_value: p.estimated_value ?? undefined,
     assigned_to_name: p.assigned_to_name ?? undefined,
+    plan_type: p.plan_type ?? undefined,
+    client_email: p.client_email ?? undefined,
+    client_phone: p.client_phone ?? undefined,
   }
 }
 

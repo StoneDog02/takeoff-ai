@@ -116,6 +116,8 @@ export const estimatesApi = {
       unit: string
       unit_price: number
       section?: string | null
+      /** When `unit` is `pct`, resolved dollar total (percentage × hard subtotal). */
+      total?: number
     }
   ): Promise<EstimateLineItem> {
     const headers = await getAuthHeaders()

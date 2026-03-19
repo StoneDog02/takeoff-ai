@@ -2,6 +2,12 @@ import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } fr
 import { createPortal } from 'react-dom'
 import { api } from '@/api/client'
 import type { BudgetLineItem, ChangeOrder } from '@/types/global'
+import {
+  BUDGET_CATEGORY_KEY_TO_UNITS_CATEGORY,
+  CATEGORY_UNITS,
+  DEFAULT_UNITS,
+} from '@/constants/units'
+import { nextUnitForBudgetCategoryKey } from '@/lib/categoryUnits'
 
 const CATEGORY_LABELS: Record<string, string> = {
   labor: 'Labor',
@@ -54,6 +60,16 @@ function fmtSigned(n: number): string {
   return (n >= 0 ? '+' : '-') + '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0 })
 }
 
+/** Budget line created after the project estimate was approved (not seeded from estimate). */
+function isPostApprovalBudgetLine(item: BudgetLineItem, estimateApprovedAt: string | null | undefined): boolean {
+  if (!estimateApprovedAt || !item.created_at) return false
+  if (item.source === 'estimate') return false
+  const at = new Date(estimateApprovedAt).getTime()
+  const ct = new Date(item.created_at).getTime()
+  if (Number.isNaN(at) || Number.isNaN(ct)) return false
+  return ct > at
+}
+
 export interface BudgetTabProps {
   projectId: string
   items: BudgetLineItem[]
@@ -65,11 +81,21 @@ export interface BudgetTabProps {
   subsActualFromBidSheet?: number
   /** From GET budget; use for KPIs so totals don't flash 0 before change orders list loads. */
   approvedChangeOrdersTotal?: number
+  /** When set, budget lines with created_at after this time (and not estimate-seeded) show as scope changes (CO). */
+  estimateApprovedAt?: string | null
 }
 
 type SectionId = 'budget' | 'changeorders' | 'forecast'
 
-export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries, subsActualFromBidSheet, approvedChangeOrdersTotal }: BudgetTabProps) {
+export function BudgetTab({
+  projectId,
+  items,
+  onSave,
+  laborActualFromTimeEntries,
+  subsActualFromBidSheet,
+  approvedChangeOrdersTotal,
+  estimateApprovedAt,
+}: BudgetTabProps) {
   const [list, setList] = useState<BudgetLineItem[]>(() => items)
   const [viewMode, setViewMode] = useState<'category' | 'item'>('category')
   const [drawerItem, setDrawerItem] = useState<BudgetLineItem | null>(null)
@@ -80,7 +106,17 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
   const [addingRow, setAddingRow] = useState(false)
   /** When set, add form is shown after this category in By Item view; null = show at bottom. */
   const [addingForCategory, setAddingForCategory] = useState<string | null>(null)
-  const [newRow, setNewRow] = useState({ description: '', category: 'labor', budgeted: '', actual: '' })
+  const emptyBudgetAddRow = useCallback(
+    (category: string = 'labor') => ({
+      description: '',
+      category,
+      unit: nextUnitForBudgetCategoryKey(category),
+      budgeted: '',
+      actual: '',
+    }),
+    []
+  )
+  const [newRow, setNewRow] = useState(() => emptyBudgetAddRow('labor'))
   const [activeSection, setActiveSection] = useState<SectionId>('budget')
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   const [coModalOpen, setCoModalOpen] = useState(false)
@@ -114,6 +150,19 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
   const totalActual = useMemo(() => list.reduce((s, i) => s + Number(i.actual || 0), 0), [list])
   const approvedCOsFromList = useMemo(() => changeOrders.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.amount, 0), [changeOrders])
   const approvedCOs = approvedChangeOrdersTotal ?? approvedCOsFromList
+  const postApprovalLinesSum = useMemo(() => {
+    if (!estimateApprovedAt) return 0
+    return list.reduce((s, i) => s + (isPostApprovalBudgetLine(i, estimateApprovedAt) ? Number(i.predicted) || 0 : 0), 0)
+  }, [list, estimateApprovedAt])
+  const originalEstimateBaseline = useMemo(
+    () => list.reduce((s, i) => s + (i.source === 'estimate' ? Number(i.predicted) || 0 : 0), 0),
+    [list]
+  )
+  /** Post-approval budget lines + approved formal COs (same CO source as total budget KPIs). */
+  const approvedChangesRunningTotal = useMemo(
+    () => postApprovalLinesSum + approvedCOs,
+    [postApprovalLinesSum, approvedCOs]
+  )
   const pendingCOs = useMemo(() => changeOrders.filter((c) => c.status === 'Pending').reduce((s, c) => s + c.amount, 0), [changeOrders])
   const totalBudget = baselineBudget + approvedCOs
   const variance = totalBudget - totalActual
@@ -171,6 +220,7 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
     const budgeted = parseFloat(newRow.budgeted) || 0
     if (!desc || budgeted <= 0) return
     const category = newRow.category || 'labor'
+    const unit = (newRow.unit || '').trim() || nextUnitForBudgetCategoryKey(category)
     const newItem: BudgetLineItem = {
       id: `new-${Date.now()}`,
       project_id: list[0]?.project_id ?? '',
@@ -178,14 +228,15 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
       predicted: budgeted,
       actual: parseFloat(newRow.actual) || 0,
       category,
+      unit,
     }
     const next = [...list, newItem]
     setList(next)
     onSave(next).catch(() => {})
-    setNewRow({ description: '', category: 'labor', budgeted: '', actual: '' })
+    setNewRow(emptyBudgetAddRow('labor'))
     setAddingRow(false)
     setAddingForCategory(null)
-  }, [newRow, list, onSave])
+  }, [newRow, list, onSave, emptyBudgetAddRow])
 
   const removeItem = useCallback(
     (id: string) => {
@@ -274,7 +325,16 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
     return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`
   }
 
-  function renderBudgetRow(item: BudgetLineItem, isCategoryView: boolean, isChangeOrder = false, coId?: string, coStatus?: 'Approved' | 'Pending', categoryPendingAmount?: number, actualSourceLabel?: string) {
+  function renderBudgetRow(
+    item: BudgetLineItem,
+    isCategoryView: boolean,
+    isChangeOrder = false,
+    coId?: string,
+    coStatus?: 'Approved' | 'Pending',
+    categoryPendingAmount?: number,
+    actualSourceLabel?: string,
+    postApprovalLine?: boolean
+  ) {
     const budgeted = Number(item.predicted || 0)
     const actual = Number(item.actual || 0)
     const v = budgeted - actual
@@ -296,8 +356,24 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {item.label || 'Untitled'}
+                {!isChangeOrder && item.source === 'estimate' && (
+                  <span
+                    style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}
+                    title="Seeded from approved estimate"
+                  >
+                    EST
+                  </span>
+                )}
+                {!isChangeOrder && postApprovalLine && (
+                  <span
+                    style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}
+                    title="Budget line added after estimate was approved"
+                  >
+                    CO
+                  </span>
+                )}
                 {isChangeOrder && (
                   coStatus === 'Pending'
                     ? <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}>Pending</span>
@@ -309,6 +385,11 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
             </div>
           </div>
           <span style={{ fontSize: 11, background: color + '18', color, padding: '2px 8px', borderRadius: 6, fontWeight: 600, width: 'fit-content' }}>{getItemCategoryLabel(item)}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+            {!isCategoryView && !isChangeOrder && item.unit?.trim()
+              ? item.unit.trim()
+              : '—'}
+          </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {!isCategoryView && !isChangeOrder && editingId === item.id ? (
               <input
@@ -404,19 +485,56 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
   }
 
   function renderAddRowForm() {
+    const unitsCategory = BUDGET_CATEGORY_KEY_TO_UNITS_CATEGORY[newRow.category] ?? 'Other'
+    const unitOpts = CATEGORY_UNITS[unitsCategory] ?? DEFAULT_UNITS
     return (
-      <div className="budget-table-row" style={{ background: 'var(--bg-base)', gridTemplateColumns: '2fr 120px 120px 120px 100px 80px', padding: '12px 20px' }}>
+      <div className="budget-table-row budget-table-row--add-form" style={{ background: 'var(--bg-base)', padding: '12px 20px' }}>
         <input placeholder="Description" value={newRow.description} onChange={(e) => setNewRow({ ...newRow, description: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] outline-none w-full max-w-[200px]" />
-        <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-[12px] outline-none">
+        <select
+          value={newRow.category}
+          onChange={(e) => {
+            const category = e.target.value
+            setNewRow((prev) => ({
+              ...prev,
+              category,
+              unit: nextUnitForBudgetCategoryKey(category, prev.unit),
+            }))
+          }}
+          className="rounded-md border border-[var(--border)] px-2 py-1.5 text-[12px] outline-none"
+        >
           {CATEGORY_ORDER.map((key) => (
             <option key={key} value={key}>{CATEGORY_LABELS[key] ?? key}</option>
           ))}
+        </select>
+        <select
+          value={newRow.unit || nextUnitForBudgetCategoryKey(newRow.category)}
+          onChange={(e) => setNewRow({ ...newRow, unit: e.target.value })}
+          className="rounded-md border border-[var(--border)] px-2 py-1.5 text-[11px] outline-none min-w-0"
+          aria-label="Unit"
+        >
+          {unitOpts.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+          {newRow.unit &&
+          !unitOpts.some((o) => o.value === newRow.unit.trim()) ? (
+            <option value={newRow.unit}>{newRow.unit}</option>
+          ) : null}
         </select>
         <input placeholder="Budget" value={newRow.budgeted} onChange={(e) => setNewRow({ ...newRow, budgeted: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-mono outline-none w-20" />
         <input placeholder="Actual" value={newRow.actual} onChange={(e) => setNewRow({ ...newRow, actual: e.target.value })} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-mono outline-none w-20" />
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" onClick={addRow} className="px-3 py-1 rounded-md bg-[var(--text-primary)] text-white text-[12px] font-semibold border-none cursor-pointer">Add</button>
-          <button type="button" onClick={() => { setAddingRow(false); setAddingForCategory(null) }} className="px-2 py-1 rounded-md bg-[var(--bg-base)] text-[var(--text-muted)] text-[12px] border-none cursor-pointer">✕</button>
+          <button
+            type="button"
+            onClick={() => {
+              setAddingRow(false)
+              setAddingForCategory(null)
+              setNewRow(emptyBudgetAddRow('labor'))
+            }}
+            className="px-2 py-1 rounded-md bg-[var(--bg-base)] text-[var(--text-muted)] text-[12px] border-none cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
         <span />
       </div>
@@ -494,7 +612,13 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
                 </div>
               </div>
               <div className="budget-table-col-headers">
-                <span>Description</span><span>Category</span><span>Budgeted</span><span>Actual</span><span>Variance</span><span />
+                <span>Description</span>
+                <span>Category</span>
+                <span>Unit</span>
+                <span>Budgeted</span>
+                <span>Actual</span>
+                <span>Variance</span>
+                <span />
               </div>
               {viewMode === 'category' && (() => {
                 const byCat = new Map<string, { predicted: number; actual: number }>()
@@ -516,18 +640,35 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
                   const key = (co.category && CATEGORY_ORDER.includes(co.category)) ? co.category : 'other'
                   pendingByCat.set(key, (pendingByCat.get(key) ?? 0) + co.amount)
                 }
+                const categoryHasEstimateSource = new Map<string, boolean>()
+                const categoryHasPostApprovalLine = new Map<string, boolean>()
+                for (const i of list) {
+                  const key = normalizeCategoryKey(i)
+                  if (i.source === 'estimate') categoryHasEstimateSource.set(key, true)
+                  if (isPostApprovalBudgetLine(i, estimateApprovedAt)) categoryHasPostApprovalLine.set(key, true)
+                }
                 const categoryKeys = CATEGORY_ORDER.filter((key) => byCat.has(key) || (pendingByCat.get(key) ?? 0) > 0)
                 return categoryKeys.map((key) => {
                   const catData = byCat.get(key)
                   const pendingAmt = pendingByCat.get(key) ?? 0
-                  return renderBudgetRow({
-                    id: `category-${key}`,
-                    project_id: list[0]?.project_id ?? '',
-                    label: CATEGORY_LABELS[key] ?? key,
-                    category: key,
-                    predicted: catData?.predicted ?? 0,
-                    actual: catData?.actual ?? 0,
-                  } as BudgetLineItem, true, false, undefined, undefined, pendingAmt)
+                  return renderBudgetRow(
+                    {
+                      id: `category-${key}`,
+                      project_id: list[0]?.project_id ?? '',
+                      label: CATEGORY_LABELS[key] ?? key,
+                      category: key,
+                      predicted: catData?.predicted ?? 0,
+                      actual: catData?.actual ?? 0,
+                      ...(categoryHasEstimateSource.get(key) ? { source: 'estimate' as const } : {}),
+                    } as BudgetLineItem,
+                    true,
+                    false,
+                    undefined,
+                    undefined,
+                    pendingAmt,
+                    undefined,
+                    categoryHasPostApprovalLine.get(key) === true
+                  )
                 })
               })()}
               {viewMode === 'item' && (() => {
@@ -545,7 +686,16 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
                       <div key={group.key}>
                         {group.items.map((item) => {
                           const actualSourceLabel = group.key === 'labor' && laborActualFromTimeEntries != null && laborActualFromTimeEntries > 0 ? 'From time entries' : group.key === 'subs' && subsActualFromBidSheet != null && subsActualFromBidSheet > 0 ? 'From bid sheet' : undefined
-                          return renderBudgetRow(item, false, false, undefined, undefined, undefined, actualSourceLabel)
+                          return renderBudgetRow(
+                            item,
+                            false,
+                            false,
+                            undefined,
+                            undefined,
+                            undefined,
+                            actualSourceLabel,
+                            isPostApprovalBudgetLine(item, estimateApprovedAt)
+                          )
                         })}
                         {group.cos.map((co) => renderBudgetRow({
                           id: co.id,
@@ -568,7 +718,11 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
                             <button
                               type="button"
                               className="budget-table-add-row-btn"
-                              onClick={() => { setNewRow((prev) => ({ ...prev, category: group.key })); setAddingForCategory(group.key); setAddingRow(true) }}
+                              onClick={() => {
+                                setNewRow(emptyBudgetAddRow(group.key))
+                                setAddingForCategory(group.key)
+                                setAddingRow(true)
+                              }}
                             >
                               + Add line item
                             </button>
@@ -581,7 +735,15 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
                     )}
                     {addingRow && addingForCategory === null ? renderAddRowForm() : (
                       <div className="budget-table-add-row">
-                        <button type="button" className="budget-table-add-row-btn" onClick={() => { setAddingForCategory(null); setAddingRow(true) }}>
+                        <button
+                          type="button"
+                          className="budget-table-add-row-btn"
+                          onClick={() => {
+                            setNewRow(emptyBudgetAddRow('labor'))
+                            setAddingForCategory(null)
+                            setAddingRow(true)
+                          }}
+                        >
                           + Add line item
                         </button>
                       </div>
@@ -591,15 +753,45 @@ export function BudgetTab({ projectId, items, onSave, laborActualFromTimeEntries
               })()}
               {viewMode === 'category' && (addingRow ? renderAddRowForm() : (
                 <div className="budget-table-add-row">
-                  <button type="button" className="budget-table-add-row-btn" onClick={() => setAddingRow(true)}>+ Add line item</button>
+                  <button
+                    type="button"
+                    className="budget-table-add-row-btn"
+                    onClick={() => {
+                      setNewRow(emptyBudgetAddRow('labor'))
+                      setAddingRow(true)
+                    }}
+                  >
+                    + Add line item
+                  </button>
                 </div>
               ))}
               <div className="budget-table-totals">
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>TOTAL</span>
-                <span /><span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalBudget)}</span>
+                <span />
+                <span />
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalBudget)}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalActual)}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: variance >= 0 ? 'var(--green, #16a34a)' : 'var(--red)', fontVariantNumeric: 'tabular-nums' }}>{fmtSigned(variance)}</span>
                 <span />
+              </div>
+              {estimateApprovedAt ? (
+                <div className="budget-table-baseline-summary">
+                  <div className="budget-table-baseline-summary-row">
+                    <span>Original estimate (approved baseline)</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                      {originalEstimateBaseline > 0 ? fmt(originalEstimateBaseline) : '—'}
+                    </span>
+                  </div>
+                  <div className="budget-table-baseline-summary-row">
+                    <span>Approved changes</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                      {fmt(approvedChangesRunningTotal)}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+              <div className="budget-table-badge-legend">
+                EST = seeded from approved estimate · CO = change order or line added after approval.
               </div>
             </div>
           )}

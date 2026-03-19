@@ -84,6 +84,8 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
           expected_end_date: data.endDate || undefined,
           estimated_value: data.budget > 0 ? data.budget : undefined,
           assigned_to_name: (data.clientName || data.client || '').trim() || undefined,
+          client_email: (data.clientEmail ?? '').trim() || undefined,
+          client_phone: (data.clientPhone ?? '').trim() || undefined,
           plan_type: data.planType ?? 'residential',
         })
         const existingTasks = await api.projects.getTasks(projectId)
@@ -196,6 +198,8 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
           expected_end_date: data.endDate || undefined,
           estimated_value: data.budget > 0 ? data.budget : undefined,
           assigned_to_name: (data.clientName || data.client || '').trim() || undefined,
+          client_email: (data.clientEmail ?? '').trim() || undefined,
+          client_phone: (data.clientPhone ?? '').trim() || undefined,
           plan_type: data.planType ?? 'residential',
         })
         const newId = created?.id

@@ -3,9 +3,15 @@ import { estimatesApi } from '@/api/estimates'
 import type { Job, CustomProduct } from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
 import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import {
+  LINE_ITEM_BUDGET_CATEGORY_LABELS,
+  estimateBudgetCategoryFromProductItemType,
+  nextUnitForCategory,
+  unitOptionsForCategory,
+  type LineItemBudgetCategoryLabel,
+} from '@/lib/categoryUnits'
+import { cappedPctValue, hardSubtotalExcludingPctLines, lineDollarAmount } from '@/lib/estimatePctLine'
 import { EstimateInvoiceFormView } from './EstimateInvoiceFormView'
-
-const UNIT_OPTIONS = ['ea', 'hr', 'sqft', 'lf', 'gal', 'sheet', 'load', 'flat']
 
 function catalogCategoryClass(itemType: string | undefined): string {
   if (!itemType) return 'materials'
@@ -27,6 +33,24 @@ type LineRow = {
   total: number
   product_id: string | null
   section: string
+  budgetCategory: LineItemBudgetCategoryLabel
+}
+
+function rowToPctInput(l: LineRow) {
+  return { qty: l.quantity, unitPrice: l.unit_price, unit: l.unit }
+}
+
+function recalcEstimateBuilderLines(rows: LineRow[]): LineRow[] {
+  const hard = hardSubtotalExcludingPctLines(rows.map(rowToPctInput))
+  return rows.map((l) => {
+    let row = l
+    if (l.unit === 'pct') {
+      const c = cappedPctValue(l.unit_price)
+      if (c !== l.unit_price) row = { ...l, unit_price: c }
+    }
+    const t = lineDollarAmount(rowToPctInput(row), hard)
+    return Math.abs((row.total ?? 0) - t) < 1e-6 ? row : { ...row, total: t }
+  })
 }
 
 /** Optional seed for a new estimate (e.g. from takeoff + awarded bids). */
@@ -71,6 +95,8 @@ export function EstimateBuilder({
   const [mode, setMode] = useState<'build' | 'preview'>('build')
   const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set())
   const catalogRef = useRef<HTMLDivElement>(null)
+  /** After hydrate from API, avoid re-deriving budget category from product (would undo user edits). */
+  const hydratedLineIdsRef = useRef<Set<string>>(new Set())
 
   const catalogFiltered =
     catalogQuery.trim().length > 0
@@ -91,6 +117,10 @@ export function EstimateBuilder({
   }, [])
 
   useEffect(() => {
+    hydratedLineIdsRef.current.clear()
+  }, [estimateId])
+
+  useEffect(() => {
     if (estimateId) {
       setLoading(true)
       estimatesApi
@@ -99,16 +129,22 @@ export function EstimateBuilder({
           setJobId(est.job_id)
           setTitle(est.title)
           setLines(
-            (est.line_items || []).map((li) => ({
-              id: li.id,
-              description: li.description,
-              quantity: li.quantity,
-              unit: li.unit,
-              unit_price: li.unit_price,
-              total: li.total,
-              product_id: li.product_id ?? (li as { custom_product_id?: string }).custom_product_id ?? null,
-              section: li.section ?? '',
-            }))
+            recalcEstimateBuilderLines(
+              (est.line_items || []).map((li) => {
+                const u = (li.unit ?? 'ea').trim() || 'ea'
+                return {
+                  id: li.id,
+                  description: li.description,
+                  quantity: li.quantity,
+                  unit: u,
+                  unit_price: u === 'pct' ? cappedPctValue(li.unit_price) : li.unit_price,
+                  total: Number(li.total) || 0,
+                  product_id: li.product_id ?? (li as { custom_product_id?: string }).custom_product_id ?? null,
+                  section: li.section ?? '',
+                  budgetCategory: 'Other',
+                }
+              })
+            )
           )
         })
         .catch(() => {})
@@ -116,16 +152,22 @@ export function EstimateBuilder({
     } else {
       if (initialLines?.length) {
         setLines(
-          initialLines.map((l, i) => ({
-            id: `seed-${i}-${Date.now()}`,
-            description: l.description,
-            quantity: l.quantity,
-            unit: l.unit,
-            unit_price: l.unit_price,
-            total: (l.quantity ?? 1) * (l.unit_price ?? 0),
-            product_id: null,
-            section: l.section ?? '',
-          }))
+          recalcEstimateBuilderLines(
+            initialLines.map((l, i) => {
+              const u = (l.unit ?? 'ea').trim() || 'ea'
+              return {
+                id: `seed-${i}-${Date.now()}`,
+                description: l.description,
+                quantity: l.quantity,
+                unit: u,
+                unit_price: u === 'pct' ? cappedPctValue(l.unit_price) : l.unit_price,
+                total: 0,
+                product_id: null,
+                section: l.section ?? '',
+                budgetCategory: 'Other',
+              }
+            })
+          )
         )
       } else {
         setLines([])
@@ -135,6 +177,22 @@ export function EstimateBuilder({
     }
   }, [estimateId, initialJobId, initialLines])
 
+  useEffect(() => {
+    if (!estimateId || products.length === 0) return
+    setLines((prev) =>
+      recalcEstimateBuilderLines(
+        prev.map((line) => {
+          if (!line.product_id || hydratedLineIdsRef.current.has(line.id)) return line
+          const p = products.find((pr) => pr.id === line.product_id)
+          if (!p) return line
+          hydratedLineIdsRef.current.add(line.id)
+          const cat = estimateBudgetCategoryFromProductItemType(p.item_type)
+          return { ...line, budgetCategory: cat, unit: nextUnitForCategory(cat, line.unit) }
+        })
+      )
+    )
+  }, [estimateId, products])
+
   const subtotal = lines.reduce((sum, l) => sum + l.total, 0)
 
   const addCustomLine = () => {
@@ -142,27 +200,30 @@ export function EstimateBuilder({
       id: `new-${Date.now()}`,
       description: '',
       quantity: 1,
-      unit: 'ea',
+      unit: nextUnitForCategory('Other'),
       unit_price: 0,
       total: 0,
       product_id: null,
       section: '',
+      budgetCategory: 'Other',
     }
-    setLines((prev) => [...prev, newLine])
+    setLines((prev) => recalcEstimateBuilderLines([...prev, newLine]))
   }
 
   const addFromProduct = (p: CustomProduct) => {
+    const budgetCategory = estimateBudgetCategoryFromProductItemType(p.item_type)
     const newLine: LineRow = {
       id: `new-${Date.now()}`,
       description: p.description ?? '',
       quantity: 1,
-      unit: p.unit,
+      unit: nextUnitForCategory(budgetCategory, p.unit),
       unit_price: p.default_unit_price,
       total: p.default_unit_price,
       product_id: p.id,
       section: p.name,
+      budgetCategory,
     }
-    setLines((prev) => [...prev, newLine])
+    setLines((prev) => recalcEstimateBuilderLines([...prev, newLine]))
     setCatalogQuery('')
     setCatalogOpen(false)
   }
@@ -179,20 +240,21 @@ export function EstimateBuilder({
   const updateLine = (idx: number, updates: Partial<LineRow>) => {
     setLines((prev) => {
       const next = [...prev]
-      const row = { ...next[idx], ...updates }
-      if (
-        updates.quantity !== undefined ||
-        updates.unit_price !== undefined
-      ) {
-        row.total = (row.quantity ?? next[idx].quantity) * (row.unit_price ?? next[idx].unit_price)
+      const prevRow = next[idx]
+      let row = { ...prevRow, ...updates }
+      if (updates.budgetCategory !== undefined) {
+        row.unit = nextUnitForCategory(updates.budgetCategory, prevRow.unit)
+      }
+      if (row.unit === 'pct' && (updates.unit_price !== undefined || updates.unit !== undefined)) {
+        row = { ...row, unit_price: cappedPctValue(row.unit_price) }
       }
       next[idx] = row
-      return next
+      return recalcEstimateBuilderLines(next)
     })
   }
 
   const removeLine = (idx: number) => {
-    setLines((prev) => prev.filter((_, i) => i !== idx))
+    setLines((prev) => recalcEstimateBuilderLines(prev.filter((_, i) => i !== idx)))
   }
 
   const save = async () => {
@@ -223,13 +285,15 @@ export function EstimateBuilder({
         }
       }
       for (const line of lines) {
+        const up = line.unit === 'pct' ? cappedPctValue(line.unit_price) : line.unit_price
         await estimatesApi.addLineItem(eid!, {
           description: line.description,
           quantity: line.quantity,
           unit: line.unit,
-          unit_price: line.unit_price,
+          unit_price: up,
           ...(line.product_id ? { custom_product_id: line.product_id } : {}),
           ...(line.section.trim() ? { section: line.section.trim() } : {}),
+          ...(line.unit === 'pct' ? { total: line.total } : {}),
         })
       }
       await estimatesApi.updateEstimate(eid!, { total_amount: subtotal })
@@ -266,6 +330,10 @@ export function EstimateBuilder({
   if (loading && estimateId) {
     return <div className="estimates-content-empty">Loading…</div>
   }
+
+  const hardSubtotalExPct = hardSubtotalExcludingPctLines(
+    lines.map((l) => ({ qty: l.quantity, unitPrice: l.unit_price, unit: l.unit }))
+  )
 
   const previewLineItems: EstimateLineItem[] = lines.map((l) => ({
     id: l.id,
@@ -448,10 +516,10 @@ export function EstimateBuilder({
               <div className="estimates-line-card-columns">
                 <span>#</span>
                 <span>Item</span>
+                <span>Category</span>
                 <span>Qty / Unit</span>
-                <span>Unit Price</span>
+                <span>Price / %</span>
                 <span>Total</span>
-                <span />
                 <span />
                 <span />
               </div>
@@ -468,6 +536,14 @@ export function EstimateBuilder({
                 lines.map((line, idx) => {
                   const productName = line.product_id ? (products.find((pr) => pr.id === line.product_id)?.name ?? line.section) : line.section
                   const isExpanded = expandedLines.has(line.id)
+                  const unitOpts = unitOptionsForCategory(line.budgetCategory)
+                  const isPct = line.unit === 'pct'
+                  const pctResolved = isPct
+                    ? lineDollarAmount(
+                        { qty: line.quantity, unitPrice: line.unit_price, unit: line.unit },
+                        hardSubtotalExPct
+                      )
+                    : null
                   return (
                     <div key={line.id} className="estimates-line-card">
                       <div className="estimates-line-card__main">
@@ -483,6 +559,18 @@ export function EstimateBuilder({
                             className="estimates-line-card__item-input"
                           />
                         )}
+                        <select
+                          value={line.budgetCategory}
+                          onChange={(e) =>
+                            updateLine(idx, { budgetCategory: e.target.value as LineItemBudgetCategoryLabel })
+                          }
+                          className="estimates-line-card__category-select"
+                          aria-label="Budget category"
+                        >
+                          {LINE_ITEM_BUDGET_CATEGORY_LABELS.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
                         <div className="estimates-line-card__qty-unit">
                           <input
                             type="number"
@@ -496,22 +584,69 @@ export function EstimateBuilder({
                             value={line.unit}
                             onChange={(e) => updateLine(idx, { unit: e.target.value })}
                             className="estimates-line-card__unit-select"
+                            aria-label="Unit"
                           >
-                            {UNIT_OPTIONS.map((u) => (
-                              <option key={u} value={u}>{u}</option>
+                            {unitOpts.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
+                            {line.unit.trim() &&
+                            !unitOpts.some((o) => o.value === line.unit.trim()) ? (
+                              <option value={line.unit}>{line.unit}</option>
+                            ) : null}
                           </select>
                         </div>
-                        <div className="estimates-line-card__price-wrap">
-                          <span className="estimates-line-card__price-prefix">$</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            value={line.unit_price}
-                            onChange={(e) => updateLine(idx, { unit_price: parseFloat((e.target as HTMLInputElement).value) || 0 })}
-                            className="estimates-line-card__price-input"
-                          />
+                        <div
+                          className={`estimates-line-card__price-wrap${isPct ? ' estimates-line-card__price-wrap--pct' : ''}`}
+                        >
+                          {isPct ? (
+                            <>
+                              <span className="estimates-line-card__pct-label">Percentage</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.5}
+                                value={line.unit_price}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    unit_price: cappedPctValue(
+                                      parseFloat((e.target as HTMLInputElement).value) || 0
+                                    ),
+                                  })
+                                }
+                                className="estimates-line-card__price-input estimates-line-card__price-input--pct"
+                                aria-label="Percentage of estimate subtotal"
+                              />
+                              <span className="estimates-line-card__pct-suffix" aria-hidden>
+                                %
+                              </span>
+                              {pctResolved != null && (
+                                <span className="estimates-line-card__pct-equals" aria-live="polite">
+                                  = $
+                                  {pctResolved.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <span className="estimates-line-card__price-prefix">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={line.unit_price}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    unit_price: parseFloat((e.target as HTMLInputElement).value) || 0,
+                                  })
+                                }
+                                className="estimates-line-card__price-input"
+                              />
+                            </>
+                          )}
                         </div>
                         <div className="estimates-line-card__total">
                           ${Number(line.total).toLocaleString('en-US', { minimumFractionDigits: 2 })}

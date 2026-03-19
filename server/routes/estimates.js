@@ -1,6 +1,6 @@
 const crypto = require('crypto')
 const express = require('express')
-const { replaceProjectBudgetFromEstimate } = require('../lib/budgetFromEstimate')
+const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
@@ -140,8 +140,20 @@ router.patch('/:id', async (req, res) => {
     const nextStatus = (data.status || '').toLowerCase()
     const jobId = data.job_id || prevRow.job_id
     if (jobId && nextStatus === 'accepted' && prevStatus !== 'accepted') {
+      const ts = new Date().toISOString()
+      const { data: projRow } = await supabase
+        .from('projects')
+        .select('estimate_approved_at')
+        .eq('id', jobId)
+        .maybeSingle()
+      if (projRow && !projRow.estimate_approved_at) {
+        await supabase
+          .from('projects')
+          .update({ estimate_approved_at: ts, updated_at: ts })
+          .eq('id', jobId)
+      }
       try {
-        await replaceProjectBudgetFromEstimate(supabase, jobId, id)
+        await applyApprovedEstimateGroupsToBudget(supabase, jobId, id)
       } catch (budgetErr) {
         console.error('[estimates] budget sync on accept', budgetErr)
       }
@@ -186,7 +198,7 @@ router.post('/:id/sync-project-budget', async (req, res) => {
       return res.status(400).json({ error: 'Only accepted estimates sync to the project budget.' })
     }
     if (!est.job_id) return res.status(400).json({ error: 'Estimate is not linked to a project.' })
-    await replaceProjectBudgetFromEstimate(supabase, est.job_id, id)
+    await applyApprovedEstimateGroupsToBudget(supabase, est.job_id, id)
     res.json({ ok: true })
   } catch (err) {
     console.error('[estimates] sync-project-budget', err)
@@ -200,10 +212,18 @@ router.post('/:id/line-items', async (req, res) => {
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const estimateId = req.params.id
-    const { custom_product_id, description, quantity, unit, unit_price, section } = req.body
+    const { custom_product_id, description, quantity, unit, unit_price, section, total: bodyTotal } = req.body
     const qty = Number(quantity) || 1
-    const price = Number(unit_price) || 0
-    const total = qty * price
+    const u = String(unit || 'ea').trim()
+    let price = Number(unit_price) || 0
+    let total
+    if (u === 'pct') {
+      price = Math.min(100, Math.max(0, price))
+      const t = bodyTotal !== undefined && bodyTotal !== null && bodyTotal !== '' ? Number(bodyTotal) : NaN
+      total = Number.isFinite(t) ? Math.round(t * 100) / 100 : 0
+    } else {
+      total = Math.round(qty * price * 100) / 100
+    }
     const insertPayload = {
       estimate_id: estimateId,
       custom_product_id: custom_product_id || null,
@@ -235,11 +255,17 @@ router.patch('/:estimateId/line-items/:lineId', async (req, res) => {
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const { lineId } = req.params
-    const { description, quantity, unit, unit_price, section } = req.body
+    const { description, quantity, unit, unit_price, section, total: bodyTotal } = req.body
     const qty = quantity !== undefined ? Number(quantity) : undefined
     const price = unit_price !== undefined ? Number(unit_price) : undefined
-    const total =
-      qty !== undefined && price !== undefined ? qty * price : undefined
+    const u = unit !== undefined ? String(unit).trim() : undefined
+    let total
+    if (bodyTotal !== undefined && bodyTotal !== null && bodyTotal !== '') {
+      const t = Number(bodyTotal)
+      total = Number.isFinite(t) ? Math.round(t * 100) / 100 : undefined
+    } else if (qty !== undefined && price !== undefined && u !== 'pct') {
+      total = Math.round(qty * price * 100) / 100
+    }
     const updates = {}
     if (description !== undefined) updates.description = description
     if (qty !== undefined) updates.quantity = qty

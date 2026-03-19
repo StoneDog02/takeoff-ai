@@ -174,7 +174,9 @@ export function EstimateInvoiceFormView({
                       <td className="estimate-doc__num estimate-doc__td-qty">{li.quantity}</td>
                       <td className="estimate-doc__td-unit">{li.unit}</td>
                       <td className="estimate-doc__num estimate-doc__td-rate">
-                        ${Number(li.unit_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        {li.unit === 'pct'
+                          ? `${Math.min(100, Math.max(0, Number(li.unit_price) || 0))}%`
+                          : `$${Number(li.unit_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
                       </td>
                       <td className="estimate-doc__num estimate-doc__amount">
                         ${Number(li.total).toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -284,7 +286,9 @@ export function EstimateInvoiceFormView({
                     <td className="estimate-invoice-form__num">{li.quantity}</td>
                     <td>{li.unit}</td>
                     <td className="estimate-invoice-form__num">
-                      ${Number(li.unit_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {li.unit === 'pct'
+                        ? `${Math.min(100, Math.max(0, Number(li.unit_price) || 0))}%`
+                        : `$${Number(li.unit_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
                     </td>
                     <td className="estimate-invoice-form__num estimate-invoice-form__amount">
                       ${Number(li.total).toLocaleString('en-US', { minimumFractionDigits: 2 })}
