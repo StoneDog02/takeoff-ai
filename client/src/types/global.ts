@@ -260,6 +260,8 @@ export interface Job {
   id: string
   name: string
   client_name?: string
+  client_email?: string | null
+  client_phone?: string | null
   created_at: string
   status?: string
   estimated_value?: number | null

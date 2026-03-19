@@ -215,8 +215,9 @@ export function BudgetTab({
     }
 
     if (!isSupabaseConfigured || !supabase) return undefined
+    const sb = supabase
 
-    const channel = supabase
+    const channel = sb
       .channel(`project_change_orders:${projectId}`)
       .on(
         'postgres_changes',
@@ -233,7 +234,7 @@ export function BudgetTab({
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      sb.removeChannel(channel)
     }
   }, [projectId, refetchChangeOrders, onRemoteBudgetRefresh])
 
