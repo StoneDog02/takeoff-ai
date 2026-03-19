@@ -1,7 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '@/api/client'
-import type { BudgetLineItem, ChangeOrder } from '@/types/global'
+import type { BudgetLineItem, ChangeOrder, EstimateLineItem } from '@/types/global'
+import { budgetCategoryKeyFromEstimateSection } from '@/lib/budgetCategoryFromEstimateSection'
 import {
   BUDGET_CATEGORY_KEY_TO_UNITS_CATEGORY,
   CATEGORY_UNITS,
@@ -47,6 +48,40 @@ function normalizeCategoryKey(item: BudgetLineItem): string {
 /** Order for "By Category" rows so Labor, Materials, etc. appear consistently. */
 const CATEGORY_ORDER: string[] = ['labor', 'materials', 'subs', 'equipment', 'permits', 'overhead', 'other']
 
+/** Map estimate lines to budget-shaped rows; merge actuals from saved budget lines when labels match within category. */
+function budgetLinesFromEstimateLineItems(
+  projectId: string,
+  lines: EstimateLineItem[],
+  mergeActualsFrom: BudgetLineItem[]
+): BudgetLineItem[] {
+  const pool = [...mergeActualsFrom]
+  return lines.map((li) => {
+    const cat = budgetCategoryKeyFromEstimateSection(li.section)
+    const predicted =
+      (Number.isFinite(Number(li.total)) ? Number(li.total) : 0) ||
+      (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)
+    const label = (li.description || 'Line item').trim() || 'Line item'
+    const idx = pool.findIndex(
+      (b) => normalizeCategoryKey(b) === cat && (b.label || '').trim().toLowerCase() === label.toLowerCase()
+    )
+    let actual = 0
+    if (idx !== -1) {
+      actual = Number(pool[idx].actual) || 0
+      pool.splice(idx, 1)
+    }
+    return {
+      id: `est-pending-${li.id}`,
+      project_id: projectId,
+      label,
+      predicted: Math.max(0, predicted),
+      actual,
+      category: cat,
+      unit: li.unit || undefined,
+      source: 'estimate',
+    }
+  })
+}
+
 /** Transactions per line item: empty until API/live data exists. */
 function getTransactions(_itemId: string): { desc: string; date: string; amount: number }[] {
   return []
@@ -83,6 +118,10 @@ export interface BudgetTabProps {
   approvedChangeOrdersTotal?: number
   /** When set, budget lines with created_at after this time (and not estimate-seeded) show as scope changes (CO). */
   estimateApprovedAt?: string | null
+  /** Latest open estimate lines while job is awaiting client approval — drives read-only “provisional” budget in the Line Items section. */
+  provisionalEstimateLineItems?: EstimateLineItem[] | null
+  /** When true with `provisionalEstimateLineItems`, line items are estimate-based, greyed, and not editable. */
+  budgetAwaitingEstimateApproval?: boolean
 }
 
 type SectionId = 'budget' | 'changeorders' | 'forecast'
@@ -95,6 +134,8 @@ export function BudgetTab({
   subsActualFromBidSheet,
   approvedChangeOrdersTotal,
   estimateApprovedAt,
+  provisionalEstimateLineItems = null,
+  budgetAwaitingEstimateApproval = false,
 }: BudgetTabProps) {
   const [list, setList] = useState<BudgetLineItem[]>(() => items)
   const [viewMode, setViewMode] = useState<'category' | 'item'>('category')
@@ -128,9 +169,23 @@ export function BudgetTab({
   const coMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [newCO, setNewCO] = useState({ description: '', amount: '', status: 'Pending' as 'Approved' | 'Pending', date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), category: 'other' })
 
+  const provisionalMode = Boolean(
+    budgetAwaitingEstimateApproval &&
+      provisionalEstimateLineItems &&
+      provisionalEstimateLineItems.length > 0
+  )
+
+  const listFromEstimateMerged = useMemo(() => {
+    if (!provisionalMode || !provisionalEstimateLineItems?.length) return null
+    return budgetLinesFromEstimateLineItems(projectId, provisionalEstimateLineItems, items)
+  }, [provisionalMode, provisionalEstimateLineItems, projectId, items])
+
+  const rollupList = listFromEstimateMerged ?? list
+
   useEffect(() => {
+    if (provisionalMode) return
     setList(items)
-  }, [items])
+  }, [items, provisionalMode])
 
   useEffect(() => {
     if (!projectId) return
@@ -146,17 +201,17 @@ export function BudgetTab({
     if (rect) setCoMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
   }, [coMenuOpenId])
 
-  const baselineBudget = useMemo(() => list.reduce((s, i) => s + Number(i.predicted || 0), 0), [list])
-  const totalActual = useMemo(() => list.reduce((s, i) => s + Number(i.actual || 0), 0), [list])
+  const baselineBudget = useMemo(() => rollupList.reduce((s, i) => s + Number(i.predicted || 0), 0), [rollupList])
+  const totalActual = useMemo(() => rollupList.reduce((s, i) => s + Number(i.actual || 0), 0), [rollupList])
   const approvedCOsFromList = useMemo(() => changeOrders.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.amount, 0), [changeOrders])
   const approvedCOs = approvedChangeOrdersTotal ?? approvedCOsFromList
   const postApprovalLinesSum = useMemo(() => {
     if (!estimateApprovedAt) return 0
-    return list.reduce((s, i) => s + (isPostApprovalBudgetLine(i, estimateApprovedAt) ? Number(i.predicted) || 0 : 0), 0)
-  }, [list, estimateApprovedAt])
+    return rollupList.reduce((s, i) => s + (isPostApprovalBudgetLine(i, estimateApprovedAt) ? Number(i.predicted) || 0 : 0), 0)
+  }, [rollupList, estimateApprovedAt])
   const originalEstimateBaseline = useMemo(
-    () => list.reduce((s, i) => s + (i.source === 'estimate' ? Number(i.predicted) || 0 : 0), 0),
-    [list]
+    () => rollupList.reduce((s, i) => s + (i.source === 'estimate' ? Number(i.predicted) || 0 : 0), 0),
+    [rollupList]
   )
   /** Post-approval budget lines + approved formal COs (same CO source as total budget KPIs). */
   const approvedChangesRunningTotal = useMemo(
@@ -305,12 +360,29 @@ export function BudgetTab({
   // Donut segments
   const donutTotal = totalActual || 1
   let cumPct = 0
-  const segments = list.map((item) => {
+  const segments = rollupList.map((item) => {
     const pct = Number(item.actual || 0) / donutTotal
     const start = cumPct
     cumPct += pct
     return { ...item, start, pct, color: getItemColor(item) }
   })
+  const spendBreakdownRows = useMemo(() => {
+    const byCategory = new Map<string, number>()
+    for (const item of rollupList) {
+      const key = normalizeCategoryKey(item)
+      byCategory.set(key, (byCategory.get(key) ?? 0) + (Number(item.actual) || 0))
+    }
+    return CATEGORY_ORDER
+      .filter((key) => byCategory.has(key))
+      .map((key) => ({
+        id: `spend-${key}`,
+        project_id: projectId,
+        label: CATEGORY_LABELS[key] ?? key,
+        predicted: 0,
+        actual: byCategory.get(key) ?? 0,
+        category: key,
+      }))
+  }, [rollupList, projectId])
 
   function polarToXY(pct: number, r: number) {
     const angle = pct * 2 * Math.PI - Math.PI / 2
@@ -333,7 +405,8 @@ export function BudgetTab({
     coStatus?: 'Approved' | 'Pending',
     categoryPendingAmount?: number,
     actualSourceLabel?: string,
-    postApprovalLine?: boolean
+    postApprovalLine?: boolean,
+    readOnlyProvisional = false
   ) {
     const budgeted = Number(item.predicted || 0)
     const actual = Number(item.actual || 0)
@@ -341,29 +414,42 @@ export function BudgetTab({
     const pct = budgeted ? Math.round((actual / budgeted) * 100) : 0
     const over = actual > budgeted
     const color = getItemColor(item)
-    const isActive = !isCategoryView && !isChangeOrder && drawerItem?.id === item.id
+    const rowInteractive = !readOnlyProvisional && !isCategoryView && !isChangeOrder
+    const isActive = rowInteractive && drawerItem?.id === item.id
     const transactions = !isCategoryView && !isChangeOrder ? getTransactions(item.id) : []
     return (
       <div key={item.id}>
         <div
-          role="button"
-          tabIndex={0}
-          onClick={() => !isChangeOrder && setDrawerItem(isActive ? null : item)}
-          onKeyDown={(e) => !isChangeOrder && e.key === 'Enter' && (setDrawerItem(isActive ? null : item), e.preventDefault())}
-          className={`budget-table-row ${isActive ? 'active' : ''}`}
-          style={{ borderLeftColor: isActive ? color : undefined }}
+          role={rowInteractive ? 'button' : undefined}
+          tabIndex={rowInteractive ? 0 : undefined}
+          onClick={rowInteractive && !isChangeOrder ? () => setDrawerItem(isActive ? null : item) : undefined}
+          onKeyDown={rowInteractive && !isChangeOrder ? (e) => e.key === 'Enter' && (setDrawerItem(isActive ? null : item), e.preventDefault()) : undefined}
+          className={`budget-table-row ${isActive ? 'active' : ''} ${readOnlyProvisional && !isChangeOrder ? 'budget-table-row--provisional' : ''}`}
+          style={{
+            borderLeftColor: isActive ? color : undefined,
+            cursor: rowInteractive ? undefined : 'default',
+            ...(readOnlyProvisional && !isChangeOrder ? { opacity: 0.94 } : {}),
+          }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {item.label || 'Untitled'}
-                {!isChangeOrder && item.source === 'estimate' && (
+                {!isChangeOrder && item.source === 'estimate' && !readOnlyProvisional && (
                   <span
                     style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}
                     title="Seeded from approved estimate"
                   >
                     EST
+                  </span>
+                )}
+                {!isChangeOrder && item.source === 'estimate' && readOnlyProvisional && (
+                  <span
+                    style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}
+                    title="From latest estimate — not yet approved"
+                  >
+                    PENDING
                   </span>
                 )}
                 {!isChangeOrder && postApprovalLine && (
@@ -403,9 +489,18 @@ export function BudgetTab({
                 style={{ borderColor: '#6366f1' }}
               />
             ) : (
-              <span className="text-[13px] font-mono text-[var(--text-primary)]">{fmt(budgeted)}</span>
+              <span
+                className="text-[13px] font-mono"
+                style={{
+                  color: readOnlyProvisional ? 'var(--text-muted)' : 'var(--text-primary)',
+                  fontStyle: readOnlyProvisional ? 'italic' : undefined,
+                }}
+              >
+                {fmt(budgeted)}
+                {readOnlyProvisional && !isCategoryView ? <span style={{ fontSize: 10, fontStyle: 'italic', marginLeft: 4, opacity: 0.85 }}>(est.)</span> : null}
+              </span>
             )}
-            {!isCategoryView && !isChangeOrder && (
+            {!isCategoryView && !isChangeOrder && !readOnlyProvisional && (
               <button type="button" onClick={(e) => { e.stopPropagation(); startEdit(item); }} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer">
                 <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
@@ -434,7 +529,7 @@ export function BudgetTab({
                 </div>
               </div>
             )}
-            {!isCategoryView && !isChangeOrder && editingActualId !== item.id && (
+            {!isCategoryView && !isChangeOrder && !readOnlyProvisional && editingActualId !== item.id && (
               <button type="button" onClick={(e) => { e.stopPropagation(); startEditActual(item); }} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer" title="Edit actual">
                 <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
@@ -446,13 +541,13 @@ export function BudgetTab({
               <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontVariantNumeric: 'tabular-nums', width: 'fit-content', flexShrink: 0 }} title="Pending change orders">Pending +{fmt(categoryPendingAmount)}</span>
             )}
           </div>
-          {isCategoryView ? <span /> : isChangeOrder && coId ? (
+          {isCategoryView || (readOnlyProvisional && !isChangeOrder) ? <span /> : isChangeOrder && coId ? (
             <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteChangeOrder(coId); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>
           ) : (
             <button type="button" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} className="text-[12px] text-[var(--border)] hover:text-[var(--text-muted)] bg-transparent border-none cursor-pointer font-inherit">Remove</button>
           )}
         </div>
-        {isActive && (
+        {isActive && rowInteractive && (
           <div className="budget-table-drawer">
             <div className="budget-table-drawer-title">Transactions</div>
             {transactions.length > 0 ? (
@@ -543,11 +638,29 @@ export function BudgetTab({
 
   return (
     <div className="budget-tab" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {provisionalMode && (
+        <div
+          style={{
+            fontSize: 13,
+            color: '#92400e',
+            padding: '10px 14px',
+            background: '#fffbeb',
+            borderRadius: 10,
+            border: '1px solid #fde68a',
+            lineHeight: 1.45,
+          }}
+        >
+          Budget below reflects your latest estimate. Numbers are provisional until the client approves.
+        </div>
+      )}
       {/* Top KPI Row */}
-      <div className="budget-kpi-row">
+      <div className="budget-kpi-row" style={provisionalMode ? { opacity: 0.92 } : undefined}>
         <div className="budget-kpi-card">
           <div className="budget-kpi-label">Total Budget</div>
           <div className="budget-kpi-value">{totalBudget ? fmt(totalBudget) : '—'}</div>
+          {provisionalMode && (
+            <div className="budget-kpi-sub" style={{ color: '#b45309' }}>Estimated — pending approval</div>
+          )}
           {approvedCOs > 0 && (
             <div className="budget-kpi-sub" style={{ color: 'var(--green, #16a34a)' }}>+{fmt(approvedCOs)} in approved COs</div>
           )}
@@ -579,7 +692,7 @@ export function BudgetTab({
       </div>
 
       {/* Main Body */}
-      <div className="budget-body">
+      <div className="budget-body" style={provisionalMode ? { opacity: 0.92 } : undefined}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* Section tabs */}
           <div className="budget-section-tabs">
@@ -601,7 +714,10 @@ export function BudgetTab({
               <div className="budget-table-header">
                 <div>
                   <div className="budget-table-title">Budget vs Actual</div>
-                  <div className="budget-table-sub">{list.length} line items · click a row to see transactions</div>
+                  <div className="budget-table-sub">
+                    {rollupList.length} line items
+                    {!provisionalMode ? ' · click a row to see transactions' : ' · pending approval'}
+                  </div>
                 </div>
                 <div className="budget-view-toggle">
                   {(['category', 'item'] as const).map((v) => (
@@ -622,7 +738,7 @@ export function BudgetTab({
               </div>
               {viewMode === 'category' && (() => {
                 const byCat = new Map<string, { predicted: number; actual: number }>()
-                for (const i of list) {
+                for (const i of rollupList) {
                   const key = normalizeCategoryKey(i)
                   const cur = byCat.get(key) ?? { predicted: 0, actual: 0 }
                   cur.predicted += Number(i.predicted || 0)
@@ -642,7 +758,7 @@ export function BudgetTab({
                 }
                 const categoryHasEstimateSource = new Map<string, boolean>()
                 const categoryHasPostApprovalLine = new Map<string, boolean>()
-                for (const i of list) {
+                for (const i of rollupList) {
                   const key = normalizeCategoryKey(i)
                   if (i.source === 'estimate') categoryHasEstimateSource.set(key, true)
                   if (isPostApprovalBudgetLine(i, estimateApprovedAt)) categoryHasPostApprovalLine.set(key, true)
@@ -654,7 +770,7 @@ export function BudgetTab({
                   return renderBudgetRow(
                     {
                       id: `category-${key}`,
-                      project_id: list[0]?.project_id ?? '',
+                      project_id: rollupList[0]?.project_id ?? '',
                       label: CATEGORY_LABELS[key] ?? key,
                       category: key,
                       predicted: catData?.predicted ?? 0,
@@ -667,7 +783,8 @@ export function BudgetTab({
                     undefined,
                     pendingAmt,
                     undefined,
-                    categoryHasPostApprovalLine.get(key) === true
+                    categoryHasPostApprovalLine.get(key) === true,
+                    provisionalMode
                   )
                 })
               })()}
@@ -676,7 +793,7 @@ export function BudgetTab({
                 const pendingCOList = changeOrders.filter((c) => c.status === 'Pending')
                 const itemGroups = CATEGORY_ORDER.map((key) => ({
                   key,
-                  items: list.filter((i) => normalizeCategoryKey(i) === key),
+                  items: rollupList.filter((i) => normalizeCategoryKey(i) === key),
                   cos: approvedCOList.filter((c) => ((c.category && CATEGORY_ORDER.includes(c.category)) ? c.category : 'other') === key),
                   pendingCos: pendingCOList.filter((c) => ((c.category && CATEGORY_ORDER.includes(c.category)) ? c.category : 'other') === key),
                 })).filter((g) => g.items.length > 0 || g.cos.length > 0 || g.pendingCos.length > 0)
@@ -694,7 +811,8 @@ export function BudgetTab({
                             undefined,
                             undefined,
                             actualSourceLabel,
-                            isPostApprovalBudgetLine(item, estimateApprovedAt)
+                            isPostApprovalBudgetLine(item, estimateApprovedAt),
+                            provisionalMode
                           )
                         })}
                         {group.cos.map((co) => renderBudgetRow({
@@ -713,7 +831,7 @@ export function BudgetTab({
                           actual: 0,
                           category: co.category || 'other',
                         } as BudgetLineItem, false, true, co.id, 'Pending'))}
-                        {addingRow && addingForCategory === group.key ? renderAddRowForm() : (
+                        {!provisionalMode && (addingRow && addingForCategory === group.key ? renderAddRowForm() : (
                           <div className="budget-table-add-row">
                             <button
                               type="button"
@@ -727,13 +845,13 @@ export function BudgetTab({
                               + Add line item
                             </button>
                           </div>
-                        )}
+                        ))}
                       </div>
                     ))}
                     {itemGroups.length === 0 && (
                       <div style={{ padding: '16px 0', color: 'var(--text-muted)', fontSize: 13 }}>No line items or change orders yet. Add line items above or add approved change orders in the Change Orders tab.</div>
                     )}
-                    {addingRow && addingForCategory === null ? renderAddRowForm() : (
+                    {!provisionalMode && (addingRow && addingForCategory === null ? renderAddRowForm() : (
                       <div className="budget-table-add-row">
                         <button
                           type="button"
@@ -747,11 +865,11 @@ export function BudgetTab({
                           + Add line item
                         </button>
                       </div>
-                    )}
+                    ))}
                   </>
                 )
               })()}
-              {viewMode === 'category' && (addingRow ? renderAddRowForm() : (
+              {viewMode === 'category' && !provisionalMode && (addingRow ? renderAddRowForm() : (
                 <div className="budget-table-add-row">
                   <button
                     type="button"
@@ -791,7 +909,9 @@ export function BudgetTab({
                 </div>
               ) : null}
               <div className="budget-table-badge-legend">
-                EST = seeded from approved estimate · CO = change order or line added after approval.
+                {provisionalMode
+                  ? 'PENDING = from latest estimate, not yet approved · CO = change order rows below.'
+                  : 'EST = seeded from approved estimate · CO = change order or line added after approval.'}
               </div>
             </div>
           )}
@@ -922,7 +1042,7 @@ export function BudgetTab({
                 <text x={60} y={72} textAnchor="middle" fontSize={14} fontWeight={700} fill="var(--text-primary)" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalActual >= 1000 ? `$${Math.round(totalActual / 1000)}k` : fmt(totalActual)}</text>
               </svg>
             </div>
-            {list.map((item) => (
+            {spendBreakdownRows.map((item) => (
               <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: getItemColor(item) }} />
@@ -934,7 +1054,7 @@ export function BudgetTab({
           </div>
           <div className="budget-alerts-card">
             <div className="budget-alerts-title">Alerts</div>
-            {list.map((item) => {
+            {rollupList.map((item) => {
               const budgeted = Number(item.predicted || 0)
               const actual = Number(item.actual || 0)
               const pct = budgeted ? Math.round((actual / budgeted) * 100) : 0
@@ -950,7 +1070,7 @@ export function BudgetTab({
                 </div>
               )
             })}
-            {list.every((i) => (Number(i.actual || 0) / (Number(i.predicted) || 1)) < 0.8) && (
+            {rollupList.every((i) => (Number(i.actual || 0) / (Number(i.predicted) || 1)) < 0.8) && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No alerts – all categories on track</div>
             )}
           </div>

@@ -4,7 +4,24 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
 import type { DashboardProject } from '@/api/client'
 import type { ProjectCardData } from '@/data/mockProjectsData'
-import type { Project, Job, Phase, Milestone, ProjectTask, JobWalkMedia, ProjectBuildPlan, Subcontractor, MaterialList, ProjectWorkType, ProjectActivityItem, JobAssignment, Employee, BidSheet, Estimate } from '@/types/global'
+import type {
+  Project,
+  Job,
+  Phase,
+  Milestone,
+  ProjectTask,
+  JobWalkMedia,
+  ProjectBuildPlan,
+  Subcontractor,
+  MaterialList,
+  ProjectWorkType,
+  ProjectActivityItem,
+  JobAssignment,
+  Employee,
+  BidSheet,
+  Estimate,
+  EstimateLineItem,
+} from '@/types/global'
 import { teamsApi } from '@/api/teamsClient'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { HealthRing } from '@/components/projects/HealthRing'
@@ -33,6 +50,82 @@ import { CustomProductLibrary } from '@/components/estimates/CustomProductLibrar
 import { type InitialEstimateLine } from '@/components/estimates/EstimateBuilder'
 import { estimatesApi } from '@/api/estimates'
 import { allTradesReadyForEstimate } from '@/lib/estimatingTrades'
+import { budgetCategoryKeyFromEstimateSection } from '@/lib/budgetCategoryFromEstimateSection'
+
+const OVERVIEW_ESTIMATE_KEY_TO_LABEL: Record<string, string> = {
+  labor: 'Labor',
+  materials: 'Materials',
+  subs: 'Subcontractors',
+  equipment: 'Equipment',
+  permits: 'Permits & Fees',
+  overhead: 'Overhead',
+  other: 'Other',
+}
+
+const OVERVIEW_BUDGET_CATEGORY_ORDER = [
+  'Labor',
+  'Materials',
+  'Subcontractors',
+  'Equipment',
+  'Permits & Fees',
+  'Overhead',
+  'Other',
+] as const
+
+export type OverviewBudgetRow = {
+  id: string
+  project_id: string
+  label: string
+  predicted: number
+  actual: number
+  category: string
+}
+
+function buildOverviewBudgetFromEstimateLines(
+  projectId: string,
+  lines: EstimateLineItem[],
+  totalAmount: number
+): { total: number; items: OverviewBudgetRow[] } {
+  const sumLines = lines.reduce((s, li) => {
+    const t = Number(li.total)
+    if (Number.isFinite(t) && t !== 0) return s + t
+    return s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)
+  }, 0)
+  const total = Math.max(0, Number(totalAmount) || sumLines)
+  const buckets = new Map<string, number>()
+  for (const li of lines) {
+    const key = budgetCategoryKeyFromEstimateSection(li.section)
+    const label = OVERVIEW_ESTIMATE_KEY_TO_LABEL[key] ?? 'Other'
+    const lineTotal =
+      (Number.isFinite(Number(li.total)) ? Number(li.total) : 0) ||
+      (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)
+    buckets.set(label, (buckets.get(label) ?? 0) + lineTotal)
+  }
+  let items: OverviewBudgetRow[] = [...buckets.entries()]
+    .filter(([, p]) => p > 0)
+    .sort((a, b) => OVERVIEW_BUDGET_CATEGORY_ORDER.indexOf(a[0] as (typeof OVERVIEW_BUDGET_CATEGORY_ORDER)[number]) - OVERVIEW_BUDGET_CATEGORY_ORDER.indexOf(b[0] as (typeof OVERVIEW_BUDGET_CATEGORY_ORDER)[number]))
+    .map(([label, predicted], i) => ({
+      id: `est-prev-${projectId}-${i}-${label.replace(/\s+/g, '-')}`,
+      project_id: projectId,
+      label,
+      predicted,
+      actual: 0,
+      category: label,
+    }))
+  if (items.length === 0 && total > 0) {
+    items = [
+      {
+        id: `est-prev-${projectId}-rollup`,
+        project_id: projectId,
+        label: 'Estimate total',
+        predicted: total,
+        actual: 0,
+        category: 'other',
+      },
+    ]
+  }
+  return { total, items }
+}
 
 export interface NewProjectFormData {
   name: string
@@ -139,6 +232,12 @@ export function ProjectsPage() {
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [media, setMedia] = useState<JobWalkMedia[]>([])
   const [budget, setBudget] = useState<{ items: { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[]; summary: { predicted_total: number; actual_total: number; profitability: number }; labor_actual_from_time_entries?: number; subs_actual_from_bid_sheet?: number; approved_change_orders_total?: number } | null>(null)
+  /** Awaiting approval: latest open estimate rolled up for overview (greyed “provisional” budget). */
+  const [awaitingApprovalEstimatePreview, setAwaitingApprovalEstimatePreview] = useState<{
+    total: number
+    items: OverviewBudgetRow[]
+    lineItems: EstimateLineItem[]
+  } | null>(null)
   const [takeoffs, setTakeoffs] = useState<{ id: string; material_list: { categories: { name: string; items: { description: string; quantity: number; unit: string; trade_tag?: string; cost_estimate?: number | null }[] }[] }; created_at: string }[]>([])
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([])
   const [jobAssignments, setJobAssignments] = useState<JobAssignment[]>([])
@@ -422,6 +521,66 @@ export function ProjectsPage() {
         setLinkedAcceptedEstimateId(accepted?.id ?? null)
       })
       .catch(() => setLinkedAcceptedEstimateId(null))
+  }, [id, project?.id, project?.status])
+
+  useEffect(() => {
+    if (!id || !project?.id) {
+      setAwaitingApprovalEstimatePreview(null)
+      return
+    }
+    const sk = (project.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
+    if (sk !== 'awaiting_approval') {
+      setAwaitingApprovalEstimatePreview(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const list = await estimatesApi.getEstimates(id)
+        if (cancelled) return
+        const open: Estimate['status'][] = ['draft', 'sent', 'viewed', 'changes_requested']
+        const candidates = (list ?? []).filter((e) => e.job_id === id && open.includes(e.status))
+        if (candidates.length === 0) {
+          setAwaitingApprovalEstimatePreview(null)
+          return
+        }
+        const est = [...candidates].sort((a, b) => {
+          const ta = (a.sent_at ? new Date(a.sent_at) : new Date(a.updated_at)).getTime()
+          const tb = (b.sent_at ? new Date(b.sent_at) : new Date(b.updated_at)).getTime()
+          return tb - ta
+        })[0]
+        const full = await estimatesApi.getEstimate(est.id)
+        if (cancelled) return
+        const { total, items } = buildOverviewBudgetFromEstimateLines(id, full.line_items ?? [], full.total_amount)
+        const rawLines = full.line_items ?? []
+        const lineItems: EstimateLineItem[] =
+          rawLines.length > 0
+            ? rawLines
+            : total > 0
+              ? [
+                  {
+                    id: `est-rollup-${est.id}`,
+                    estimate_id: est.id,
+                    product_id: null,
+                    description: 'Estimate total',
+                    quantity: 1,
+                    unit: 'ls',
+                    unit_price: total,
+                    total,
+                    section: null,
+                  },
+                ]
+              : []
+        setAwaitingApprovalEstimatePreview(
+          items.length > 0 || total > 0 ? { total, items, lineItems } : null
+        )
+      } catch {
+        if (!cancelled) setAwaitingApprovalEstimatePreview(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [id, project?.id, project?.status])
 
   useEffect(() => {
@@ -1663,8 +1822,37 @@ export function ProjectsPage() {
   const budgetPct = revisedBudget > 0
     ? Math.round((budgetSummary.actual_total / revisedBudget) * 100)
     : 0
+
+  const statusKey = (project?.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
+  const budgetShowsAwaitingApproval = statusKey === 'awaiting_approval'
+  const hasEstimateBudgetPreview =
+    budgetShowsAwaitingApproval &&
+    awaitingApprovalEstimatePreview != null &&
+    (awaitingApprovalEstimatePreview.total > 0 || awaitingApprovalEstimatePreview.items.length > 0)
+  const overviewDisplayBudget = hasEstimateBudgetPreview
+    ? awaitingApprovalEstimatePreview!.total
+    : revisedBudget
+  const overviewBudgetLineItems = hasEstimateBudgetPreview
+    ? awaitingApprovalEstimatePreview!.items
+    : (budget?.items ?? [])
+  const overviewBudgetDisplayItems = hasEstimateBudgetPreview
+    ? overviewBudgetLineItems.map((row) => {
+        const match = (budget?.items ?? []).find(
+          (it) => it.label.toLowerCase() === row.label.toLowerCase()
+        )
+        return { ...row, actual: match?.actual ?? 0 }
+      })
+    : overviewBudgetLineItems
+  const overviewBudgetPct =
+    overviewDisplayBudget > 0
+      ? Math.round((budgetSummary.actual_total / overviewDisplayBudget) * 100)
+      : 0
+  const isUnderBudgetOverview =
+    overviewDisplayBudget > 0 && budgetSummary.actual_total <= overviewDisplayBudget
+  const healthBudgetForScore = hasEstimateBudgetPreview ? isUnderBudgetOverview : isUnderBudget
+
   const healthScore = Math.min(100, Math.max(0,
-    (isUnderBudget ? 40 : 20) +
+    (healthBudgetForScore ? 40 : 20) +
     (daysLeft == null || daysLeft > 7 ? 35 : daysLeft > 0 ? 20 : 0) +
     (timelinePct <= 90 ? 25 : 15)
   ))
@@ -1680,7 +1868,6 @@ export function ProjectsPage() {
     { id: 'bidsheet' as const, label: 'Bid Sheet', icon: 'checklist' },
   ]
 
-  const statusKey = (project?.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
   const statusPillStyle =
     statusKey === 'active'
       ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' }
@@ -1899,15 +2086,63 @@ export function ProjectsPage() {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
               Budget vs Actual
             </div>
-            <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
-              ${budgetSummary.actual_total.toLocaleString()} <span className="text-xs font-normal font-sans text-[var(--text-primary)]">/ ${revisedBudget.toLocaleString()}</span>
-            </div>
-            <div className="mt-1.5">
-              <div className="text-[11px] text-[var(--text-primary)] mb-0.5">{budgetPct}% used</div>
-              <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
-                <div className="h-full rounded-sm transition-[width]" style={{ width: `${Math.min(100, budgetPct)}%`, background: budgetPct > 95 ? 'var(--red)' : budgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)' }} />
-              </div>
-            </div>
+            {budgetShowsAwaitingApproval && !hasEstimateBudgetPreview ? (
+              <>
+                <div className="text-[14px] font-semibold" style={{ color: 'var(--est-amber, #b86e1a)' }}>
+                  Awaiting Approval
+                </div>
+                <div className="mt-1.5">
+                  <div className="text-[11px] text-[var(--text-muted)] mb-0.5">Budget after estimate is approved</div>
+                  <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                    <div className="h-full rounded-sm" style={{ width: 0, background: 'var(--border)' }} />
+                  </div>
+                </div>
+              </>
+            ) : budgetShowsAwaitingApproval && hasEstimateBudgetPreview ? (
+              <>
+                <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudgetOverview ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                  ${budgetSummary.actual_total.toLocaleString()}{' '}
+                  <span className="text-xs font-normal font-sans text-[var(--text-muted)] opacity-75">
+                    / ${overviewDisplayBudget.toLocaleString()}
+                  </span>
+                </div>
+                <div className="mt-1.5">
+                  <div className="text-[11px] text-[var(--text-muted)] mb-0.5">
+                    {overviewBudgetPct}% of estimate · pending approval
+                  </div>
+                  <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                    <div
+                      className="h-full rounded-sm transition-[width]"
+                      style={{
+                        width: `${Math.min(100, overviewBudgetPct)}%`,
+                        background: overviewBudgetPct > 95 ? 'var(--red)' : overviewBudgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                  ${budgetSummary.actual_total.toLocaleString()}{' '}
+                  <span className="text-xs font-normal font-sans text-[var(--text-primary)]">
+                    / ${revisedBudget.toLocaleString()}
+                  </span>
+                </div>
+                <div className="mt-1.5">
+                  <div className="text-[11px] text-[var(--text-primary)] mb-0.5">{budgetPct}% used</div>
+                  <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                    <div
+                      className="h-full rounded-sm transition-[width]"
+                      style={{
+                        width: `${Math.min(100, budgetPct)}%`,
+                        background: budgetPct > 95 ? 'var(--red)' : budgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <div className="project-overview-kpi-cell">
             <div className="project-overview-kpi-label">
@@ -2019,8 +2254,10 @@ export function ProjectsPage() {
               project={{
                 assigned_to_name: project.assigned_to_name,
                 phases,
-                budget: revisedBudget,
-                budgetItemsCount: budget?.items?.length ?? 0,
+                budget: hasEstimateBudgetPreview ? overviewDisplayBudget : revisedBudget,
+                budgetItemsCount: hasEstimateBudgetPreview
+                  ? overviewBudgetDisplayItems.length
+                  : (budget?.items?.length ?? 0),
                 team: subcontractors,
                 workTypes,
                 milestones,
@@ -2138,33 +2375,74 @@ export function ProjectsPage() {
               </div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
-                    ${budgetSummary.actual_total.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-[var(--text-muted)]">of ${revisedBudget.toLocaleString()} budget</div>
+                  {budgetShowsAwaitingApproval && !hasEstimateBudgetPreview ? (
+                    <>
+                      <div
+                        className="text-[20px] font-semibold leading-snug max-w-[220px]"
+                        style={{ color: 'var(--est-amber, #b86e1a)' }}
+                      >
+                        Awaiting Approval
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)] mt-1">
+                        Budget and actuals apply once the estimate is approved
+                      </div>
+                    </>
+                  ) : budgetShowsAwaitingApproval && hasEstimateBudgetPreview ? (
+                    <>
+                      <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudgetOverview ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                        ${budgetSummary.actual_total.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)] opacity-80">
+                        of ${overviewDisplayBudget.toLocaleString()}{' '}
+                        <span className="italic">estimated</span> budget
+                      </div>
+                      <div className="text-[11px] mt-1 font-medium" style={{ color: 'var(--est-amber, #b86e1a)' }}>
+                        Pending client approval — totals may change
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                        ${budgetSummary.actual_total.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)]">of ${revisedBudget.toLocaleString()} budget</div>
+                    </>
+                  )}
                 </div>
               </div>
-              {(budget?.items ?? []).map((item) => {
+              {overviewBudgetDisplayItems.map((item) => {
+                const provisionalBudget = hasEstimateBudgetPreview
+                const categoryKeyForDisplay = budgetCategoryKeyFromEstimateSection(
+                  item.category || item.label
+                )
+                const displayLabel = OVERVIEW_ESTIMATE_KEY_TO_LABEL[categoryKeyForDisplay] ?? item.label
                 const over = item.actual > item.predicted
-                const color = BUDGET_ITEM_COLORS[item.label] ?? '#6366f1'
+                const color = BUDGET_ITEM_COLORS[displayLabel] ?? '#6366f1'
                 const maxVal = Math.max(item.predicted, item.actual)
                 const budgetWidth = maxVal > 0 ? (item.predicted / maxVal) * 100 : 0
                 const actualWidth = maxVal > 0 ? Math.min(100, (item.actual / maxVal) * 100) : 0
+                const mutedBar = provisionalBudget ? 'opacity-45' : ''
                 return (
-                  <div key={item.id} className="mb-3.5 last:mb-0">
+                  <div
+                    key={item.id}
+                    className={`mb-3.5 last:mb-0 ${provisionalBudget ? 'opacity-[0.92]' : ''}`}
+                  >
                     <div className="flex justify-between mb-1.5">
                       <div className="flex items-center gap-2">
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-                        <span className="text-[13px] font-medium text-[var(--text-secondary)]">{item.label}</span>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, opacity: provisionalBudget ? 0.55 : 1 }} />
+                        <span className={`text-[13px] font-medium ${provisionalBudget ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>{displayLabel}</span>
                       </div>
                       <div className="flex gap-3 items-center">
-                        <span className="text-xs text-[var(--text-muted)]">${item.predicted.toLocaleString()}</span>
+                        <span className={`text-xs ${provisionalBudget ? 'text-[var(--text-muted)] opacity-70 italic' : 'text-[var(--text-muted)]'}`}>
+                          ${item.predicted.toLocaleString()}
+                          {provisionalBudget ? <span className="not-italic text-[10px] ml-1 opacity-80">(est.)</span> : null}
+                        </span>
                         <span className="text-[13px] font-semibold font-mono" style={{ color: over ? 'var(--red)' : 'var(--text-primary)' }}>${item.actual.toLocaleString()}</span>
                         <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-md" style={{ background: over ? '#fef2f2' : '#f0fdf4', color: over ? 'var(--red)' : 'var(--green,#16a34a)' }}>{over ? '-' : '+'}${Math.abs(item.actual - item.predicted).toLocaleString()}</span>
                       </div>
                     </div>
                     <div className="h-1.5 rounded-md overflow-hidden bg-[var(--bg-base)] relative">
-                      <div className="absolute left-0 top-0 h-full rounded-md bg-[var(--border)]" style={{ width: `${budgetWidth}%` }} />
+                      <div className={`absolute left-0 top-0 h-full rounded-md bg-[var(--border)] ${mutedBar}`} style={{ width: `${budgetWidth}%` }} />
                       <div className="absolute left-0 top-0 h-full rounded-md opacity-90" style={{ width: `${actualWidth}%`, background: over ? 'var(--red)' : color }} />
                     </div>
                   </div>
@@ -2431,6 +2709,10 @@ export function ProjectsPage() {
               subsActualFromBidSheet={budget?.subs_actual_from_bid_sheet}
               approvedChangeOrdersTotal={budget?.approved_change_orders_total}
               estimateApprovedAt={project.estimate_approved_at ?? null}
+              provisionalEstimateLineItems={
+                hasEstimateBudgetPreview ? (awaitingApprovalEstimatePreview?.lineItems ?? null) : null
+              }
+              budgetAwaitingEstimateApproval={hasEstimateBudgetPreview}
               onSave={async (items) => {
               await api.projects.updateBudget(project.id, items)
               // Refetch so we get merged actuals (awarded bids, time entries) instead of raw DB rows
