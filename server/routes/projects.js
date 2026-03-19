@@ -1211,6 +1211,7 @@ router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next)
         status: 'draft',
         total_amount: amount,
         recipient_emails: outEmails,
+        source_change_order_id: coId,
       })
       .select('id')
       .single()

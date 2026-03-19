@@ -184,7 +184,7 @@ export function EstimateClientFacingDocument({
   }
 
   const isChangeOrder = portalDocumentKind === 'change_order'
-  const heroHeadline = isChangeOrder ? 'New Change Order?' : companyDisplayName
+  const heroHeadline = isChangeOrder ? 'New Change Order' : companyDisplayName
 
   return (
     <div className="estimate-portal-doc estimate-doc--elevated">

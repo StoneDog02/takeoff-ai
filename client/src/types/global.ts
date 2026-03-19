@@ -291,6 +291,8 @@ export interface Estimate {
   client_terms?: string | null
   /** Snapshot of wizard line-item groups (revise + per-section notes for portal). */
   estimate_groups_meta?: unknown
+  /** Set when this estimate was created from “send change order”; portal approval marks the CO approved. */
+  source_change_order_id?: string | null
 }
 
 export interface EstimateLineItem {

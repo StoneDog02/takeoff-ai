@@ -12,6 +12,33 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 
+/** When an estimate was created from “send change order”, mark that CO Approved (matches project). */
+async function markLinkedChangeOrderApproved(supabase, { estimateId, jobId, sourceChangeOrderId }) {
+  if (!sourceChangeOrderId || !jobId) return
+  const { data: co, error: fetchErr } = await supabase
+    .from('project_change_orders')
+    .select('id, project_id')
+    .eq('id', sourceChangeOrderId)
+    .maybeSingle()
+  if (fetchErr) {
+    console.error('[estimate-portal] change order lookup', fetchErr)
+    return
+  }
+  if (!co || co.project_id !== jobId) {
+    console.warn('[estimate-portal] source_change_order_id mismatch or missing row', {
+      estimateId,
+      sourceChangeOrderId,
+      jobId,
+    })
+    return
+  }
+  const { error: updErr } = await supabase
+    .from('project_change_orders')
+    .update({ status: 'Approved' })
+    .eq('id', sourceChangeOrderId)
+  if (updErr) console.error('[estimate-portal] mark change order approved', updErr)
+}
+
 const router = express.Router()
 
 // --- Rate limit: 10 requests per IP per hour (same as bid portal) ---
@@ -209,7 +236,7 @@ router.post('/:token/approve', async (req, res, next) => {
 
     const { data: est, error: fetchErr } = await supabase
       .from('estimates')
-      .select('id, status, job_id')
+      .select('id, status, job_id, source_change_order_id')
       .eq('client_token', token)
       .maybeSingle()
     if (fetchErr) throw fetchErr
@@ -223,6 +250,11 @@ router.post('/:token/approve', async (req, res, next) => {
           console.error('[estimate-portal] budget sync (already approved)', budgetErr)
         }
       }
+      await markLinkedChangeOrderApproved(supabase, {
+        estimateId: est.id,
+        jobId: est.job_id,
+        sourceChangeOrderId: est.source_change_order_id,
+      })
       return res.json({ status: 'accepted', message: 'Already approved' })
     }
     if ((est.status || '').toLowerCase() === 'declined') {
@@ -252,6 +284,12 @@ router.post('/:token/approve', async (req, res, next) => {
         console.error('[estimate-portal] budget sync after approve', budgetErr)
       }
     }
+
+    await markLinkedChangeOrderApproved(supabase, {
+      estimateId: est.id,
+      jobId: est.job_id,
+      sourceChangeOrderId: est.source_change_order_id,
+    })
 
     return res.json({ status: 'accepted', message: 'Estimate approved.' })
   } catch (err) {
