@@ -1220,7 +1220,7 @@ router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next)
       .from('estimate_line_items')
       .insert({
         estimate_id: estimate.id,
-        product_id: null,
+        custom_product_id: null,
         description: String(co.description || 'Change order').trim() || 'Change order',
         quantity: 1,
         unit: 'ls',

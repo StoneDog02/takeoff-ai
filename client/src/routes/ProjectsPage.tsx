@@ -2371,7 +2371,16 @@ export function ProjectsPage() {
             <div className="project-overview-card">
               <div className="flex justify-between items-start mb-0">
                 <div className="project-overview-card-title">Budget vs Actual</div>
-                <span className="project-overview-card-action">Full breakdown →</span>
+                <button
+                  type="button"
+                  className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+                  disabled={project.status === 'estimating'}
+                  title={project.status === 'estimating' ? 'Available after job is created' : 'Open Change Orders'}
+                  onClick={() => { if (project.status !== 'estimating') setActiveTab('budget') }}
+                >
+                  Full breakdown →
+                </button>
               </div>
               <div className="flex justify-between items-center mb-4">
                 <div>
