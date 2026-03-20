@@ -21,9 +21,6 @@ export function mergeAttendanceWithTimeEntries(
       date: e.clock_in.slice(0, 10),
       clock_in: e.clock_in,
       clock_out: e.clock_out,
-      late_arrival_minutes: null,
-      early_departure_minutes: null,
-      notes: null,
       created_at: e.created_at,
     })
   }
