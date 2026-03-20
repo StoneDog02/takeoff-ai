@@ -24,6 +24,7 @@ import type {
 } from '@/types/global'
 import { teamsApi } from '@/api/teamsClient'
 import { ProjectCard } from '@/components/projects/ProjectCard'
+import { ProjectDocumentCountBadge } from '@/components/projects/ProjectDocumentCountBadge'
 import { HealthRing } from '@/components/projects/HealthRing'
 import { JobWalkGallery } from '@/components/projects/JobWalkGallery'
 import { BudgetTab } from '@/components/projects/BudgetTab'
@@ -31,6 +32,7 @@ import { LaunchTakeoffWidget, type TakeoffPlanType } from '@/components/projects
 import { TakeoffProgressPopup } from '@/components/projects/TakeoffProgressPopup'
 import { BulkSendModal } from '@/components/projects/BulkSendModal'
 import { BidSheetFlow } from '@/components/projects/BidSheetFlow'
+import { ProjectDocumentsTab } from '@/components/projects/ProjectDocumentsTab'
 import { EstimatingWorkspace } from '@/components/projects/EstimatingWorkspace'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
 import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
@@ -149,7 +151,7 @@ export interface NewProjectFormData {
   assigned_to_name?: string
 }
 
-const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet'] as const
+const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet', 'documents'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
 
 const PIPELINE_COLUMNS = [
@@ -222,6 +224,20 @@ function groupSubcontractorsForTeamDisplay(
       tradeLine: trades.length === 1 ? trades[0] : trades.join(' · '),
     }
   })
+}
+
+/** When reopening Build Estimate, load this job’s saved document (draft first, else most recently updated). */
+function pickPrimaryEstimateIdForBuild(rows: Estimate[]): string | null {
+  const list = rows ?? []
+  if (list.length === 0) return null
+  const draft = list.find((e) => (e.status ?? '').toLowerCase() === 'draft')
+  if (draft) return draft.id
+  const sorted = [...list].sort((a, b) => {
+    const ta = new Date(a.updated_at ?? a.created_at ?? 0).getTime()
+    const tb = new Date(b.updated_at ?? b.created_at ?? 0).getTime()
+    return tb - ta
+  })
+  return sorted[0]?.id ?? null
 }
 
 if (typeof window !== 'undefined') {
@@ -298,6 +314,8 @@ export function ProjectsPage() {
   const [buildEstimateBlankMode, setBuildEstimateBlankMode] = useState(false)
   const [buildEstimateBidSheet, setBuildEstimateBidSheet] = useState<BidSheet | null | undefined>(undefined)
   const [buildEstimateBidSheetFetched, setBuildEstimateBidSheetFetched] = useState(false)
+  /** When set, Build Estimate opens in revise mode so saved lines load from the API (not bid-sheet prefill only). */
+  const [buildEstimateLinkedEstimateId, setBuildEstimateLinkedEstimateId] = useState<string | null>(null)
   const [showProductLibrary, setShowProductLibrary] = useState(false)
   /** Bid sheet for EstimatingWorkspace when project status is estimating (overview). */
   const [workspaceBidSheet, setWorkspaceBidSheet] = useState<BidSheet | null | undefined>(undefined)
@@ -307,6 +325,8 @@ export function ProjectsPage() {
   const [estimatingTakeoffBypassed, setEstimatingTakeoffBypassed] = useState(false)
   /** Estimating overview: GC chose to skip bid collection (unlocks build estimate). */
   const [estimatingBidSheetSkipped, setEstimatingBidSheetSkipped] = useState(false)
+  /** True if this job has any saved estimate row — keeps Stage 3 available after first Build Estimate session. */
+  const [hasPersistedJobEstimate, setHasPersistedJobEstimate] = useState(false)
   /** Takeoff in progress (lives in parent so progress continues when user leaves Takeoff tab). */
   const [takeoffInProgress, setTakeoffInProgress] = useState(false)
   const [takeoffProgress, setTakeoffProgress] = useState(0)
@@ -323,6 +343,8 @@ export function ProjectsPage() {
   const takeoffMessageIndexRef = useRef(0)
   /** Work types from wizard onComplete; applied again when detail refetch finishes so banner never loses them. */
   const pendingWizardWorkTypes = useRef<ProjectWorkType[] | undefined>(undefined)
+  /** Only reset detail state when navigating to a different project — not on soft refresh (e.g. after saving an estimate). */
+  const detailLoadIdRef = useRef<string | undefined>(undefined)
   const tabFromUrl = searchParams.get('tab')
   /** Budget tab: show skeleton until refetch completes so variance/actual don't flash. */
   const [budgetTabLoading, setBudgetTabLoading] = useState(false)
@@ -638,27 +660,35 @@ export function ProjectsPage() {
   }, [id, project?.id, project?.status])
 
   useEffect(() => {
-    if (!id) return
-    setLoading(true)
-    setError(null)
-    setProject(null)
-    setBudget(null)
-    setPhases([])
-    setMilestones([])
-    setTasks([])
-    setMedia([])
-    setTakeoffs([])
-    setSubcontractors([])
-    setOverviewSetupReady(false)
-    setActivity([])
-    setBuildPlans([])
-    setTakeoffResult(null)
-    setTakeoffError(null)
-    setJobAssignments([])
-    setRosterEmployees([])
-    setBuilderPhases([])
-    setBuilderMilestones([])
-    setBuilderMeta({ projectName: '', startDate: '', gcOwner: '' })
+    if (!id) {
+      detailLoadIdRef.current = undefined
+      return
+    }
+    const idChanged = detailLoadIdRef.current !== id
+    detailLoadIdRef.current = id
+
+    if (idChanged) {
+      setLoading(true)
+      setError(null)
+      setProject(null)
+      setBudget(null)
+      setPhases([])
+      setMilestones([])
+      setTasks([])
+      setMedia([])
+      setTakeoffs([])
+      setSubcontractors([])
+      setOverviewSetupReady(false)
+      setActivity([])
+      setBuildPlans([])
+      setTakeoffResult(null)
+      setTakeoffError(null)
+      setJobAssignments([])
+      setRosterEmployees([])
+      setBuilderPhases([])
+      setBuilderMilestones([])
+      setBuilderMeta({ projectName: '', startDate: '', gcOwner: '' })
+    }
 
     const emptyBudget = { items: [] as { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[], summary: { predicted_total: 0, actual_total: 0, profitability: 0 } }
     Promise.all([
@@ -802,6 +832,7 @@ export function ProjectsPage() {
       return
     }
     setBuildEstimateBidSheetFetched(false)
+    setBuildEstimateLinkedEstimateId(null)
     const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
     let cancelled = false
     ;(async () => {
@@ -810,11 +841,13 @@ export function ProjectsPage() {
           api.projects.get(id),
           api.projects.getBidSheet(id),
           api.projects.getBudget(id),
+          estimatesApi.getEstimates(id),
         ])
         if (cancelled) return
         const projRes = results[0]
         const sheetRes = results[1]
         const budRes = results[2]
+        const estRes = results[3]
         if (projRes.status === 'fulfilled' && projRes.value) {
           setProject(projRes.value)
         }
@@ -822,6 +855,9 @@ export function ProjectsPage() {
         if (budRes.status === 'fulfilled' && budRes.value) {
           const bud = budRes.value
           setBudget(bud.items?.length ? bud : { items: [], summary: bud.summary ?? emptySummary })
+        }
+        if (estRes.status === 'fulfilled' && Array.isArray(estRes.value)) {
+          setBuildEstimateLinkedEstimateId(pickPrimaryEstimateIdForBuild(estRes.value))
         }
       } finally {
         if (!cancelled) setBuildEstimateBidSheetFetched(true)
@@ -841,7 +877,9 @@ export function ProjectsPage() {
         setWorkspaceBidSheet(sheet)
         setLastBidSheetUpdated(Date.now())
       })
-      .catch(() => setWorkspaceBidSheet(null))
+      .catch(() => {
+        /* keep prior workspaceBidSheet — clearing loses Stage 2/3 gating until next success */
+      })
   }, [id, project?.status, detailRefreshTrigger])
 
   const refreshWorkspaceBidSheet = useCallback(() => {
@@ -852,8 +890,30 @@ export function ProjectsPage() {
         setWorkspaceBidSheet(sheet)
         setLastBidSheetUpdated(Date.now())
       })
-      .catch(() => setWorkspaceBidSheet(null))
+      .catch(() => {
+        /* keep prior bid sheet on transient errors */
+      })
   }, [id])
+
+  // Once a GC has saved an estimate for this job, keep Estimating Stage 3 unlocked regardless of bid-sheet gating.
+  useEffect(() => {
+    if (!id || project?.status !== 'estimating') {
+      setHasPersistedJobEstimate(false)
+      return
+    }
+    let cancelled = false
+    estimatesApi
+      .getEstimates(id)
+      .then((list) => {
+        if (!cancelled) setHasPersistedJobEstimate((list ?? []).length > 0)
+      })
+      .catch(() => {
+        /* keep prior flag on fetch error so Stage 3 doesn't flicker locked */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, project?.status, detailRefreshTrigger])
 
   const buildEstimateInitialLines = useMemo((): InitialEstimateLine[] => {
     if (!buildEstimateBidSheetFetched) return []
@@ -958,10 +1018,11 @@ export function ProjectsPage() {
 
   const estimateStageReady = useMemo(
     () =>
+      hasPersistedJobEstimate ||
       estimatingBidSheetSkipped ||
       estimatingTakeoffBypassed ||
       allTradesReadyForEstimate(workspaceBidSheet ?? null, takeoffs),
-    [estimatingBidSheetSkipped, estimatingTakeoffBypassed, workspaceBidSheet, takeoffs]
+    [hasPersistedJobEstimate, estimatingBidSheetSkipped, estimatingTakeoffBypassed, workspaceBidSheet, takeoffs]
   )
 
   const buildEstimatePrefillClientInfo: PrefillClientInfo | undefined = useMemo(() => {
@@ -1131,6 +1192,7 @@ export function ProjectsPage() {
       value: budgetTotal,
       valueUsed: spentTotal,
       daysLeft: daysLeft ?? undefined,
+      documentCount: d.document_count,
     }
   }
 
@@ -1506,6 +1568,7 @@ export function ProjectsPage() {
               Activate →
             </button>
           ) : null}
+          <ProjectDocumentCountBadge count={p.document_count ?? 0} variant="board" />
           <button
             type="button"
             className="projects-board-card-delete"
@@ -2027,6 +2090,7 @@ export function ProjectsPage() {
     { id: 'media' as const, label: 'Job Walk Media', icon: 'image' },
     { id: 'takeoff' as const, label: 'Takeoff', icon: 'document' },
     { id: 'bidsheet' as const, label: 'Bid Sheet', icon: 'checklist' },
+    { id: 'documents' as const, label: 'Documents', icon: 'document' },
   ]
 
   const statusPillStyle =
@@ -3035,6 +3099,12 @@ export function ProjectsPage() {
         />
       )}
 
+      {activeTab === 'documents' && project && (
+        <section className="w-full min-w-0 px-8 py-6">
+          <ProjectDocumentsTab projectId={project.id} projectName={project.name} refreshTrigger={detailRefreshTrigger} />
+        </section>
+      )}
+
       {activeTab === 'bidsheet' && project && (
         <section className="w-full min-w-0 px-8 py-6">
           <BidSheetFlow
@@ -3128,7 +3198,6 @@ export function ProjectsPage() {
           jobs={[]}
           projectId={project.id}
           prefillClientInfo={buildEstimatePrefillClientInfo ?? undefined}
-          prefillLineItems={buildEstimateBlankMode ? undefined : (buildEstimatePrefillLineItems.length > 0 ? buildEstimatePrefillLineItems : undefined)}
           initialBudgetLineItems={
             buildEstimateBlankMode || !(budget?.items && budget.items.length > 0)
               ? undefined
@@ -3140,14 +3209,28 @@ export function ProjectsPage() {
             setBuildEstimateBlankMode(false)
             setBuildEstimateBidSheet(undefined)
             setBuildEstimateBidSheetFetched(false)
+            setBuildEstimateLinkedEstimateId(null)
           }}
           onSave={(_estimateId) => {
             setBuildEstimateOpen(false)
             setBuildEstimateBlankMode(false)
             setBuildEstimateBidSheet(undefined)
             setBuildEstimateBidSheetFetched(false)
+            setBuildEstimateLinkedEstimateId(null)
             setDetailRefreshTrigger((t) => t + 1)
           }}
+          estimateId={
+            buildEstimateBlankMode ? undefined : buildEstimateLinkedEstimateId ?? undefined
+          }
+          prefillLineItems={
+            buildEstimateBlankMode
+              ? undefined
+              : buildEstimateLinkedEstimateId
+                ? undefined
+                : buildEstimatePrefillLineItems.length > 0
+                  ? buildEstimatePrefillLineItems
+                  : undefined
+          }
         />
       )}
       {showProductLibrary && typeof document !== 'undefined'

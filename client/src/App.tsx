@@ -9,6 +9,7 @@ import { BuildListsPage } from '@/routes/BuildListsPage'
 import { BuildListDetailPage } from '@/routes/BuildListDetailPage'
 import { ProjectsPage } from '@/routes/ProjectsPage'
 import { RevenuePage } from '@/pages/RevenuePage'
+import { DocumentsPage } from '@/pages/DocumentsPage'
 import { AccountingPage } from '@/pages/AccountingPage'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
@@ -96,6 +97,7 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
           },
+          { path: 'documents', element: <DocumentsPage /> },
           { path: 'estimates', element: <Navigate to="/invoicing" replace /> },
           { path: 'teams', element: <TeamsPage /> },
           { path: 'payroll', element: <PayrollPage /> },

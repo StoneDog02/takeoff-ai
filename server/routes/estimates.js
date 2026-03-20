@@ -4,6 +4,7 @@ const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstima
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
+const { recordEstimateSentPaperTrail, syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 
 function getSupabase(req) {
@@ -160,6 +161,7 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
+    await syncPaperTrailFromEstimate(supabase, id)
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Estimate update error:', err)
@@ -439,6 +441,8 @@ router.post('/:id/send', async (req, res) => {
     } else {
       console.log('[estimates/send] No recipient email; portal link:', portalUrl)
     }
+
+    recordEstimateSentPaperTrail(supabase, req.user.id, id, data)
 
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {

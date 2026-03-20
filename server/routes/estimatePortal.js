@@ -11,6 +11,7 @@ const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
+const { syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
 
 /** When an estimate was created from “send change order”, mark that CO Approved (matches project). */
 async function markLinkedChangeOrderApproved(supabase, { estimateId, jobId, sourceChangeOrderId }) {
@@ -220,6 +221,7 @@ router.patch('/:token/viewed', async (req, res, next) => {
     if (currentStatus === 'sent') updates.status = 'viewed'
 
     await supabase.from('estimates').update(updates).eq('id', est.id)
+    await syncPaperTrailFromEstimate(supabase, est.id)
     return res.status(204).send()
   } catch (err) {
     next(err)
@@ -256,6 +258,7 @@ router.post('/:token/approve', async (req, res, next) => {
         jobId: est.job_id,
         sourceChangeOrderId: est.source_change_order_id,
       })
+      await syncPaperTrailFromEstimate(supabase, est.id)
       return res.json({ status: 'accepted', message: 'Already approved' })
     }
     if ((est.status || '').toLowerCase() === 'declined') {
@@ -294,6 +297,7 @@ router.post('/:token/approve', async (req, res, next) => {
       sourceChangeOrderId: est.source_change_order_id,
     })
 
+    await syncPaperTrailFromEstimate(supabase, est.id)
     return res.json({ status: 'accepted', message: 'Estimate approved.' })
   } catch (err) {
     next(err)
@@ -337,6 +341,7 @@ router.post('/:token/request-changes', async (req, res, next) => {
     // TODO: trigger notification to GC (e.g. email or in-app)
     console.log('[estimate-portal] Client requested changes for estimate', est.id, 'message:', message || '(none)')
 
+    await syncPaperTrailFromEstimate(supabase, est.id)
     return res.json({ ok: true, message: 'Your feedback has been sent.' })
   } catch (err) {
     next(err)
@@ -370,6 +375,7 @@ router.post('/:token/decline', async (req, res, next) => {
       .from('estimates')
       .update({ status: 'declined', actioned_at: now, updated_at: now })
       .eq('id', est.id)
+    await syncPaperTrailFromEstimate(supabase, est.id)
     return res.json({ status: 'declined', message: 'Estimate declined.' })
   } catch (err) {
     next(err)

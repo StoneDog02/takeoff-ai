@@ -9,6 +9,7 @@
 const express = require('express')
 const multer = require('multer')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { syncPaperTrailFromSubBid } = require('../lib/paperTrailDocuments')
 
 const router = express.Router()
 
@@ -229,6 +230,7 @@ router.patch('/portal/:token/viewed', async (req, res, next) => {
 
     const { error: updateErr } = await supabase.from('sub_bids').update(updates).eq('id', bid.id)
     if (updateErr) throw updateErr
+    await syncPaperTrailFromSubBid(supabase, bid.id)
     return res.status(204).send()
   } catch (err) {
     next(err)
@@ -298,6 +300,7 @@ async function handleRespond(req, res, next) {
       .eq('id', bid.id)
     if (updateErr) throw updateErr
     const { data: updated } = await supabase.from('sub_bids').select('*').eq('id', bid.id).single()
+    await syncPaperTrailFromSubBid(supabase, bid.id)
     return res.status(200).json(updated)
   } catch (err) {
     next(err)
@@ -325,6 +328,7 @@ async function handleDecline(req, res, next) {
       .update({ response_status: 'declined', responded_at: respondedAt })
       .eq('id', bid.id)
     if (updateErr) throw updateErr
+    await syncPaperTrailFromSubBid(supabase, bid.id)
     return res.status(200).json({ ok: true, message: 'Bid request declined.' })
   } catch (err) {
     next(err)

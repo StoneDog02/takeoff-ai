@@ -58,7 +58,11 @@ export function ScanReceiptModal({
     setStage('scanning')
     setError(null)
     try {
-      const parsed = await estimatesApi.scanReceipt({ image_base64: base64, media_type: mediaType })
+      const parsed = await estimatesApi.scanReceipt({
+        image_base64: base64,
+        media_type: mediaType,
+        job_id: defaultJobId || undefined,
+      })
       setScanned(parsed)
       const category = (parsed.category && CAT_MAP[parsed.category]) || 'materials'
       setForm((f) => ({

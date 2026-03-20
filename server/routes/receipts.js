@@ -1,6 +1,12 @@
 const express = require('express')
 const Anthropic = require('@anthropic-ai/sdk')
 const router = express.Router()
+const { supabase: defaultSupabase } = require('../db/supabase')
+const { recordReceiptScanPaperTrail } = require('../lib/paperTrailDocuments')
+
+function getSupabase(req) {
+  return req.supabase || defaultSupabase
+}
 
 const RECEIPT_PROMPT = `You are a receipt parser for a construction project management app. Extract the following from this receipt image and return ONLY valid JSON with no markdown, no explanation:
 {
@@ -18,7 +24,7 @@ router.post('/scan', async (req, res) => {
   if (!apiKey) {
     return res.status(503).json({ error: 'Receipt scanning not configured (ANTHROPIC_API_KEY)' })
   }
-  const { image_base64: imageBase64, media_type: mediaType } = req.body
+  const { image_base64: imageBase64, media_type: mediaType, job_id: jobIdRaw } = req.body
   if (!imageBase64 || !mediaType) {
     return res.status(400).json({ error: 'image_base64 and media_type required' })
   }
@@ -51,13 +57,20 @@ router.post('/scan', async (req, res) => {
     const text = textBlock?.text || '{}'
     const clean = text.replace(/```json|```/g, '').trim()
     const parsed = JSON.parse(clean)
-    res.json({
+    const out = {
       vendor: parsed.vendor ?? '',
       date: parsed.date ?? '',
       total: parsed.total != null ? Number(parsed.total) : 0,
       description: parsed.description ?? '',
       category: parsed.category ?? 'Materials',
-    })
+    }
+    const supabase = getSupabase(req)
+    const jobId =
+      jobIdRaw != null && String(jobIdRaw).trim() ? String(jobIdRaw).trim() : null
+    if (req.user?.id && supabase) {
+      recordReceiptScanPaperTrail(supabase, req.user.id, out, jobId)
+    }
+    res.json(out)
   } catch (err) {
     console.error('Receipt scan error:', err)
     res.status(500).json({ error: err.message || 'Could not read receipt' })

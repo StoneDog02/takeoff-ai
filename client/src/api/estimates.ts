@@ -379,6 +379,8 @@ export const estimatesApi = {
   async scanReceipt(params: {
     image_base64: string
     media_type: string
+    /** Optional project/job id for paper-trail document link */
+    job_id?: string
   }): Promise<{
     vendor?: string
     date?: string
@@ -387,10 +389,15 @@ export const estimatesApi = {
     category?: string
   }> {
     const headers = await getAuthHeaders()
+    const { image_base64, media_type, job_id } = params
     const res = await fetch(`${API_BASE}/receipts/scan`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        image_base64,
+        media_type,
+        ...(job_id ? { job_id } : {}),
+      }),
     })
     return handleResponse(res)
   },

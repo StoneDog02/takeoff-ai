@@ -8,6 +8,7 @@
 const { sendEmail, getPortalFrom } = require('./emailUtils')
 const { renderEstimatePortalEmail } = require('../emails/estimatePortalEmail')
 const { renderBidPortalEmail } = require('../emails/bidPortalEmail')
+const { renderInvoicePortalEmail } = require('../emails/invoicePortalEmail')
 
 /**
  * Send "estimate ready for review" email to client.
@@ -49,4 +50,23 @@ async function sendBidPortalEmail({ to, projectName, portalUrl, isResend }) {
   return result
 }
 
-module.exports = { sendEstimatePortalEmail, sendBidPortalEmail }
+/**
+ * Send invoice portal link to client.
+ * @param {{ to: string, clientName?: string, projectName?: string, portalUrl: string, isResend?: boolean }} opts
+ */
+async function sendInvoicePortalEmail({ to, clientName, projectName, portalUrl, isResend }) {
+  const from = getPortalFrom()
+  const { subject, html, text } = renderInvoicePortalEmail({
+    clientName: clientName || 'there',
+    projectName: projectName || 'your project',
+    portalUrl,
+    isResend: !!isResend,
+  })
+  const result = await sendEmail({ from, to, subject, html, text })
+  if (result.sent) {
+    console.log('[sendInvoicePortalEmail] Sent to', to, isResend ? '(resend)' : '', '→', portalUrl)
+  }
+  return result
+}
+
+module.exports = { sendEstimatePortalEmail, sendBidPortalEmail, sendInvoicePortalEmail }

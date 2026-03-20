@@ -141,6 +141,16 @@ export function AppLayout() {
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12V4l6-2 6 2v8l-6 2-6-2z" /></svg>
                   <span className="nav-label">Invoicing</span>
                 </NavLink>
+                <NavLink to="/documents" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                    <rect x="2.5" y="1.5" width="11" height="13" rx="1.25" />
+                    <line x1="5" y1="5" x2="11" y2="5" />
+                    <line x1="5" y1="8" x2="11" y2="8" />
+                    <line x1="5" y1="11" x2="9" y2="11" />
+                    <circle cx="11.25" cy="4" r="0.65" fill="currentColor" stroke="none" />
+                  </svg>
+                  <span className="nav-label">Documents</span>
+                </NavLink>
                 <NavLink to="/revenue" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
                   <span className="nav-label">Revenue</span>

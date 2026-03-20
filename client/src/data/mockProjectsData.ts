@@ -235,6 +235,8 @@ export interface ProjectCardData {
   valueUsed?: number
   /** Days left until timeline end; when set, card shows this instead of "—". */
   daysLeft?: number | null
+  /** Paper-trail document count from dashboard API; shown when > 0. */
+  documentCount?: number
 }
 
 /** Card metadata for mock projects; real projects can omit for minimal card. */

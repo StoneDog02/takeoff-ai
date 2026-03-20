@@ -6,6 +6,12 @@ const { TRADE_MAP, TRADE_ORDER } = require('../claude/trade-definitions')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const { sendBidPortalEmail, sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
+const {
+  recordBidPackageDispatchedPaperTrail,
+  recordPaperTrailDocument,
+  recordEstimateSentPaperTrail,
+  syncPaperTrailFromSubBid,
+} = require('../lib/paperTrailDocuments')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
 
@@ -950,6 +956,30 @@ router.get('/:id/budget', loadProject, async (req, res, next) => {
   }
 })
 
+/** GET /projects/:id/documents — paper-trail rows for this project (newest first). Query: show_archived=1|true */
+router.get('/:id/documents', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const projectId = req.params.id
+    const showArchived = req.query.show_archived === '1' || req.query.show_archived === 'true'
+    let q = supabase
+      .from('documents')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+    if (!showArchived) {
+      q = q.is('archived_at', null)
+    }
+    const { data, error } = await q
+    if (error) throw error
+    res.set('Cache-Control', 'no-store')
+    res.json(data || [])
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.put('/:id/budget', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
@@ -981,6 +1011,28 @@ router.put('/:id/budget', loadProject, async (req, res, next) => {
       } else {
         const { data } = await supabase.from('budget_line_items').insert(row).select().single()
         if (data) result.push(data)
+        const postApproval =
+          req.project &&
+          req.project.estimate_approved_at &&
+          (it.source || '') !== 'estimate'
+        if (data && postApproval) {
+          recordPaperTrailDocument(supabase, req.project.user_id, {
+            document_type: 'change_order',
+            project_id: projectId,
+            title: data.label || 'Budget line',
+            status: 'added',
+            total_amount: data.predicted != null ? Number(data.predicted) : null,
+            source_id: data.id,
+            metadata: {
+              snapshot_at: 'budget_line_added_post_approval',
+              category: data.category,
+              predicted: data.predicted,
+              actual: data.actual,
+              unit: data.unit ?? null,
+              source: data.source ?? null,
+            },
+          })
+        }
       }
     }
     const list = result
@@ -1266,6 +1318,15 @@ router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next)
       documentKind: 'change_order',
     })
 
+    const { data: estForTrail, error: estTrailErr } = await supabase
+      .from('estimates')
+      .select('*')
+      .eq('id', estimate.id)
+      .single()
+    if (!estTrailErr && estForTrail) {
+      recordEstimateSentPaperTrail(supabase, req.user.id, estimate.id, estForTrail)
+    }
+
     res.status(201).json({
       estimate_id: estimate.id,
       portal_url: portalUrl,
@@ -1476,6 +1537,23 @@ router.post('/:id/subcontractors', loadProject, async (req, res, next) => {
     } else {
       console.log('[subcontractors/dispatch_portal] No email; portal link:', portalUrl)
     }
+
+    recordBidPackageDispatchedPaperTrail(supabase, req.project.user_id, {
+      project_id: projectId,
+      trade_tag: tradeTag,
+      trade_package_id: tradePackageId,
+      subcontractor_id: sub.id,
+      subcontractor_name: sub.name,
+      subcontractor_email: subEmail || null,
+      amount: 0,
+      notes: null,
+      response_deadline: hasSubResponseDeadline ? subResponseDeadline : null,
+      token,
+      sub_bid_id: subBidId,
+      dispatched_at: dispatchTs,
+      project_name: projectName,
+      portal_url: portalUrl,
+    })
 
     return res.status(201).json({
       subcontractor: sub,
@@ -1853,11 +1931,19 @@ router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
     if (pkgRes.error || !pkgRes.data) {
       return res.status(404).json({ error: 'Trade package not found' })
     }
-    const subRes = await supabase.from('subcontractors').select('id, email').eq('project_id', projectId).eq('id', subcontractor_id).maybeSingle()
+    const subRes = await supabase
+      .from('subcontractors')
+      .select('id, email, name, trade')
+      .eq('project_id', projectId)
+      .eq('id', subcontractor_id)
+      .maybeSingle()
     if (subRes.error || !subRes.data) {
       return res.status(404).json({ error: 'Subcontractor not found' })
     }
     const subEmail = subRes.data.email || ''
+
+    const pkgTagRes = await supabase.from('trade_packages').select('trade_tag').eq('id', trade_package_id).maybeSingle()
+    const tradeTag = (pkgTagRes.data && pkgTagRes.data.trade_tag) || ''
 
     const existing = await supabase
       .from('sub_bids')
@@ -1870,21 +1956,30 @@ router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
     const bidNotes = notes != null ? String(notes) : null
 
     const dispatchTs = new Date().toISOString()
+    let subBidId
     if (existing?.data?.id) {
+      subBidId = existing.data.id
       const upd = { portal_token: token, amount: bidAmount, notes: bidNotes, dispatched_at: dispatchTs }
       if (hasResponseDeadline) upd.response_deadline = responseDeadline
-      await supabase.from('sub_bids').update(upd).eq('id', existing.data.id)
+      const { error: bidUpdErr } = await supabase.from('sub_bids').update(upd).eq('id', subBidId)
+      if (bidUpdErr) throw bidUpdErr
     } else {
-      await supabase.from('sub_bids').insert({
-        trade_package_id,
-        subcontractor_id,
-        amount: bidAmount,
-        notes: bidNotes,
-        awarded: false,
-        portal_token: token,
-        dispatched_at: dispatchTs,
-        response_deadline: hasResponseDeadline ? responseDeadline : null,
-      })
+      const ins = await supabase
+        .from('sub_bids')
+        .insert({
+          trade_package_id,
+          subcontractor_id,
+          amount: bidAmount,
+          notes: bidNotes,
+          awarded: false,
+          portal_token: token,
+          dispatched_at: dispatchTs,
+          response_deadline: hasResponseDeadline ? responseDeadline : null,
+        })
+        .select('id')
+        .single()
+      if (ins.error || !ins.data?.id) throw ins.error || new Error('Failed to create sub bid')
+      subBidId = ins.data.id
     }
 
     const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || req.protocol + '://' + (req.get('host') || 'localhost')
@@ -1899,6 +1994,23 @@ router.post('/:id/bid-sheet/dispatch', loadProject, async (req, res, next) => {
     } else {
       console.log('[bid-sheet/dispatch] No sub email; portal link:', portalUrl)
     }
+
+    recordBidPackageDispatchedPaperTrail(supabase, req.project.user_id, {
+      project_id: projectId,
+      trade_tag: tradeTag,
+      trade_package_id,
+      subcontractor_id,
+      subcontractor_name: subRes.data.name,
+      subcontractor_email: subEmail || null,
+      amount: bidAmount,
+      notes: bidNotes,
+      response_deadline: hasResponseDeadline ? responseDeadline : null,
+      token,
+      sub_bid_id: subBidId,
+      dispatched_at: dispatchTs,
+      project_name: projectName,
+      portal_url: portalUrl,
+    })
 
     return res.status(200).json({ token, portal_url: portalUrl })
   } catch (err) {
@@ -1978,6 +2090,7 @@ router.patch('/:id/bid-sheet/sub-bids/:bidId', loadProject, async (req, res, nex
     } else {
       await supabase.from('sub_bids').update({ awarded: false }).eq('id', bidId)
     }
+    await syncPaperTrailFromSubBid(supabase, bidId)
     return res.json({ ok: true })
   } catch (err) {
     next(err)

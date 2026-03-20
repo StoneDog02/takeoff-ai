@@ -2,6 +2,7 @@ const crypto = require('crypto')
 const express = require('express')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { recordInvoiceSentPaperTrail } = require('../lib/paperTrailDocuments')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -145,6 +146,8 @@ router.post('/:id/send', async (req, res) => {
         /* ignore */
       }
     }
+    const ownerId = data.user_id || req.user?.id
+    if (ownerId) recordInvoiceSentPaperTrail(supabase, ownerId, data)
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Invoice send error:', err)

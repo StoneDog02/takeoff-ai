@@ -11,6 +11,7 @@ import type {
   BudgetLineItem,
   BudgetSummary,
   ChangeOrder,
+  PaperTrailDocument,
   Subcontractor,
   ProjectWorkType,
   ProjectActivityItem,
@@ -158,6 +159,8 @@ export interface DashboardProject {
   client_email?: string | null
   client_phone?: string | null
   plan_type?: ProjectPlanType | null
+  /** Paper-trail documents linked to this project (dashboard list). */
+  document_count?: number
 }
 
 export interface Message {
@@ -489,6 +492,17 @@ export const api = {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { error?: string }).error || res.statusText)
       }
+    },
+    async getDocuments(projectId: string, opts?: { show_archived?: boolean }): Promise<PaperTrailDocument[]> {
+      const headers = await getAuthHeaders()
+      const sp = new URLSearchParams()
+      sp.set('_', String(Date.now()))
+      if (opts?.show_archived) sp.set('show_archived', '1')
+      const res = await fetch(`${API_BASE}/projects/${projectId}/documents?${sp.toString()}`, {
+        headers,
+        cache: 'no-store',
+      })
+      return handleResponse<PaperTrailDocument[]>(res)
     },
     async getBudget(projectId: string): Promise<{
       items: BudgetLineItem[]
@@ -912,6 +926,81 @@ export const api = {
     },
   },
 
+  /** Paper trail: all organization documents (filters, archive, re-link to project). */
+  documents: {
+    async list(params?: {
+      q?: string
+      document_type?: string
+      status?: string
+      date_from?: string
+      date_to?: string
+      project_id?: string
+      show_archived?: boolean
+    }): Promise<{ documents: PaperTrailDocument[]; total_count: number; storage_bytes_estimate: number }> {
+      const headers = await getAuthHeaders()
+      const sp = new URLSearchParams()
+      if (params?.q?.trim()) sp.set('q', params.q.trim())
+      if (params?.document_type && params.document_type !== 'all') sp.set('document_type', params.document_type)
+      if (params?.status && params.status !== 'all') sp.set('status', params.status)
+      if (params?.date_from?.trim()) sp.set('date_from', params.date_from.trim())
+      if (params?.date_to?.trim()) sp.set('date_to', params.date_to.trim())
+      if (params?.project_id && params.project_id !== 'all') sp.set('project_id', params.project_id)
+      if (params?.show_archived) sp.set('show_archived', '1')
+      const q = sp.toString()
+      const res = await fetch(`${API_BASE}/documents${q ? `?${q}` : ''}`, { headers, cache: 'no-store' })
+      return handleResponse<{ documents: PaperTrailDocument[]; total_count: number; storage_bytes_estimate: number }>(
+        res
+      )
+    },
+    async update(
+      id: string,
+      body: { archived?: boolean; project_id?: string | null }
+    ): Promise<PaperTrailDocument> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<PaperTrailDocument>(res)
+    },
+    async getViewer(id: string): Promise<DocumentViewerResponse> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}`, { headers, cache: 'no-store' })
+      return handleResponse<DocumentViewerResponse>(res)
+    },
+    async resend(id: string): Promise<{ ok: boolean; portal_url?: string; emailed?: boolean }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}/resend`, {
+        method: 'POST',
+        headers,
+      })
+      return handleResponse<{ ok: boolean; portal_url?: string; emailed?: boolean }>(res)
+    },
+    /** Insert missing paper-trail rows from sent estimates / invoices / dispatched bids; optional demo receipt when empty. */
+    async backfill(options?: { demo?: boolean }): Promise<{
+      estimates: number
+      invoices: number
+      bid_packages: number
+      demo: number
+      errors: string[]
+    }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/documents/backfill`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify({ demo: options?.demo !== false }),
+      })
+      return handleResponse<{
+        estimates: number
+        invoices: number
+        bid_packages: number
+        demo: number
+        errors: string[]
+      }>(res)
+    },
+  },
+
   /** Global contractor contact list (Manage > Contractors). */
   contractors: {
     async list(): Promise<Contractor[]> {
@@ -1094,6 +1183,58 @@ export interface EstimatePortalResponse {
   sent_at: string | null
   viewed_at: string | null
   actioned_at?: string | null
+  /** In-app viewer only: linked CO row when estimate was sent from change-order flow */
+  source_change_order_id?: string | null
+}
+
+export interface ChangeOrderViewerPayload {
+  co_number_suffix: string
+  title: string
+  total_amount: number | null
+  category: string | null
+  unit: string | null
+  source: string | null
+  predicted: number | null
+  actual: number | null
+  project_name: string | null
+  reference_estimate_number: string | null
+  status: string | null
+  created_at: string | null
+}
+
+export interface ReceiptViewerPayload {
+  file_url: string | null
+  title: string
+  vendor: string | null
+  date: string | null
+  description: string | null
+  category: string | null
+  total_amount: number | null
+}
+
+export interface GenericDocumentViewerPayload {
+  title: string
+  document_type: string
+  status: string | null | undefined
+  total_amount: number | null | undefined
+  metadata: Record<string, unknown>
+}
+
+export type DocumentViewerEnvelope =
+  | {
+      type: 'estimate'
+      data: EstimatePortalResponse
+      change_order_reference?: { description: string | null; amount: number | null; status: string | null } | null
+    }
+  | { type: 'invoice'; data: InvoicePortalResponse; overdue_days?: number | null }
+  | { type: 'bid_package'; data: BidPortalResponse }
+  | { type: 'change_order'; data: ChangeOrderViewerPayload }
+  | { type: 'receipt'; data: ReceiptViewerPayload }
+  | { type: 'generic'; data: GenericDocumentViewerPayload }
+
+export interface DocumentViewerResponse {
+  document: PaperTrailDocument & { project_name?: string | null }
+  viewer: DocumentViewerEnvelope
 }
 
 export interface BidPortalScopeItem {
@@ -1122,11 +1263,13 @@ export interface BidPortalResponse {
   tradeName: string
   scope: { description?: string; quantity?: number; unit?: string; notes?: string }[]
   subName: string
-  status: 'pending' | 'viewed' | 'bid_received' | 'awarded' | 'declined'
+  status: string
   bid_amount?: number | null
   amount?: number | null
   notes: string | null
   availability?: string | null
   attachment_url?: string | null
   responded_at?: string | null
+  /** In-app viewer: project was cancelled (public portal would 410) */
+  project_cancelled?: boolean
 }

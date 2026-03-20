@@ -34,6 +34,9 @@ const quickbooksRoutes = require('./routes/quickbooks')
 const stripeRoutes = require('./routes/stripe')
 const authRoutes = require('./routes/auth')
 const bidsRoutes = require('./routes/bids')
+const documentsRoutes = require('./routes/documents')
+const { backfillPaperTrailDocuments } = require('./lib/paperTrailDocuments')
+const { supabase: defaultSupabase } = require('./db/supabase')
 const { router: invitesRouter } = require('./routes/invites')
 const { requireAdmin } = require('./middleware/admin')
 
@@ -135,6 +138,21 @@ app.use('/api/invites', invitesRouter)
 app.use('/api/takeoff', requireAuth, takeoffRoutes)
 app.use('/api/build-lists', requireAuth, buildListsRoutes)
 app.use('/api/projects', requireAuth, projectsRoutes)
+/** Paper-trail backfill — registered on the app so POST /api/documents/backfill always matches (avoids proxy/path quirks). */
+app.post('/api/documents/backfill', requireAuth, async (req, res) => {
+  const supabase = req.supabase || defaultSupabase
+  if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
+  const demo = req.body?.demo === true || req.query?.demo === '1' || req.query?.demo === 'true'
+  try {
+    const result = await backfillPaperTrailDocuments(supabase, req.user.id, { demo })
+    res.set('Cache-Control', 'no-store')
+    res.json(result)
+  } catch (err) {
+    console.error('[documents] backfill', err)
+    res.status(500).json({ error: err.message || 'Backfill failed' })
+  }
+})
+app.use('/api/documents', requireAuth, documentsRoutes)
 app.use('/api/jobs', requireAuth, jobsRoutes)
 app.use('/api/estimates/portal', estimatePortalRoutes)
 app.use('/api/estimates', requireAuth, estimatesRoutes)
@@ -161,7 +179,8 @@ app.use('/api/stripe', stripeRoutes)
 
 // Unmatched API routes -> JSON 404 (avoids HTML "Cannot POST ...")
 app.use('/api', (req, res) => {
-  res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` })
+  const p = req.originalUrl?.split('?')[0] || req.path
+  res.status(404).json({ error: `Route not found: ${req.method} ${p}` })
 })
 
 app.use((err, req, res, next) => {

@@ -398,6 +398,22 @@ router.get('/projects', async (req, res, next) => {
     const projectIds = projects.map((p) => p.id)
     const admin = defaultSupabase
 
+    const documentCountByProject = {}
+    projectIds.forEach((id) => {
+      documentCountByProject[id] = 0
+    })
+    const { data: documentRows } = await admin
+      .from('documents')
+      .select('project_id')
+      .eq('organization_id', userId)
+      .in('project_id', projectIds)
+    ;(documentRows || []).forEach((row) => {
+      const pid = row.project_id
+      if (pid && documentCountByProject[pid] != null) {
+        documentCountByProject[pid] += 1
+      }
+    })
+
     const { data: budgetRows } = await admin
       .from('budget_line_items')
       .select('project_id, predicted, actual, category')
@@ -547,6 +563,7 @@ router.get('/projects', async (req, res, next) => {
         city: p.city || null,
         state: p.state || null,
         postal_code: p.postal_code || null,
+        document_count: documentCountByProject[p.id] || 0,
       }
     })
 

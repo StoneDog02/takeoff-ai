@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { Project } from '@/types/global'
 import type { ProjectCardData } from '@/data/mockProjectsData'
+import { ProjectDocumentCountBadge } from '@/components/projects/ProjectDocumentCountBadge'
 
 interface ProjectCardProps {
   project: Project
@@ -247,6 +248,8 @@ export function ProjectCard({ project, cardData, isDemo, onDelete }: ProjectCard
             </div>
           </div>
         </div>
+
+        <ProjectDocumentCountBadge count={cardData?.documentCount ?? 0} variant="grid" />
       </div>
     </Link>
   )

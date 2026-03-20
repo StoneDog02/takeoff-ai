@@ -98,6 +98,38 @@ export interface ProjectBuildPlan {
   uploader_name: string
 }
 
+/** Paper-trail row (estimates sent, invoices, bids dispatched, etc.). */
+export type PaperDocumentType =
+  | 'estimate'
+  | 'invoice'
+  | 'change_order'
+  | 'bid_package'
+  | 'receipt'
+  | 'sub_contract'
+
+export interface PaperTrailDocument {
+  id: string
+  organization_id: string
+  project_id: string | null
+  /** Set by global documents list API when project still exists. */
+  project_name?: string | null
+  document_type: PaperDocumentType
+  title: string | null
+  status: string | null
+  total_amount: number | null
+  client_name: string | null
+  client_email: string | null
+  token: string | null
+  source_id: string | null
+  file_url: string | null
+  sent_at: string | null
+  viewed_at: string | null
+  actioned_at: string | null
+  created_at: string
+  archived_at: string | null
+  metadata: Record<string, unknown> | null
+}
+
 /** Bid document (PDF/file) uploaded for reference — bids received from subs. */
 export interface BidDocument {
   id: string
