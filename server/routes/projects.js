@@ -98,11 +98,15 @@ router.get('/', (req, res, next) => {
       console.warn('[projects GET /] no supabase client')
       return res.json([])
     }
-    const { data: projects, error: projErr } = await supabase
+    // Contractors: only their projects. Employees: omit owner filter — RLS (projects_employee_select) limits to job assignments.
+    let projectsQuery = supabase
       .from('projects')
       .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, client_email, client_phone, plan_type')
-      .eq('user_id', req.user?.id)
       .order('updated_at', { ascending: false })
+    if (!req.employee) {
+      projectsQuery = projectsQuery.eq('user_id', req.user?.id)
+    }
+    const { data: projects, error: projErr } = await projectsQuery
     if (projErr) {
       console.warn('[projects GET /] projects query error', projErr.message)
       throw projErr
