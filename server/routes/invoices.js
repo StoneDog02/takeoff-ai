@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const express = require('express')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
@@ -64,6 +65,7 @@ router.patch('/:id', async (req, res) => {
       due_date,
       sent_at,
       paid_at,
+      schedule_snapshot,
     } = req.body
     const updates = { updated_at: new Date().toISOString() }
     if (status !== undefined) updates.status = status
@@ -72,6 +74,7 @@ router.patch('/:id', async (req, res) => {
     if (due_date !== undefined) updates.due_date = due_date
     if (sent_at !== undefined) updates.sent_at = sent_at
     if (paid_at !== undefined) updates.paid_at = paid_at
+    if (schedule_snapshot !== undefined) updates.schedule_snapshot = schedule_snapshot
     const { data, error } = await supabase
       .from('invoices')
       .update(updates)
@@ -109,10 +112,20 @@ router.post('/:id/send', async (req, res) => {
   try {
     const { id } = req.params
     const { recipient_emails } = req.body
+    const { data: existingSend } = await supabase
+      .from('invoices')
+      .select('client_token')
+      .eq('id', id)
+      .maybeSingle()
+    const clientToken =
+      existingSend?.client_token && String(existingSend.client_token).trim()
+        ? String(existingSend.client_token).trim()
+        : crypto.randomUUID()
     const updates = {
       status: 'sent',
       sent_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      client_token: clientToken,
     }
     if (Array.isArray(recipient_emails)) updates.recipient_emails = recipient_emails
     const { data, error } = await supabase
@@ -123,6 +136,15 @@ router.post('/:id/send', async (req, res) => {
       .single()
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Not found' })
+    const baseUrl = (process.env.PUBLIC_APP_URL || process.env.APP_URL || '').trim().replace(/\/$/, '')
+    if (baseUrl) {
+      try {
+        const portalUrl = `${baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`}/invoice/${clientToken}`
+        console.log('[invoices/send] Client invoice portal:', portalUrl)
+      } catch (e) {
+        /* ignore */
+      }
+    }
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Invoice send error:', err)

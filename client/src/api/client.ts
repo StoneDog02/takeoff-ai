@@ -1006,6 +1006,62 @@ export const api = {
       return handleResponse<{ status: string }>(res)
     },
   },
+
+  /** Public invoice portal (no auth) — token-gated; milestone schedule for progress invoices. */
+  invoicePortal: {
+    async get(token: string): Promise<InvoicePortalResponse> {
+      const res = await fetch(`${API_BASE}/invoices/portal/${encodeURIComponent(token)}`)
+      return handleResponse<InvoicePortalResponse>(res)
+    },
+    async markViewed(token: string): Promise<void> {
+      const res = await fetch(`${API_BASE}/invoices/portal/${encodeURIComponent(token)}/viewed`, { method: 'PATCH' })
+      if (!res.ok && res.status !== 204) throw new Error(res.status === 404 ? 'Invalid or expired link' : 'Request failed')
+    },
+  },
+}
+
+export type InvoicePortalScheduleStatus = 'upcoming' | 'due_now' | 'paid'
+
+export interface InvoicePortalScheduleRow {
+  milestone_id: string
+  label: string
+  amount: number
+  mode: 'specific_date' | 'on_completion'
+  specific_date: string | null
+  completion_terms: string | null
+  due_display: string
+  status: InvoicePortalScheduleStatus
+}
+
+export interface InvoicePortalResponse {
+  invoice_id: string
+  estimate_id?: string | null
+  job_id?: string | null
+  status: string
+  total_amount: number
+  /** Sum of milestone amounts currently due (Due Now). */
+  amount_due_now?: number
+  due_date: string | null
+  paid_at: string | null
+  sent_at: string | null
+  projectName: string
+  address: string
+  clientName: string | null
+  gcName: string
+  company: string | null
+  invoice_kind: 'progress_series' | 'single'
+  schedule_rows: InvoicePortalScheduleRow[]
+  line_items: {
+    id: string
+    description: string
+    quantity: number
+    unit: string
+    unit_price: number
+    total: number
+    section?: string | null
+  }[]
+  notes: string | null
+  terms: string | null
 }
 
 export interface EstimatePortalResponse {

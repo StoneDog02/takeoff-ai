@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
 
-const APP_ROUTES = ['/dashboard', '/projects', '/estimates', '/revenue', '/teams', '/payroll', '/directory', '/contractors', '/settings']
+const APP_ROUTES = ['/dashboard', '/projects', '/invoicing', '/estimates', '/revenue', '/teams', '/payroll', '/directory', '/contractors', '/settings']
 
 export function RootLayout() {
   const location = useLocation()

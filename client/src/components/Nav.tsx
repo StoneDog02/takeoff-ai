@@ -5,7 +5,7 @@ const navItems = [
   { to: '/takeoff', label: 'Takeoff' },
   { to: '/build-lists', label: 'Build Lists' },
   { to: '/projects', label: 'Projects' },
-  { to: '/estimates', label: 'Estimates' },
+  { to: '/invoicing', label: 'Invoicing' },
   { to: '/teams', label: 'Teams' },
   { to: '/revenue', label: 'Revenue' },
   { to: '/accounting', label: 'Accounting' },

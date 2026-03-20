@@ -1,62 +1,116 @@
-import { useState, useMemo } from 'react'
-import type { PipelineItem, PipelineStage } from '@/types/global'
-import type { JobExpense } from '@/types/global'
-import type { Job } from '@/types/global'
+import { useMemo, useState } from 'react'
+import type { Invoice, Job } from '@/types/global'
 import { DocumentDetailModal } from './DocumentDetailModal'
-import { PIPELINE_STAGES, formatCurrency, pct } from '@/lib/pipeline'
-import { formatRelative } from '@/lib/date'
-
-const STAGE_COLORS: Record<PipelineStage, string> = {
-  draft: 'var(--text-muted)',
-  sent: 'var(--blue)',
-  accepted: 'var(--est-amber)',
-  invoiced: 'var(--est-amber)',
-  paid: 'var(--green)',
-  declined: 'var(--text-muted)',
-}
+import { formatCurrency } from '@/lib/pipeline'
 
 interface PipelineTabProps {
-  pipeline: PipelineItem[]
-  setPipeline: (fn: (prev: PipelineItem[]) => PipelineItem[]) => void
-  expenses: JobExpense[]
+  invoices: Invoice[]
   jobFilterId: string
   jobs: Job[]
   onPipelineRefresh?: () => void | Promise<void>
 }
 
-export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineRefresh }: PipelineTabProps) {
+type InvoiceColumnKey = 'draft' | 'sent' | 'viewed' | 'partial' | 'paid' | 'overdue'
+
+type InvoiceWithOptionalPaid = Invoice & {
+  paid_amount?: number | null
+  amount_paid?: number | null
+  viewed_at?: string | null
+}
+
+const COLUMN_CONFIG: { key: InvoiceColumnKey; label: string; color: string }[] = [
+  { key: 'draft', label: 'Draft', color: 'var(--text-muted)' },
+  { key: 'sent', label: 'Sent', color: 'var(--blue)' },
+  { key: 'viewed', label: 'Viewed', color: 'var(--blue)' },
+  { key: 'partial', label: 'Partial', color: 'var(--est-amber)' },
+  { key: 'paid', label: 'Paid', color: 'var(--green)' },
+  { key: 'overdue', label: 'Overdue', color: 'var(--red)' },
+]
+
+function formatInvoiceNumber(id: string): string {
+  const digits = (id.match(/\d+/g) || []).join('')
+  if (!digits) return `INV-${id.slice(-4).toUpperCase()}`
+  return `INV-${digits.slice(-4).padStart(3, '0')}`
+}
+
+function formatClientName(invoice: Invoice): string {
+  const raw = invoice.recipient_emails?.[0]
+  if (!raw) return 'No client'
+  const local = raw.split('@')[0] || raw
+  return local
+    .split(/[._-]+/)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(' ')
+}
+
+function formatDueDate(due?: string): string {
+  if (!due) return 'No due date'
+  const dt = new Date(due)
+  if (Number.isNaN(dt.getTime())) return 'No due date'
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function hoursAgo(date: string): number {
+  const dt = new Date(date)
+  if (Number.isNaN(dt.getTime())) return 0
+  return Math.max(0, Math.floor((Date.now() - dt.getTime()) / (1000 * 60 * 60)))
+}
+
+function daysOverdue(due?: string): number {
+  if (!due) return 0
+  const dt = new Date(due)
+  if (Number.isNaN(dt.getTime())) return 0
+  return Math.max(0, Math.floor((Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24)))
+}
+
+function getPaidAmount(inv: InvoiceWithOptionalPaid): number {
+  const paid = Number(inv.paid_amount ?? inv.amount_paid ?? 0)
+  if (Number.isNaN(paid)) return 0
+  return Math.max(0, paid)
+}
+
+export function PipelineTab({ invoices, jobFilterId, jobs, onPipelineRefresh }: PipelineTabProps) {
   /** When set, show full document modal (estimate/invoice) with API-backed actions */
   const [documentModal, setDocumentModal] = useState<{ id: string; type: 'estimate' | 'invoice' } | null>(null)
-  const [showDeclined, setShowDeclined] = useState(false)
+  const [showPaid, setShowPaid] = useState(false)
+  const jobMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.name])), [jobs])
 
-  const filteredPipeline = useMemo(() => {
-    let list = jobFilterId ? pipeline.filter((i) => i.job_id === jobFilterId) : pipeline
-    if (!showDeclined) list = list.filter((i) => i.stage !== 'declined')
-    return list
-  }, [pipeline, jobFilterId, showDeclined])
+  const filteredInvoices = useMemo(() => {
+    return jobFilterId ? invoices.filter((inv) => inv.job_id === jobFilterId) : invoices
+  }, [invoices, jobFilterId])
 
-  const filteredExpenses = useMemo(() => {
-    if (!jobFilterId) return expenses
-    return expenses.filter((r) => r.job_id === jobFilterId)
-  }, [expenses, jobFilterId])
+  const grouped = useMemo(() => {
+    const init: Record<InvoiceColumnKey, InvoiceWithOptionalPaid[]> = {
+      draft: [],
+      sent: [],
+      viewed: [],
+      partial: [],
+      paid: [],
+      overdue: [],
+    }
 
-  const byStage = PIPELINE_STAGES.reduce(
-    (acc, s) => {
-      acc[s.key] = filteredPipeline.filter((i) => i.stage === s.key)
-      return acc
-    },
-    {} as Record<PipelineStage, PipelineItem[]>
-  )
+    filteredInvoices.forEach((inv) => {
+      const invoice = inv as InvoiceWithOptionalPaid
+      const total = Number(invoice.total_amount || 0)
+      const paidAmount = getPaidAmount(invoice)
+      const hasPartialPayment = paidAmount > 0 && paidAmount < total && invoice.status !== 'paid'
+      const isOverdueByDate = invoice.status !== 'paid' && !!invoice.due_date && daysOverdue(invoice.due_date) > 0
 
-  const totalPipeline = filteredPipeline.reduce((s, i) => s + i.amount, 0)
-  const sentItems = filteredPipeline.filter((i) => i.stage === 'sent')
-  const sentEstimateOpened = sentItems.filter((i) => i.type === 'estimate' && i.viewed_at).length
-  const sentEstimateUnopened = sentItems.filter((i) => i.type === 'estimate' && !i.viewed_at).length
-  const totalInvoiced = filteredPipeline
-    .filter((i) => ['invoiced', 'paid'].includes(i.stage))
-    .reduce((s, i) => s + i.amount, 0)
-  const totalPaid = filteredPipeline.filter((i) => i.stage === 'paid').reduce((s, i) => s + i.amount, 0)
-  const totalSpend = filteredExpenses.reduce((s, r) => s + Number(r.amount), 0)
+      if (hasPartialPayment) {
+        init.partial.push(invoice)
+        return
+      }
+
+      if (invoice.status === 'draft') init.draft.push(invoice)
+      else if (invoice.status === 'sent') init.sent.push(invoice)
+      else if (invoice.status === 'viewed') init.viewed.push(invoice)
+      else if (invoice.status === 'paid') init.paid.push(invoice)
+      else if (invoice.status === 'overdue' || isOverdueByDate) init.overdue.push(invoice)
+      else init.sent.push(invoice)
+    })
+
+    return init
+  }, [filteredInvoices])
 
   const showDocumentModal = documentModal != null
 
@@ -78,185 +132,110 @@ export function PipelineTab({ pipeline, expenses, jobFilterId, jobs, onPipelineR
         />
       )}
 
-      <div className="estimates-pipeline-kpis">
-        {[
-          {
-            label: 'Pipeline Value',
-            val: formatCurrency(totalPipeline),
-            sub: `${filteredPipeline.length} active document${filteredPipeline.length === 1 ? '' : 's'}`,
-            bar: 'var(--purple)',
-          },
-          {
-            label: 'Sent',
-            val: formatCurrency(sentItems.reduce((s, i) => s + i.amount, 0)),
-            sub: sentItems.filter((i) => i.type === 'estimate').length
-              ? `${sentEstimateOpened} opened, ${sentEstimateUnopened} unopened`
-              : 'Awaiting client',
-            bar: 'var(--blue)',
-          },
-          {
-            label: 'Invoiced',
-            val: formatCurrency(totalInvoiced),
-            sub: 'Awaiting payment',
-            bar: 'var(--est-amber)',
-          },
-          {
-            label: 'Collected',
-            val: formatCurrency(totalPaid),
-            sub: 'Last 30 days',
-            bar: 'var(--green)',
-          },
-          {
-            label: 'Job Spend',
-            val: formatCurrency(totalSpend),
-            sub: 'Receipts logged',
-            bar: 'var(--blue)',
-          },
-        ].map((k, i) => (
-          <div
-            key={i}
-            className="estimates-pipeline-kpi"
-            style={{ ['--kpi-bar' as string]: k.bar } as React.CSSProperties}
-          >
-            <div className="estimates-pipeline-kpi-label">{k.label}</div>
-            <div className="estimates-pipeline-kpi-value">{k.val}</div>
-            <div className="estimates-pipeline-kpi-sub">{k.sub}</div>
-          </div>
-        ))}
+      <div className="estimates-pipeline-columns">
+        {COLUMN_CONFIG.filter((c) => c.key !== 'paid' || showPaid).map((column) => {
+          const items = grouped[column.key]
+          const total = items.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0)
+          return (
+            <div key={column.key} className="estimates-pipeline-column">
+              <div className="estimates-pipeline-column-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div
+                    className="estimates-pipeline-column-dot"
+                    style={{ background: column.color }}
+                  />
+                  <span className="estimates-pipeline-column-title">{column.label}</span>
+                </div>
+                <span className="estimates-pipeline-column-count">
+                  {items.length} - {formatCurrency(total)}
+                </span>
+              </div>
+              <div className="estimates-pipeline-column-cards">
+                {items.length === 0 && (
+                  <div className="estimates-pipeline-column-empty">
+                    <span>Empty</span>
+                  </div>
+                )}
+                {items.map((inv) => {
+                  const projectName = jobMap.get(inv.job_id) || inv.job_id
+                  const clientName = formatClientName(inv)
+                  const overdueDays = daysOverdue(inv.due_date)
+                  const isOverdue = inv.status === 'overdue' || overdueDays > 0
+                  const paidAmount = getPaidAmount(inv)
+                  const totalAmount = Number(inv.total_amount || 0)
+                  const showPartialProgress = column.key === 'partial' && paidAmount > 0 && totalAmount > 0
+                  const viewedAt = inv.viewed_at || (inv.status === 'viewed' ? inv.updated_at : null)
+                  const openedText = viewedAt ? `Opened ${hoursAgo(viewedAt)} hours ago` : 'Not opened'
+                  return (
+                    <div
+                      key={inv.id}
+                      role="button"
+                      tabIndex={0}
+                      className="estimates-pipeline-card"
+                      style={{ borderLeftColor: column.key === 'overdue' ? 'var(--red)' : column.color }}
+                      onClick={() => setDocumentModal({ id: inv.id, type: 'invoice' })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setDocumentModal({ id: inv.id, type: 'invoice' })
+                        }
+                      }}
+                    >
+                      <div className="estimates-pipeline-card-job">{projectName} - {clientName}</div>
+                      <div className="estimates-pipeline-card-id">{formatInvoiceNumber(inv.id)}</div>
+                      <div className="estimates-pipeline-card-amount">{formatCurrency(totalAmount)}</div>
+                      <div className={`estimates-pipeline-card-addr ${isOverdue ? 'estimates-pipeline-card-addr--overdue' : ''}`}>
+                        Due {formatDueDate(inv.due_date)}
+                      </div>
+
+                      {(column.key === 'sent' || column.key === 'viewed') && (
+                        <div className="estimates-pipeline-card-opened">
+                          <span className="estimates-pipeline-card-opened-text">{openedText}</span>
+                        </div>
+                      )}
+
+                      {showPartialProgress && (
+                        <>
+                          <div className="estimates-pipeline-card-margin-bar">
+                            <div
+                              style={{
+                                height: '100%',
+                                width: `${Math.min(100, Math.round((paidAmount / totalAmount) * 100))}%`,
+                                background: 'var(--est-amber)',
+                                borderRadius: 2,
+                              }}
+                            />
+                          </div>
+                          <div className="estimates-pipeline-card-margin-pct">
+                            {formatCurrency(paidAmount)} of {formatCurrency(totalAmount)}
+                          </div>
+                          <div className="estimates-pipeline-card-milestones">Partially paid</div>
+                        </>
+                      )}
+
+                      {column.key === 'overdue' && isOverdue && (
+                        <div className="estimates-pipeline-card-milestones" style={{ color: 'var(--red)' }}>
+                          {overdueDays} day{overdueDays === 1 ? '' : 's'} overdue
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       <div className="estimates-pipeline-show-declined">
         <label className="estimates-pipeline-show-declined-label">
           <input
             type="checkbox"
-            checked={showDeclined}
-            onChange={(e) => setShowDeclined(e.target.checked)}
+            checked={showPaid}
+            onChange={(e) => setShowPaid(e.target.checked)}
           />
-          <span>Show declined</span>
+          <span>Show paid</span>
         </label>
-      </div>
-
-      <div className="estimates-pipeline-columns">
-        {PIPELINE_STAGES.filter((s) => s.key !== 'declined' || showDeclined).map((stage) => (
-          <div key={stage.key} className="estimates-pipeline-column">
-            <div className="estimates-pipeline-column-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div
-                  className="estimates-pipeline-column-dot"
-                  style={{ background: STAGE_COLORS[stage.key] }}
-                />
-                <span className="estimates-pipeline-column-title">{stage.label}</span>
-              </div>
-              <span className="estimates-pipeline-column-count">
-                {byStage[stage.key].length}
-              </span>
-            </div>
-            <div className="estimates-pipeline-column-cards">
-              {byStage[stage.key].length === 0 && (
-                <div className="estimates-pipeline-column-empty">
-                  <span>Empty</span>
-                </div>
-              )}
-              {byStage[stage.key].map((item) => {
-                const spend = expenses
-                  .filter((r) => r.job_id === item.job_id)
-                  .reduce((s, r) => s + Number(r.amount), 0)
-                const marginPct = pct(item.amount - spend, item.amount)
-                const jobParts = item.jobName.split('–').map((s) => s.trim())
-                const jobName = jobParts[0] ?? item.jobName
-                const addr = jobParts[1]
-                const isViewed = item.type === 'estimate' && item.viewed_at
-                const isChangesRequested = item.type === 'estimate' && item.estimateStatus === 'changes_requested'
-                const isAccepted = item.type === 'estimate' && item.stage === 'accepted'
-                const changesPreview = item.changes_requested_message
-                  ? (item.changes_requested_message.slice(0, 80) + (item.changes_requested_message.length > 80 ? '…' : ''))
-                  : ''
-                return (
-                  <div
-                    key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    className={`estimates-pipeline-card ${isChangesRequested ? 'estimates-pipeline-card--changes-requested' : ''}`}
-                    style={{ borderLeftColor: STAGE_COLORS[item.stage] }}
-                    onClick={() => setDocumentModal({ id: item.id, type: item.type })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        setDocumentModal({ id: item.id, type: item.type })
-                      }
-                    }}
-                  >
-                    {isChangesRequested && (
-                      <div className="estimates-pipeline-card-banner estimates-pipeline-card-banner--amber">
-                        <span className="estimates-pipeline-card-banner-title">Client requested changes</span>
-                        {changesPreview && (
-                          <p className="estimates-pipeline-card-banner-preview">{changesPreview}</p>
-                        )}
-                        <button
-                          type="button"
-                          className="estimates-pipeline-card-banner-action"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDocumentModal({ id: item.id, type: item.type })
-                          }}
-                        >
-                          Revise &amp; Resend →
-                        </button>
-                      </div>
-                    )}
-                    <div className="estimates-pipeline-card-job">{jobName}</div>
-                    {addr && <div className="estimates-pipeline-card-addr">{addr}</div>}
-                    {isViewed && (
-                      <div className="estimates-pipeline-card-opened">
-                        <span className="estimates-pipeline-card-opened-icon" aria-hidden>👁</span>
-                        <span className="estimates-pipeline-card-opened-text">
-                          Opened {formatRelative(item.viewed_at)}
-                        </span>
-                      </div>
-                    )}
-                    <div className="estimates-pipeline-card-amount">
-                      {formatCurrency(item.amount)}
-                    </div>
-                    {spend > 0 && (
-                      <>
-                        <div className="estimates-pipeline-card-margin-bar">
-                          <div
-                            style={{
-                              height: '100%',
-                              width: `${Math.min(100, pct(spend, item.amount))}%`,
-                              background:
-                                marginPct > 30
-                                  ? 'var(--green)'
-                                  : marginPct > 10
-                                    ? 'var(--est-amber)'
-                                    : 'var(--red)',
-                              borderRadius: 2,
-                            }}
-                          />
-                        </div>
-                        <div className="estimates-pipeline-card-margin-pct">
-                          {marginPct}% margin
-                        </div>
-                      </>
-                    )}
-                    {isAccepted && (
-                      <button
-                        type="button"
-                        className="estimates-pipeline-card-convert"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDocumentModal({ id: item.id, type: item.type })
-                        }}
-                      >
-                        Convert to Job →
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   )

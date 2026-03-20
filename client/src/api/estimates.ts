@@ -167,7 +167,12 @@ export const estimatesApi = {
 
   async convertToInvoice(
     estimateId: string,
-    options?: { due_date?: string; amount?: number }
+    options?: {
+      due_date?: string
+      amount?: number
+      /** Progress invoice: milestone schedule for client portal (see server invoicePortal). */
+      schedule_snapshot?: { rows: unknown[] } | null
+    }
   ): Promise<{ invoice: Invoice; estimate?: Estimate }> {
     const headers = await getAuthHeaders()
     const res = await fetch(
@@ -178,6 +183,7 @@ export const estimatesApi = {
         body: JSON.stringify({
           due_date: options?.due_date,
           amount: options?.amount,
+          schedule_snapshot: options?.schedule_snapshot,
         }),
       }
     )
@@ -217,6 +223,23 @@ export const estimatesApi = {
   async getInvoice(id: string): Promise<Invoice> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/invoices/${id}`, { headers })
+    return handleResponse<Invoice>(res)
+  },
+
+  async createInvoice(params: {
+    job_id: string
+    total_amount: number
+    recipient_emails?: string[]
+    due_date?: string
+    estimate_id?: string
+    status?: 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue'
+  }): Promise<Invoice> {
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/invoices`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
     return handleResponse<Invoice>(res)
   },
 

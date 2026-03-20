@@ -310,7 +310,7 @@ router.post('/:id/convert-to-invoice', async (req, res) => {
   if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const estimateId = req.params.id
-    const { due_date, amount } = req.body
+    const { due_date, amount, schedule_snapshot } = req.body
     const { data: est, error: estErr } = await supabase
       .from('estimates')
       .select('*')
@@ -334,17 +334,19 @@ router.post('/:id/convert-to-invoice', async (req, res) => {
       }
       invoiceAmount = requested
     }
-    const { data: inv, error: invErr } = await supabase
-      .from('invoices')
-      .insert({
-        estimate_id: estimateId,
-        job_id: est.job_id,
-        user_id: req.user.id,
-        status: 'draft',
-        total_amount: invoiceAmount,
-        recipient_emails: est.recipient_emails || [],
-        due_date: due_date || null,
-      })
+    const insertPayload = {
+      estimate_id: estimateId,
+      job_id: est.job_id,
+      user_id: req.user.id,
+      status: 'draft',
+      total_amount: invoiceAmount,
+      recipient_emails: est.recipient_emails || [],
+      due_date: due_date || null,
+    }
+    if (schedule_snapshot != null && typeof schedule_snapshot === 'object') {
+      insertPayload.schedule_snapshot = schedule_snapshot
+    }
+    const { data: inv, error: invErr } = await supabase.from('invoices').insert(insertPayload)
       .select()
       .single()
     if (invErr) throw invErr

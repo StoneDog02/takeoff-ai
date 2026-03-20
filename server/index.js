@@ -10,6 +10,7 @@ const projectsRoutes = require('./routes/projects')
 const jobsRoutes = require('./routes/jobs')
 const estimatesRoutes = require('./routes/estimates')
 const estimatePortalRoutes = require('./routes/estimatePortal')
+const invoicePortalRoutes = require('./routes/invoicePortal')
 const invoicesRoutes = require('./routes/invoices')
 const customProductsRoutes = require('./routes/custom-products')
 const jobExpensesRoutes = require('./routes/job-expenses')
@@ -89,6 +90,41 @@ app.get('/bid/:token', (req, res) => {
 </body></html>`)
 })
 
+/**
+ * Client invoice portal links go to /invoice/:token.
+ * Same pattern as /bid/:token — redirect to SPA when API host ≠ app host.
+ */
+app.get('/invoice/:token', (req, res) => {
+  const token = encodeURIComponent(req.params.token)
+  const raw = (process.env.PUBLIC_APP_URL || process.env.APP_URL || '').trim().replace(/\/$/, '')
+  const reqHost = (req.get('host') || '').toLowerCase()
+
+  if (raw) {
+    try {
+      const base = raw.startsWith('http') ? raw : `https://${raw}`
+      const appHost = new URL(base).host.toLowerCase()
+      if (!reqHost || appHost !== reqHost) {
+        return res.redirect(302, `${base}/invoice/${token}`)
+      }
+    } catch (e) {
+      console.warn('[invoice portal] PUBLIC_APP_URL / APP_URL invalid:', e.message)
+    }
+  }
+
+  const indexHtml = path.join(clientDist, 'index.html')
+  if (fs.existsSync(indexHtml)) {
+    return res.sendFile(indexHtml)
+  }
+
+  res
+    .status(503)
+    .type('html')
+    .send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice</title></head><body style="font-family:system-ui,sans-serif;padding:2rem;max-width:28rem;line-height:1.5">
+<h1 style="font-size:1.25rem">Invoice link can’t load here</h1>
+<p>Set <strong>PUBLIC_APP_URL</strong> to your web app URL, or deploy the client next to the API.</p>
+</body></html>`)
+})
+
 const { requireAuth } = require('./middleware/auth')
 
 app.use('/api/me', requireAuth, meRoutes)
@@ -102,6 +138,7 @@ app.use('/api/projects', requireAuth, projectsRoutes)
 app.use('/api/jobs', requireAuth, jobsRoutes)
 app.use('/api/estimates/portal', estimatePortalRoutes)
 app.use('/api/estimates', requireAuth, estimatesRoutes)
+app.use('/api/invoices/portal', invoicePortalRoutes)
 app.use('/api/invoices', requireAuth, invoicesRoutes)
 app.use('/api/custom-products', requireAuth, customProductsRoutes)
 app.use('/api/job-expenses', requireAuth, jobExpensesRoutes)

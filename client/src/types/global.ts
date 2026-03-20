@@ -357,6 +357,11 @@ export interface Invoice {
   sent_at?: string
   paid_at?: string
   due_date?: string
+  /** Public portal token; set when invoice is sent. */
+  client_token?: string | null
+  viewed_at?: string | null
+  /** Progress / milestone invoice: frozen rows at send time. */
+  schedule_snapshot?: { rows?: unknown[] } | null
 }
 
 export type CustomProductItemType = 'service' | 'product' | 'labor' | 'sub' | 'material' | 'equipment'

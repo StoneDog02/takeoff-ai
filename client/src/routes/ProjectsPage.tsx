@@ -48,9 +48,16 @@ import {
 } from '@/components/estimates/EstimateBuilderModal'
 import { CustomProductLibrary } from '@/components/estimates/CustomProductLibrary'
 import { type InitialEstimateLine } from '@/components/estimates/EstimateBuilder'
-import { estimatesApi } from '@/api/estimates'
+import { estimatesApi, type EstimateWithLines } from '@/api/estimates'
 import { allTradesReadyForEstimate } from '@/lib/estimatingTrades'
 import { budgetCategoryKeyFromEstimateSection } from '@/lib/budgetCategoryFromEstimateSection'
+import {
+  getUninvoicedPaymentForPhase,
+  sendProgressPaymentForPhase,
+  dismissPhasePaymentPrompt,
+  isPhasePaymentPromptDismissed,
+  formatPhasePaymentUsd,
+} from '@/lib/phasePaymentRequest'
 
 const OVERVIEW_ESTIMATE_KEY_TO_LABEL: Record<string, string> = {
   labor: 'Labor',
@@ -257,6 +264,16 @@ export function ProjectsPage() {
   const [scheduleImportOpen, setScheduleImportOpen] = useState(false)
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0)
+  /** Accepted estimate for this job (progress invoicing / phase payment prompt). */
+  const [acceptedEstimate, setAcceptedEstimate] = useState<Estimate | null>(null)
+  const [acceptedEstimateDetail, setAcceptedEstimateDetail] = useState<EstimateWithLines | null>(null)
+  const [paymentPrompt, setPaymentPrompt] = useState<{
+    phaseId: string
+    phaseName: string
+    amount: number
+    clientEmail: string
+  } | null>(null)
+  const [paymentSending, setPaymentSending] = useState(false)
   const [deleteConfirmProject, setDeleteConfirmProject] = useState<Project | null>(null)
   const [isDeletingProject, setIsDeletingProject] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -522,6 +539,43 @@ export function ProjectsPage() {
       })
       .catch(() => setLinkedAcceptedEstimateId(null))
   }, [id, project?.id, project?.status])
+
+  // Accepted estimate + line-level meta for progress milestones (phase payment prompt).
+  useEffect(() => {
+    if (!id) {
+      setAcceptedEstimate(null)
+      setAcceptedEstimateDetail(null)
+      return
+    }
+    let cancelled = false
+    estimatesApi
+      .getEstimates(id)
+      .then(async (list) => {
+        if (cancelled) return
+        const accepted = (list ?? []).find((e) => (e.status ?? '').toLowerCase() === 'accepted')
+        if (!accepted) {
+          setAcceptedEstimate(null)
+          setAcceptedEstimateDetail(null)
+          return
+        }
+        setAcceptedEstimate(accepted)
+        try {
+          const full = await estimatesApi.getEstimate(accepted.id)
+          if (!cancelled) setAcceptedEstimateDetail(full)
+        } catch {
+          if (!cancelled) setAcceptedEstimateDetail(null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAcceptedEstimate(null)
+          setAcceptedEstimateDetail(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, detailRefreshTrigger])
 
   useEffect(() => {
     if (!id || !project?.id) {
@@ -1275,6 +1329,97 @@ export function ProjectsPage() {
     </div>
   ) : null
 
+  /** Must run on every render (before any early return) — detail UI depends on these. */
+  const phaseIdsWithPaymentMilestone = useMemo(() => {
+    const s = new Set<string>()
+    if (!id || !acceptedEstimate || !acceptedEstimateDetail || phases.length === 0) return s
+    for (const ph of phases) {
+      const row = getUninvoicedPaymentForPhase(phases, ph.id, acceptedEstimate, acceptedEstimateDetail)
+      if (row) s.add(ph.id)
+    }
+    return s
+  }, [id, phases, acceptedEstimate, acceptedEstimateDetail])
+
+  const maybeOfferPaymentPrompt = useCallback(
+    (phaseId: string) => {
+      if (!id || !project || !acceptedEstimate || !acceptedEstimateDetail) return
+      if (isPhasePaymentPromptDismissed(id, phaseId)) return
+      const payment = getUninvoicedPaymentForPhase(phases, phaseId, acceptedEstimate, acceptedEstimateDetail)
+      if (!payment) return
+      const email = (project.client_email || '').trim()
+      if (!email) {
+        if (typeof window !== 'undefined' && window.alert) {
+          window.alert('Add a client email on this project to send a payment request.')
+        }
+        return
+      }
+      const phaseName = phases.find((p) => p.id === phaseId)?.name?.trim() || payment.label
+      setPaymentPrompt({
+        phaseId,
+        phaseName,
+        amount: payment.amount,
+        clientEmail: email,
+      })
+    },
+    [id, project, acceptedEstimate, acceptedEstimateDetail, phases]
+  )
+
+  const handlePhaseMarkComplete = useCallback(
+    async (phaseId: string) => {
+      if (!id || !project) return
+      const phaseTasks = tasks.filter((t) => t.phase_id === phaseId)
+      try {
+        if (phaseTasks.length > 0) {
+          await Promise.all(phaseTasks.map((t) => api.projects.updateTask(id, t.id, { completed: true })))
+        }
+        const taskList = await api.projects.getTasks(id)
+        setTasks(taskList)
+        const startFallback =
+          project.expected_start_date || builderMeta.startDate || dayjs().format('YYYY-MM-DD')
+        const built = apiToBuilder(project, phases, taskList, milestones, startFallback)
+        setBuilderPhases(built.phases)
+        setBuilderMilestones(built.milestones)
+        setBuilderMeta({ projectName: built.projectName, startDate: built.startDate, gcOwner: built.gcOwner })
+        maybeOfferPaymentPrompt(phaseId)
+      } catch (e) {
+        console.error('[ProjectsPage] mark phase complete', e)
+        if (typeof window !== 'undefined' && window.alert) {
+          window.alert(e instanceof Error ? e.message : 'Could not update tasks')
+        }
+      }
+    },
+    [id, project, tasks, phases, milestones, builderMeta.startDate, maybeOfferPaymentPrompt]
+  )
+
+  const handleSendPaymentPrompt = useCallback(async () => {
+    if (!paymentPrompt || !id || !acceptedEstimate) return
+    setPaymentSending(true)
+    try {
+      await sendProgressPaymentForPhase({
+        phases,
+        estimateId: acceptedEstimate.id,
+        phaseId: paymentPrompt.phaseId,
+        phaseName: paymentPrompt.phaseName,
+        clientEmail: paymentPrompt.clientEmail,
+      })
+      setPaymentPrompt(null)
+      setDetailRefreshTrigger((t) => t + 1)
+      setActivateSuccessToast('Payment request sent.')
+    } catch (e) {
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert(e instanceof Error ? e.message : 'Failed to send payment request')
+      }
+    } finally {
+      setPaymentSending(false)
+    }
+  }, [paymentPrompt, id, acceptedEstimate, phases])
+
+  const handleDismissPaymentPrompt = useCallback(() => {
+    if (!paymentPrompt || !id) return
+    dismissPhasePaymentPrompt(id, paymentPrompt.phaseId)
+    setPaymentPrompt(null)
+  }, [paymentPrompt, id])
+
   if (id === undefined) {
     const filterMatch = (p: DashboardProject) => {
       if (filter === 'all') return true
@@ -1827,9 +1972,14 @@ export function ProjectsPage() {
 
   const totalDays = timelineStart && timelineEnd ? dayjs(timelineEnd).diff(dayjs(timelineStart), 'day') + 1 : null
   const daysLeft = totalDays != null && timelineEnd ? Math.max(0, dayjs(timelineEnd).diff(dayjs(), 'day')) : null
-  const timelinePct = totalDays != null && totalDays > 0 && daysLeft != null
-    ? Math.round(((totalDays - daysLeft) / totalDays) * 100)
-    : 0
+  /** Elapsed % along [start, end]: 0% before start, 100% on/after end — not derived from "days left" (which breaks when today is before start). */
+  let timelinePct = 0
+  if (totalDays != null && totalDays > 0 && timelineStart && timelineEnd) {
+    const start = dayjs(timelineStart).startOf('day')
+    const now = dayjs().startOf('day')
+    const elapsedDays = Math.min(totalDays, Math.max(0, now.diff(start, 'day') + 1))
+    timelinePct = Math.min(100, Math.max(0, Math.round((elapsedDays / totalDays) * 100)))
+  }
   const budgetPct = revisedBudget > 0
     ? Math.round((budgetSummary.actual_total / revisedBudget) * 100)
     : 0
@@ -2210,6 +2360,37 @@ export function ProjectsPage() {
         </nav>
       </div>
 
+      {paymentPrompt && id && (activeTab === 'overview' || activeTab === 'schedule') && (
+        <div
+          className="w-full min-w-0 px-8 py-3 border-b border-[var(--border)] flex flex-wrap items-center justify-between gap-3"
+          style={{ background: 'linear-gradient(90deg, #fffbeb 0%, #fff7ed 100%)' }}
+          role="alert"
+        >
+          <p className="text-sm text-[var(--text-primary)] m-0 flex-1 min-w-[220px]">
+            This phase has a payment milestone of <strong>{formatPhasePaymentUsd(paymentPrompt.amount)}</strong>. Send payment request to{' '}
+            <strong>{paymentPrompt.clientEmail}</strong>?
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              className="text-sm font-semibold px-3 py-1.5 rounded-lg border border-[var(--border)] bg-white hover:bg-[var(--bg-base)] dark:bg-dark-3 dark:hover:bg-dark-2"
+              onClick={handleDismissPaymentPrompt}
+              disabled={paymentSending}
+            >
+              Later
+            </button>
+            <button
+              type="button"
+              className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-primary text-white hover:opacity-90 disabled:opacity-50"
+              onClick={() => void handleSendPaymentPrompt()}
+              disabled={paymentSending}
+            >
+              {paymentSending ? 'Sending…' : 'Send Now →'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'overview' && project && (
         <div className="project-overview-wrap">
           {project.status === 'estimating' ? (
@@ -2333,6 +2514,16 @@ export function ProjectsPage() {
             <div className="project-overview-card">
               <div className="project-overview-card-title">Project Breakdown</div>
               {project.scope && <div className="project-overview-card-subtitle">{project.scope}</div>}
+              {acceptedEstimate && acceptedEstimateDetail && phases.length > 0 && phaseIdsWithPaymentMilestone.size > 0 && (
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 mb-2 leading-snug">
+                  When a phase is done, use <strong className="text-[var(--text-primary)]">Mark complete</strong> to send its milestone invoice.
+                </p>
+              )}
+              {acceptedEstimate && acceptedEstimateDetail && phases.length > 0 && phaseIdsWithPaymentMilestone.size === 0 && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400/95 mt-1 mb-2 leading-snug">
+                  No billable milestones match these phases yet. Align schedule phases with your accepted estimate’s progress milestones to enable invoicing.
+                </p>
+              )}
               <div className="flex flex-col gap-0">
                 {phases.length > 0 ? phases.map((ph) => {
                   const today = dayjs().format('YYYY-MM-DD')
@@ -2341,12 +2532,26 @@ export function ProjectsPage() {
                   const pct = status === 'complete' ? 100 : status === 'in-progress' ? 50 : 0
                   return (
                     <div key={ph.id} className="project-overview-phase-row">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex justify-between items-center mb-2 gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
                           <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.bar }} />
-                          <span className="project-overview-phase-name">{ph.name}</span>
+                          <span className="project-overview-phase-name truncate">{ph.name}</span>
                         </div>
-                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.text }}>{cfg.label}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {phaseIdsWithPaymentMilestone.has(ph.id) && acceptedEstimate && acceptedEstimateDetail && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/35 bg-[var(--accent)]/[0.08] px-2 py-1 text-[11px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/[0.14] whitespace-nowrap shrink-0"
+                              onClick={() => void handlePhaseMarkComplete(ph.id)}
+                            >
+                              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                              Mark complete
+                            </button>
+                          )}
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.text }}>{cfg.label}</span>
+                        </div>
                       </div>
                       <div className="flex justify-between items-center gap-3">
                         <div className="project-overview-phase-bar-wrap">
@@ -2610,6 +2815,8 @@ export function ProjectsPage() {
             onPhasesChange={setBuilderPhases}
             onMilestonesChange={setBuilderMilestones}
             onMetaChange={setBuilderMeta}
+            onPhaseMarkComplete={acceptedEstimate && acceptedEstimateDetail ? handlePhaseMarkComplete : undefined}
+            phaseIdsWithPaymentMilestone={phaseIdsWithPaymentMilestone}
             onSave={id ? async (metaOverride) => {
               setScheduleSaving(true)
               try {
@@ -2628,12 +2835,31 @@ export function ProjectsPage() {
                 const newPhaseIds: string[] = []
                 for (const p of builderPhases) {
                   const taskList = p.tasks.filter((t) => t.name.trim())
-                  const startW = taskList.length ? Math.min(...taskList.map((t) => t.sw)) : 1
-                  const endW = taskList.length ? Math.max(...taskList.map((t) => t.sw + t.dur - 1)) : 1
+                  let phaseStart: string
+                  let phaseEnd: string
+                  if (taskList.length) {
+                    const startW = Math.min(...taskList.map((t) => t.sw))
+                    const endW = Math.max(...taskList.map((t) => t.sw + t.dur - 1))
+                    phaseStart = weekToDate(startD, startW)
+                    phaseEnd = dayjs(weekToDate(startD, endW)).add(6, 'day').format('YYYY-MM-DD')
+                  } else {
+                    const ps = p.phase_start_date?.trim()
+                    const pe = p.phase_end_date?.trim()
+                    if (ps && pe) {
+                      phaseStart = ps
+                      phaseEnd = pe
+                    } else if (ps) {
+                      phaseStart = ps
+                      phaseEnd = dayjs(ps).add(6, 'day').format('YYYY-MM-DD')
+                    } else {
+                      phaseStart = weekToDate(startD, 1)
+                      phaseEnd = dayjs(weekToDate(startD, 1)).add(6, 'day').format('YYYY-MM-DD')
+                    }
+                  }
                   const created = await api.projects.createPhase(id, {
                     name: p.name || 'Phase',
-                    start_date: weekToDate(startD, startW),
-                    end_date: dayjs(weekToDate(startD, endW)).add(6, 'day').format('YYYY-MM-DD'),
+                    start_date: phaseStart,
+                    end_date: phaseEnd,
                     order: newPhaseIds.length,
                   })
                   newPhaseIds.push(created.id)
@@ -2671,6 +2897,25 @@ export function ProjectsPage() {
                 setPhases(ph)
                 setTasks(taskList)
                 setMilestones(mil)
+                const startFallback = m.startDate || proj?.expected_start_date || dayjs().format('YYYY-MM-DD')
+                const builtAfterSave = apiToBuilder(
+                  {
+                    name: m.projectName || proj?.name,
+                    expected_start_date: m.startDate || proj?.expected_start_date,
+                    assigned_to_name: m.gcOwner ?? proj?.assigned_to_name,
+                  },
+                  ph,
+                  taskList,
+                  mil,
+                  startFallback
+                )
+                setBuilderMeta({
+                  projectName: builtAfterSave.projectName,
+                  startDate: builtAfterSave.startDate,
+                  gcOwner: builtAfterSave.gcOwner,
+                })
+                setBuilderPhases(builtAfterSave.phases)
+                setBuilderMilestones(builtAfterSave.milestones)
               } finally {
                 setScheduleSaving(false)
               }

@@ -33,6 +33,7 @@ import { EmployeeProfilePage } from '@/routes/EmployeeProfilePage'
 import { MessagesPage } from '@/pages/MessagesPage'
 import { BidPortal } from '@/pages/BidPortal'
 import { EstimatePortal } from '@/pages/EstimatePortal'
+import { InvoicePortal } from '@/pages/InvoicePortal'
 
 export const router = createBrowserRouter([
   {
@@ -42,6 +43,10 @@ export const router = createBrowserRouter([
   {
     path: '/estimate/:token',
     element: <EstimatePortal />,
+  },
+  {
+    path: '/invoice/:token',
+    element: <InvoicePortal />,
   },
   {
     path: '/',
@@ -76,7 +81,7 @@ export const router = createBrowserRouter([
           { path: 'revenue', element: <RevenuePage /> },
           { path: 'accounting', element: <AccountingPage /> },
           {
-            path: 'estimates',
+            path: 'invoicing',
             element: (
               <Suspense
                 fallback={
@@ -91,6 +96,7 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
           },
+          { path: 'estimates', element: <Navigate to="/invoicing" replace /> },
           { path: 'teams', element: <TeamsPage /> },
           { path: 'payroll', element: <PayrollPage /> },
           { path: 'directory', element: <DirectoryPage /> },

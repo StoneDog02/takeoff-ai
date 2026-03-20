@@ -137,9 +137,9 @@ export function AppLayout() {
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
                   <span className="nav-label">Projects</span>
                 </NavLink>
-                <NavLink to="/estimates" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <NavLink to="/invoicing" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12V4l6-2 6 2v8l-6 2-6-2z" /></svg>
-                  <span className="nav-label">Estimates</span>
+                  <span className="nav-label">Invoicing</span>
                 </NavLink>
                 <NavLink to="/revenue" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
@@ -256,7 +256,7 @@ export function AppLayout() {
                 ) : dismissedAlerts.length > 0 ? (
                   <ul className="notifications-panel-alerts" role="list">
                     {dismissedAlerts.map((a) => {
-                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/estimates' : '/revenue'
+                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/invoicing' : '/revenue'
                       return (
                         <li key={a.id}>
                           <Link to={href} className="notifications-panel-alert" onClick={() => setNotificationsPanelOpen(false)}>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { dayjs, formatShortDate, formatDate } from '@/lib/date'
+import type { Phase } from '@/types/global'
 
 const PHASE_COLORS = ['#2B5BA8', '#1A7B7D', '#2D7D4F', '#6B4CA8', '#B86E1A', '#C23B2A', '#5B8A3C', '#A0522D']
 const MS_COLORS = ['#2D7D4F', '#2B5BA8', '#B86E1A', '#C23B2A', '#6B4CA8']
@@ -17,8 +18,13 @@ export interface BuilderTask {
 
 export interface BuilderPhase {
   id: number
+  /** Real `phases.id` from API when this row came from the server; unset for new local phases. */
+  apiPhaseId?: string
   name: string
   tasks: BuilderTask[]
+  /** Phase window when there are no named tasks (from API / setup or edited here). */
+  phase_start_date?: string
+  phase_end_date?: string
 }
 
 export interface BuilderMilestone {
@@ -46,7 +52,7 @@ export function dateToWeek(startDate: string, dateStr: string): number {
 /** Convert API phases/tasks/milestones + project to builder state. */
 export function apiToBuilder(
   project: { name?: string; expected_start_date?: string; assigned_to_name?: string },
-  phases: { id: string; name: string }[],
+  phases: Pick<Phase, 'id' | 'name' | 'start_date' | 'end_date'>[],
   tasks: { id: string; phase_id?: string; title: string; responsible?: string; start_date: string; end_date: string; duration_weeks?: number; completed?: boolean }[],
   milestones: { id: string; title: string; due_date: string }[],
   startDateFallback: string
@@ -56,7 +62,10 @@ export function apiToBuilder(
     const phaseTasks = tasks.filter((t) => t.phase_id === p.id)
     return {
       id: nextId(),
+      apiPhaseId: p.id,
       name: p.name,
+      phase_start_date: p.start_date?.trim() || undefined,
+      phase_end_date: p.end_date?.trim() || undefined,
       tasks: phaseTasks.map((t) => ({
         id: nextId(),
         name: t.title,
@@ -142,13 +151,26 @@ function maxDayjs(dates: dayjs.Dayjs[]): dayjs.Dayjs {
 
 function phaseRangeForDisplay(startDate: string, phase: BuilderPhase): { start: dayjs.Dayjs; end: dayjs.Dayjs } | null {
   const withName = phase.tasks.filter((t) => t.name.trim())
-  if (!withName.length) return null
-  const starts = withName.map((t) => dayjs(getTaskStartDate(startDate, t.sw)))
-  const ends = withName.map((t) => dayjs(getTaskEndDate(startDate, t.sw, t.dur)))
-  return {
-    start: minDayjs(starts),
-    end: maxDayjs(ends),
+  if (withName.length) {
+    const starts = withName.map((t) => dayjs(getTaskStartDate(startDate, t.sw)))
+    const ends = withName.map((t) => dayjs(getTaskEndDate(startDate, t.sw, t.dur)))
+    return {
+      start: minDayjs(starts),
+      end: maxDayjs(ends),
+    }
   }
+  const ps = phase.phase_start_date?.trim()
+  const pe = phase.phase_end_date?.trim()
+  if (ps && pe) {
+    const a = dayjs(ps)
+    const b = dayjs(pe)
+    return { start: a.isBefore(b) ? a : b, end: a.isBefore(b) ? b : a }
+  }
+  if (ps) {
+    const a = dayjs(ps)
+    return { start: a, end: a }
+  }
+  return null
 }
 
 /** Mock schedule data for previewing/demo only. Not used by the project Schedule tab — that tab is driven by real data via apiToBuilder(project, phases, tasks, milestones) from ProjectsPage. */
@@ -206,6 +228,9 @@ export interface ScheduleBuilderProps {
   onExportCSV?: () => void
   onSave?: (meta?: { projectName: string; startDate: string; gcOwner: string }) => void
   onImportClick?: () => void
+  /** When set, show “Mark phase complete” for phases that have a matching payment milestone (parent filters ids). */
+  onPhaseMarkComplete?: (apiPhaseId: string) => void
+  phaseIdsWithPaymentMilestone?: Set<string>
   isDemo?: boolean
   saving?: boolean
 }
@@ -221,6 +246,8 @@ export function ScheduleBuilder({
   onMetaChange,
   onSave,
   onImportClick,
+  onPhaseMarkComplete,
+  phaseIdsWithPaymentMilestone,
   isDemo,
   saving = false,
 }: ScheduleBuilderProps) {
@@ -237,9 +264,10 @@ export function ScheduleBuilder({
     () => phases.flatMap((p) => p.tasks.filter((t) => t.name.trim())),
     [phases]
   )
+  const namedPhases = useMemo(() => phases.filter((p) => p.name.trim()), [phases])
   const namedMilestones = useMemo(() => milestones.filter((m) => m.name.trim()), [milestones])
-  /* Show "No schedule yet" when there are no tasks; list view when at least one task exists */
-  const hasContent = allTasks.length > 0
+  /* Phases (by name), tasks, or milestones — phases from setup show even with zero tasks */
+  const hasContent = allTasks.length > 0 || namedPhases.length > 0 || namedMilestones.length > 0
 
   useEffect(() => {
     if (drawerOpen) {
@@ -262,7 +290,10 @@ export function ScheduleBuilder({
   }, [])
 
   const addPhase = useCallback(() => {
-    onPhasesChange([...phases, { id: nextId(), name: '', tasks: [] }])
+    onPhasesChange([
+      ...phases,
+      { id: nextId(), apiPhaseId: undefined, name: '', tasks: [], phase_start_date: undefined, phase_end_date: undefined },
+    ])
   }, [phases, onPhasesChange])
 
   const removePhase = useCallback(
@@ -275,6 +306,14 @@ export function ScheduleBuilder({
   const updatePhase = useCallback(
     (pid: number, field: 'name', value: string) => {
       onPhasesChange(phases.map((p) => (p.id === pid ? { ...p, [field]: value } : p)))
+    },
+    [phases, onPhasesChange]
+  )
+
+  const updatePhaseWindow = useCallback(
+    (pid: number, field: 'phase_start_date' | 'phase_end_date', value: string) => {
+      const v = value.trim() || undefined
+      onPhasesChange(phases.map((p) => (p.id === pid ? { ...p, [field]: v } : p)))
     },
     [phases, onPhasesChange]
   )
@@ -315,7 +354,7 @@ export function ScheduleBuilder({
   )
 
   const updateTask = useCallback(
-    (pid: number, tid: number, field: keyof BuilderTask, value: string | number) => {
+    (pid: number, tid: number, field: keyof BuilderTask, value: string | number | TaskStatus) => {
       onPhasesChange(
         phases.map((p) => {
           if (p.id !== pid) return p
@@ -323,6 +362,7 @@ export function ScheduleBuilder({
             if (t.id !== tid) return t
             if (field === 'sw' || field === 'dur')
               return { ...t, [field]: Math.max(1, typeof value === 'number' ? value : parseInt(String(value), 10) || 1) }
+            if (field === 'status') return { ...t, status: value as TaskStatus }
             return { ...t, [field]: value }
           })
           return { ...p, tasks }
@@ -396,12 +436,19 @@ export function ScheduleBuilder({
     const allStarts = allTasks.map((t) => dayjs(getTaskStartDate(startD, t.sw)))
     const allEnds = allTasks.map((t) => dayjs(getTaskEndDate(startD, t.sw, t.dur)))
     const msDates = namedMilestones.map((m) => dayjs(weekToDate(startD, m.wk)))
-    const allDates = [...allStarts, ...allEnds, ...msDates]
+    const phaseBounds: dayjs.Dayjs[] = []
+    for (const p of namedPhases) {
+      const r = phaseRangeForDisplay(startD, p)
+      if (r) {
+        phaseBounds.push(r.start, r.end)
+      }
+    }
+    const allDates = [...allStarts, ...allEnds, ...msDates, ...phaseBounds]
     if (!allDates.length) return '—'
     const earliest = minDayjs(allDates)
     const latest = maxDayjs(allDates)
     return `${formatShortDate(earliest.toISOString())} – ${formatDate(latest.toISOString())}`
-  }, [allTasks, namedMilestones, startD])
+  }, [allTasks, namedMilestones, namedPhases, startD])
 
   const phasesWithContent = useMemo(
     () => phases.filter((p) => p.name.trim() || p.tasks.some((t) => t.name.trim())),
@@ -459,13 +506,38 @@ export function ScheduleBuilder({
 
           <div className="sched-progress-strip">
             <div className="sched-prog-label">
-              {progressDone} of {allTasks.length} task{allTasks.length !== 1 ? 's' : ''} done
+              {allTasks.length > 0 ? (
+                <>
+                  {progressDone} of {allTasks.length} task{allTasks.length !== 1 ? 's' : ''} done
+                </>
+              ) : namedPhases.length > 0 ? (
+                <>
+                  {namedPhases.length} phase{namedPhases.length !== 1 ? 's' : ''} on the schedule
+                  {namedMilestones.length > 0 ? ` · ${namedMilestones.length} milestone${namedMilestones.length !== 1 ? 's' : ''}` : ''}
+                  {' — '}
+                  add tasks to track progress by task
+                </>
+              ) : (
+                <>
+                  {namedMilestones.length} milestone{namedMilestones.length !== 1 ? 's' : ''}
+                  {' — '}
+                  add phases or tasks for a fuller schedule
+                </>
+              )}
             </div>
             <div className="sched-prog-bar-wrap">
-              <div className="sched-prog-bar" style={{ width: `${progressPct}%` }} />
+              <div className="sched-prog-bar" style={{ width: `${allTasks.length > 0 ? progressPct : 0}%` }} />
             </div>
-            <div className="sched-prog-pct">{progressPct}%</div>
+            <div className="sched-prog-pct">{allTasks.length > 0 ? `${progressPct}%` : '—'}</div>
           </div>
+
+          {onPhaseMarkComplete && phaseIdsWithPaymentMilestone && phaseIdsWithPaymentMilestone.size > 0 && (
+            <div className="sched-billing-hint">
+              When a phase is finished, use{' '}
+              <strong className="text-[var(--text-primary)] dark:text-landing-white font-semibold">Mark phase complete</strong> on that phase
+              to send its milestone invoice (progress billing).
+            </div>
+          )}
 
           <div className="sched-col-headers">
             <div className="sched-col-hdr" />
@@ -496,6 +568,21 @@ export function ScheduleBuilder({
                   )}
                   <div className={`sched-phase-badge ${badgeCls}`}>{ts.length ? `${pPct}%` : '—'}</div>
                 </div>
+                {!isDemo && onPhaseMarkComplete && p.apiPhaseId && phaseIdsWithPaymentMilestone?.has(p.apiPhaseId) && (
+                  <div className="sched-phase-bill-row">
+                    <button
+                      type="button"
+                      className="sched-phase-mark-complete-btn"
+                      onClick={() => onPhaseMarkComplete(p.apiPhaseId!)}
+                    >
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                      Mark phase complete
+                    </button>
+                    <span className="sched-phase-bill-hint">Sends milestone invoice & payment request</span>
+                  </div>
+                )}
                 {ts.length > 0 &&
                   ts.map((t) => {
                     const sd = dayjs(getTaskStartDate(startD, t.sw))
@@ -618,7 +705,10 @@ export function ScheduleBuilder({
             {phases.map((p, pi) => {
               const color = PHASE_COLORS[pi % PHASE_COLORS.length]
               const r = phaseRangeForDisplay(startD, p)
-              const rangeLabel = r ? `${formatShortDate(r.start.toISOString())} – ${formatShortDate(r.end.toISOString())}` : 'Set task dates'
+              const rangeLabel = r
+                ? `${formatShortDate(r.start.toISOString())} – ${formatShortDate(r.end.toISOString())}`
+                : 'Set phase or task dates'
+              const hasNamedTasks = p.tasks.some((t) => t.name.trim())
               return (
                 <div key={p.id} className="d-phase" data-dpid={p.id}>
                   <div className="d-phase-top">
@@ -640,12 +730,50 @@ export function ScheduleBuilder({
                       </button>
                     )}
                   </div>
+                  {!isDemo && onPhaseMarkComplete && p.apiPhaseId && phaseIdsWithPaymentMilestone?.has(p.apiPhaseId) && (
+                    <div className="pl-7 pr-3 pb-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-primary hover:underline bg-transparent border-none p-0 cursor-pointer font-inherit"
+                        onClick={() => onPhaseMarkComplete(p.apiPhaseId!)}
+                      >
+                        Mark phase complete
+                      </button>
+                    </div>
+                  )}
+                  {!isDemo && !hasNamedTasks && (
+                    <div className="d-phase-window grid grid-cols-2 gap-2 pl-7 pr-1 pb-2">
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-muted dark:text-white-faint mb-1">
+                          Phase start
+                        </label>
+                        <input
+                          type="date"
+                          className="w-full min-w-0 px-2 py-1.5 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 text-gray-900 dark:text-landing-white text-xs outline-none focus:ring-2 focus:ring-primary"
+                          value={p.phase_start_date ?? ''}
+                          onChange={(e) => updatePhaseWindow(p.id, 'phase_start_date', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-muted dark:text-white-faint mb-1">
+                          Phase end
+                        </label>
+                        <input
+                          type="date"
+                          className="w-full min-w-0 px-2 py-1.5 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-dark-3 text-gray-900 dark:text-landing-white text-xs outline-none focus:ring-2 focus:ring-primary"
+                          value={p.phase_end_date ?? ''}
+                          onChange={(e) => updatePhaseWindow(p.id, 'phase_end_date', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
                   {p.tasks.length > 0 && (
                     <div className="d-task-col-hdrs">
                       <div className="d-col-h">Task</div>
                       <div className="d-col-h">Responsible</div>
                       <div className="d-col-h">Start</div>
                       <div className="d-col-h">End</div>
+                      <div className="d-col-h">Status</div>
                       <div className="d-col-h" />
                     </div>
                   )}
@@ -677,6 +805,18 @@ export function ScheduleBuilder({
                         value={getTaskEndDate(startD, t.sw, t.dur)}
                         onChange={(e) => setTaskEndDate(p.id, t.id, e.target.value)}
                       />
+                      <select
+                        className="d-date-in"
+                        value={t.status}
+                        onChange={(e) => updateTask(p.id, t.id, 'status', e.target.value as TaskStatus)}
+                        aria-label="Task status"
+                      >
+                        {(['not-started', 'in-progress', 'complete', 'on-hold'] as const).map((s) => (
+                          <option key={s} value={s}>
+                            {statusLabel(s)}
+                          </option>
+                        ))}
+                      </select>
                       {!isDemo && (
                         <button type="button" className="d-del" onClick={() => removeTask(p.id, t.id)} aria-label="Remove task">
                           <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
