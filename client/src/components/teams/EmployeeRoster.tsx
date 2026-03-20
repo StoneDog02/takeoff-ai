@@ -8,12 +8,6 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 type ViewMode = 'cards' | 'table'
 
-const STATUS_PILL: Record<string, { class: string; label: string }> = {
-  on_site: { class: 'active', label: 'Active' },
-  off: { class: 'inactive', label: 'Inactive' },
-  pto: { class: 'inactive', label: 'PTO' },
-}
-
 /** Attendance flag for card display (from most recent record) */
 const ATTENDANCE_DISPLAY: Record<string, { class: string; label: string }> = {
   on_time: { class: 'ontime', label: 'On time' },
@@ -32,6 +26,8 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
   const [assignments, setAssignments] = useState<JobAssignment[]>([])
   const [jobNames, setJobNames] = useState<Record<string, string>>({})
   const [weekHoursByEmployee, setWeekHoursByEmployee] = useState<Record<string, number>>({})
+  /** Open time entry (no clock_out) — live clocked-in */
+  const [clockedInByEmployee, setClockedInByEmployee] = useState<Record<string, boolean>>({})
   const [attendanceByEmployee, setAttendanceByEmployee] = useState<Record<string, AttendanceFlag | null>>({})
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('cards')
@@ -64,8 +60,10 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
 
   const load = () => {
     setLoading(true)
-    const weekStart = dayjs().startOf('week').toISOString()
-    const weekEnd = dayjs().endOf('week').toISOString()
+    const weekStart = dayjs().startOf('week')
+    const weekEnd = dayjs().endOf('week')
+    /** Long lookback so open shifts that started before this week still show as clocked in */
+    const entriesFrom = dayjs().subtract(90, 'day').toISOString()
     const fromAtt = dayjs().subtract(14, 'day').format('YYYY-MM-DD')
     const toAtt = dayjs().format('YYYY-MM-DD')
     Promise.all([
@@ -76,19 +74,25 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
         projects.forEach((p) => { map[p.id] = p.name })
         return map
       }),
-      teamsApi.timeEntries.list({ from: weekStart, to: weekEnd }),
+      teamsApi.timeEntries.list({ from: entriesFrom }),
       teamsApi.attendance.list({ from: fromAtt, to: toAtt }),
     ])
-      .then(([emps, assigns, names, weekEntries, attRecords]) => {
+      .then(([emps, assigns, names, timeEntries, attRecords]) => {
         setEmployees(emps)
         setAssignments(assigns)
         setJobNames(names)
         setWeekHoursByEmployee(
-          weekEntries.reduce<Record<string, number>>((acc, e) => {
+          timeEntries.reduce<Record<string, number>>((acc, e) => {
+            if (!dayjs(e.clock_in).isBetween(weekStart, weekEnd, null, '[]')) return acc
             acc[e.employee_id] = (acc[e.employee_id] || 0) + (e.hours ?? 0)
             return acc
           }, {})
         )
+        const live: Record<string, boolean> = {}
+        timeEntries.forEach((e) => {
+          if (e.clock_out == null) live[e.employee_id] = true
+        })
+        setClockedInByEmployee(live)
         const latestByEmp: Record<string, AttendanceFlag | null> = {}
         attRecords
           .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf())
@@ -199,11 +203,14 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
         <div className="teams-cards-grid">
           {filtered.map((emp) => {
             const jobLabel = (assignmentsByEmployee.get(emp.id) || []).join(', ') || null
-            const pill = STATUS_PILL[emp.status] || STATUS_PILL.off
             const hoursThisWeek = weekHoursByEmployee[emp.id] ?? 0
             const attFlag = attendanceByEmployee[emp.id]
             const attDisplay = attFlag ? ATTENDANCE_DISPLAY[attFlag] : null
             const rateStr = emp.current_compensation != null ? `$${emp.current_compensation}/hr` : '—'
+            const isClockedIn = !!clockedInByEmployee[emp.id]
+            const clockPill = isClockedIn
+              ? { class: 'active', label: 'Active' }
+              : { class: 'inactive', label: 'Inactive' }
             return (
               <div
                 key={emp.id}
@@ -220,7 +227,14 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
                     <div className="teams-roster-name">{emp.name}</div>
                     <div className="teams-roster-role">{emp.role}</div>
                   </div>
-                  <span className={`teams-status-pill ${pill.class}`}>{pill.label}</span>
+                  <div className="teams-roster-status-inline">
+                    <span
+                      role="img"
+                      aria-label={isClockedIn ? 'Clocked in now' : 'Not clocked in'}
+                      className={`teams-roster-clock-dot ${isClockedIn ? 'teams-roster-clock-dot--live' : 'teams-roster-clock-dot--idle'}`}
+                    />
+                    <span className={`teams-status-pill ${clockPill.class}`}>{clockPill.label}</span>
+                  </div>
                 </div>
                 {jobLabel && (
                   <div className="teams-roster-card-job">
@@ -274,7 +288,10 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
             </thead>
             <tbody>
               {filtered.map((emp) => {
-                const pill = STATUS_PILL[emp.status] || STATUS_PILL.off
+                const isClockedIn = !!clockedInByEmployee[emp.id]
+                const clockPill = isClockedIn
+                  ? { class: 'active', label: 'Active' }
+                  : { class: 'inactive', label: 'Inactive' }
                 return (
                   <tr
                     key={emp.id}
@@ -291,7 +308,16 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
                       </div>
                     </td>
                     <td><span className="teams-cell-muted">{emp.role}</span></td>
-                    <td><span className={`teams-status-pill ${pill.class}`}>{pill.label}</span></td>
+                    <td>
+                      <div className="teams-roster-status-inline">
+                        <span
+                          role="img"
+                          aria-label={isClockedIn ? 'Clocked in now' : 'Not clocked in'}
+                          className={`teams-roster-clock-dot ${isClockedIn ? 'teams-roster-clock-dot--live' : 'teams-roster-clock-dot--idle'}`}
+                        />
+                        <span className={`teams-status-pill ${clockPill.class}`}>{clockPill.label}</span>
+                      </div>
+                    </td>
                     <td><span className="teams-cell-value">{emp.current_compensation != null ? `$${emp.current_compensation}/hr` : '—'}</span></td>
                     <td><span className="teams-cell-muted">{(assignmentsByEmployee.get(emp.id) || []).join(', ') || '—'}</span></td>
                     <td><span className="teams-cell-muted">{emp.email}</span></td>
