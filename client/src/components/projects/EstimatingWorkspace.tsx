@@ -99,7 +99,7 @@ export interface EstimatingWorkspaceProps {
   onRefreshTakeoffs: () => void
   onRefreshSubcontractors: () => void
   onBuildEstimate: () => void
-  /** When true, every trade scope is resolved (awarded sub or GC self-priced) or user skipped/bypassed. Unlocks Build Estimate. */
+  /** When true, every trade scope is resolved (awarded sub or GC self-priced), user skipped/bypassed, or this job already has a saved estimate — keeps Build Estimate unlocked. */
   estimateStageReady?: boolean
   /** When true, GC chose to skip takeoff (small job / price manually); Stage 2 and 3 unlock without takeoff. */
   takeoffBypassed?: boolean
