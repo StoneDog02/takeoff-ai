@@ -101,6 +101,10 @@ export interface EstimatingWorkspaceProps {
   onBuildEstimate: () => void
   /** When true, every trade scope is resolved (awarded sub or GC self-priced), user skipped/bypassed, or this job already has a saved estimate — keeps Build Estimate unlocked. */
   estimateStageReady?: boolean
+  /** When true, this job has at least one estimate row in the DB — unlocks stages 2–3 even without takeoff/bids (resume editing). */
+  hasSavedJobEstimate?: boolean
+  /** Optional draft/saved total for the primary estimate (for banner copy). */
+  savedEstimateSummary?: { total: number; status: string } | null
   /** When true, GC chose to skip takeoff (small job / price manually); Stage 2 and 3 unlock without takeoff. */
   takeoffBypassed?: boolean
   /** Callback when GC clicks "Bypass takeoff". */
@@ -149,6 +153,8 @@ export function EstimatingWorkspace({
   onRefreshSubcontractors,
   onBuildEstimate,
   estimateStageReady = false,
+  hasSavedJobEstimate = false,
+  savedEstimateSummary = null,
   takeoffBypassed = false,
   onBypassTakeoff,
   bidSheetSkipped = false,
@@ -235,17 +241,22 @@ export function EstimatingWorkspace({
     return () => clearInterval(t)
   }, [lastBidSheetUpdated])
   const hasTakeoff = takeoffs.length > 0
-  const stage2Unlocked = hasTakeoff || takeoffBypassed
+  /** Saved estimate implies the GC already reached Build Estimate — do not keep them stuck behind takeoff/bid gates. */
+  const stage2Unlocked = hasTakeoff || takeoffBypassed || hasSavedJobEstimate
   const stage3Unlocked = stage2Unlocked && (estimateStageReady || bidSheetSkipped || takeoffBypassed)
 
-  const stage1Status: StageStatus = hasTakeoff || takeoffBypassed ? 'complete' : 'active'
+  const stage1Status: StageStatus =
+    hasTakeoff || takeoffBypassed || hasSavedJobEstimate ? 'complete' : 'active'
   const stage2Status: StageStatus = !stage2Unlocked ? 'locked' : estimateStageReady || bidSheetSkipped ? 'complete' : 'active'
   const stage3Status: StageStatus = !stage3Unlocked ? 'locked' : 'active'
+
+  const estimateActionLabel = hasSavedJobEstimate ? 'Edit Estimate' : 'Build Estimate'
+  const estimateCardTitle = hasSavedJobEstimate ? 'Edit & Send Estimate' : 'Build & Send Estimate'
 
   const stages = [
     { key: 'takeoff', label: '1 Takeoff', status: stage1Status },
     { key: 'bidsheet', label: '2 Bid Sheet', status: stage2Status },
-    { key: 'estimate', label: '3 Build Estimate', status: stage3Status },
+    { key: 'estimate', label: `3 ${estimateActionLabel}`, status: stage3Status },
   ] as const
 
   const latestTakeoff = takeoffs[0]
@@ -329,8 +340,46 @@ export function EstimatingWorkspace({
 
   const closeInvitedModal = useCallback(() => setInvitedListTradeTag(null), [])
 
+  const savedTotalLabel =
+    savedEstimateSummary != null && Number(savedEstimateSummary.total) > 0
+      ? formatCurrency(savedEstimateSummary.total)
+      : null
+
   return (
     <div className="estimating-workspace">
+      {hasSavedJobEstimate && (
+        <div
+          className="estimating-workspace-saved-estimate-banner"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '14px 16px',
+            marginBottom: 20,
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            background: 'var(--bg-surface, #fff)',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', marginBottom: 4 }}>
+              Saved estimate
+            </div>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              {savedTotalLabel
+                ? `${savedTotalLabel} in this job so far (${savedEstimateSummary?.status ?? 'draft'}). `
+                : 'You have estimate work saved for this job. '}
+              Open it to review, change line items, or send to your client.
+            </p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={onBuildEstimate} style={{ flexShrink: 0 }}>
+            Review &amp; edit estimate
+          </button>
+        </div>
+      )}
       <div className="estimating-workspace-progress">
         {stages.map((stage, i) => (
           <div key={stage.key} className="estimating-workspace-progress-segment">
@@ -366,7 +415,33 @@ export function EstimatingWorkspace({
             </span>
           </div>
           <div className="estimating-workspace-card-body">
-            {!hasTakeoff ? (
+            {!hasTakeoff && hasSavedJobEstimate ? (
+              <>
+                <p className="estimating-workspace-card-subtext">
+                  You already have a saved estimate for this job. Run a takeoff anytime to add material lines from plans, or go straight to{' '}
+                  <strong>Review &amp; edit estimate</strong> above or <strong>{estimateCardTitle}</strong> in step 3.
+                </p>
+                {project && (
+                  <LaunchTakeoffWidget
+                    projectId={project.id}
+                    planType={(project.plan_type as TakeoffPlanType) ?? 'residential'}
+                    onStartTakeoff={onStartTakeoff}
+                    existingTakeoffs={takeoffs}
+                    takeoffResult={takeoffResult}
+                    takeoffError={takeoffError}
+                    takeoffInProgress={takeoffInProgress}
+                    takeoffProgress={takeoffProgress}
+                    takeoffMessage={takeoffMessage}
+                    takeoffStartTime={takeoffStartTime}
+                  />
+                )}
+                {onBypassTakeoff && (
+                  <button type="button" className="estimating-workspace-skip-takeoff" onClick={onBypassTakeoff}>
+                    Bypass takeoff — small job or I&apos;ll price manually →
+                  </button>
+                )}
+              </>
+            ) : !hasTakeoff ? (
               <>
                 <p className="estimating-workspace-card-subtext">
                   Upload your plans and our AI will generate a material list broken down by trade category.
@@ -488,7 +563,7 @@ export function EstimatingWorkspace({
                     <>
                       <p className="estimating-workspace-card-subtext" style={{ marginBottom: 14, maxWidth: 640 }}>
                         <strong>Add &amp; Dispatch</strong> invites subs per trade, or use <strong>I&apos;ll do this scope</strong> to price work you&apos;re keeping in-house.
-                        Award a sub <em>or</em> save in-house lines for each trade to unlock <strong>Build Estimate</strong> (or skip bid collection below).
+                        Award a sub <em>or</em> save in-house lines for each trade to unlock <strong>{estimateActionLabel}</strong> (or skip bid collection below).
                       </p>
                       {manualShareBanner && (
                         <div className="ew-manual-invite-banner" role="status">
@@ -704,7 +779,7 @@ export function EstimatingWorkspace({
                       </ul>
                       {estimateStageReady && !bidSheetSkipped && (
                         <p className="estimating-workspace-ready-nudge estimating-workspace-ready-nudge--inline">
-                          Every trade is covered — open <strong>Build &amp; Send Estimate</strong> when you&apos;re ready.
+                          Every trade is covered — open <strong>{estimateCardTitle}</strong> when you&apos;re ready.
                         </p>
                       )}
                     </>
@@ -1126,8 +1201,8 @@ export function EstimatingWorkspace({
                     </h3>
                     <p className="ew-gc-scope-lead">
                       Use <strong>Load from library</strong> to pull a saved product/service, or fill the form like <strong>Add product</strong>. Each line has{' '}
-                      <strong>Qty</strong> for this job. Saving syncs new definitions to Products &amp; Services when needed. This trade counts as resolved for
-                      Build Estimate.
+                      <strong>Qty</strong> for this job. Saving syncs new definitions to Products &amp; Services when needed. This trade
+                      counts as resolved for {estimateActionLabel}.
                     </p>
                     <div className="ew-gc-scope-forms">
                       {gcScopeRows.map((row, idx) => (
@@ -1344,14 +1419,16 @@ export function EstimatingWorkspace({
 
         <div className={`estimating-workspace-card ${!stage3Unlocked ? 'estimating-workspace-card--locked' : ''}`}>
           <div className="estimating-workspace-card-head">
-            <h3 className="estimating-workspace-card-title">Build & Send Estimate</h3>
+            <h3 className="estimating-workspace-card-title">{estimateCardTitle}</h3>
             <span className={`estimating-workspace-card-status estimating-workspace-card-status--${stage3Status}`}>
               {stage3Status === 'active' ? 'Ready' : stage3Status === 'locked' ? 'Locked' : 'Complete'}
             </span>
           </div>
           <div className="estimating-workspace-card-body">
             <p className="estimating-workspace-card-subtext">
-              Your takeoff and awarded bids are ready to import. Review line items, set your markup, and send to the client.
+              {hasSavedJobEstimate
+                ? 'Your estimate is saved. Adjust line items, markup, and client notes anytime, then send when you are ready.'
+                : 'Your takeoff and awarded bids are ready to import. Review line items, set your markup, and send to the client.'}
             </p>
             {!stage3Unlocked ? (
               <div className="estimating-workspace-stage-locked">
@@ -1374,15 +1451,17 @@ export function EstimatingWorkspace({
                     </span>
                   </div>
                 </div>
-                <p className="estimating-workspace-build-note">
-                  Unit prices from the takeoff will be blank for you to fill in.
-                </p>
+                {!hasSavedJobEstimate ? (
+                  <p className="estimating-workspace-build-note">
+                    Unit prices from the takeoff will be blank for you to fill in.
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   className="estimating-workspace-build-cta"
                   onClick={onBuildEstimate}
                 >
-                  Build Estimate →
+                  {estimateActionLabel} →
                 </button>
                 {onBuildBlankEstimate && (
                   <button

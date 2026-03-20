@@ -18,6 +18,7 @@ export const CATEGORY_UNITS: Record<CategoryUnitsCategory, { value: string; labe
     { value: 'week', label: 'per week' },
     { value: 'person', label: 'per person' },
     { value: 'ls', label: 'lump sum' },
+    { value: 'pct', label: '% of total' },
   ],
   Materials: [
     { value: 'sf', label: 'per sf' },
@@ -30,12 +31,14 @@ export const CATEGORY_UNITS: Record<CategoryUnitsCategory, { value: string; labe
     { value: 'box', label: 'per box' },
     { value: 'sheet', label: 'per sheet' },
     { value: 'ls', label: 'lump sum' },
+    { value: 'pct', label: '% of total' },
   ],
   Subcontractors: [
     { value: 'ls', label: 'lump sum' },
     { value: 'sf', label: 'per sf' },
     { value: 'unit', label: 'per unit' },
     { value: 'day', label: 'per day' },
+    { value: 'pct', label: '% of total' },
   ],
   Equipment: [
     { value: 'day', label: 'per day' },
@@ -43,11 +46,13 @@ export const CATEGORY_UNITS: Record<CategoryUnitsCategory, { value: string; labe
     { value: 'month', label: 'per month' },
     { value: 'hr', label: 'per hr' },
     { value: 'ls', label: 'lump sum' },
+    { value: 'pct', label: '% of total' },
   ],
   'Permits & Fees': [
     { value: 'ls', label: 'lump sum' },
     { value: 'ea', label: 'per ea' },
     { value: 'unit', label: 'per unit' },
+    { value: 'pct', label: '% of total' },
   ],
   Overhead: [
     { value: 'ls', label: 'lump sum' },
@@ -61,6 +66,7 @@ export const CATEGORY_UNITS: Record<CategoryUnitsCategory, { value: string; labe
     { value: 'lf', label: 'per lf' },
     { value: 'ea', label: 'per ea' },
     { value: 'ls', label: 'lump sum' },
+    { value: 'pct', label: '% of total' },
   ],
 }
 
@@ -71,6 +77,7 @@ export const DEFAULT_UNITS: { value: string; label: string }[] = [
   { value: 'ea', label: 'per ea' },
   { value: 'cy', label: 'per CY' },
   { value: 'ls', label: 'lump sum' },
+  { value: 'pct', label: '% of total' },
 ]
 
 /** Budget tab `category` keys → `CATEGORY_UNITS` keys. */

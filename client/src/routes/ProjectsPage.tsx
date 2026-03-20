@@ -327,6 +327,11 @@ export function ProjectsPage() {
   const [estimatingBidSheetSkipped, setEstimatingBidSheetSkipped] = useState(false)
   /** True if this job has any saved estimate row — keeps Stage 3 available after first Build Estimate session. */
   const [hasPersistedJobEstimate, setHasPersistedJobEstimate] = useState(false)
+  /** Primary estimate total/status for Estimating banner (draft first, else latest). */
+  const [persistedEstimatePreview, setPersistedEstimatePreview] = useState<{
+    total: number
+    status: string
+  } | null>(null)
   /** Takeoff in progress (lives in parent so progress continues when user leaves Takeoff tab). */
   const [takeoffInProgress, setTakeoffInProgress] = useState(false)
   const [takeoffProgress, setTakeoffProgress] = useState(0)
@@ -899,13 +904,27 @@ export function ProjectsPage() {
   useEffect(() => {
     if (!id || project?.status !== 'estimating') {
       setHasPersistedJobEstimate(false)
+      setPersistedEstimatePreview(null)
       return
     }
     let cancelled = false
     estimatesApi
       .getEstimates(id)
       .then((list) => {
-        if (!cancelled) setHasPersistedJobEstimate((list ?? []).length > 0)
+        if (cancelled) return
+        const rows = list ?? []
+        setHasPersistedJobEstimate(rows.length > 0)
+        if (rows.length === 0) {
+          setPersistedEstimatePreview(null)
+          return
+        }
+        const eid = pickPrimaryEstimateIdForBuild(rows)
+        const row = eid ? rows.find((e) => e.id === eid) : null
+        setPersistedEstimatePreview(
+          row
+            ? { total: Number(row.total_amount ?? 0), status: String(row.status ?? 'draft') }
+            : null
+        )
       })
       .catch(() => {
         /* keep prior flag on fetch error so Stage 3 doesn't flicker locked */
@@ -2169,7 +2188,7 @@ export function ProjectsPage() {
                   className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate"
                   onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
                 >
-                  Build Estimate →
+                  {hasPersistedJobEstimate ? 'Edit Estimate →' : 'Build Estimate →'}
                 </button>
                 <button
                   type="button"
@@ -2467,6 +2486,8 @@ export function ProjectsPage() {
                 onRefreshSubcontractors={refreshSubcontractors}
                 onBuildEstimate={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
                 estimateStageReady={estimateStageReady}
+                hasSavedJobEstimate={hasPersistedJobEstimate}
+                savedEstimateSummary={persistedEstimatePreview}
                 takeoffBypassed={estimatingTakeoffBypassed}
                 onBypassTakeoff={() => setEstimatingTakeoffBypassed(true)}
                 bidSheetSkipped={estimatingBidSheetSkipped}
@@ -3184,7 +3205,7 @@ export function ProjectsPage() {
           onClick={() => setBuildEstimateOpen(false)}
           role="dialog"
           aria-modal="true"
-          aria-label="Build estimate"
+          aria-label={hasPersistedJobEstimate ? 'Edit estimate' : 'Build estimate'}
         >
           <div className="estimate-builder-wizard" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-center p-12">

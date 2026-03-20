@@ -16477,7 +16477,7 @@ html[data-theme='dark'] .estimate-wizard-line-picker-popover .estimate-wizard-ca
   flex-shrink: 0;
 }
 .estimate-wizard-groups-header--custom {
-  grid-template-columns: 28px minmax(0, 1.35fr) minmax(118px, 0.95fr) 64px 56px minmax(128px, 1.1fr) 88px 36px;
+  grid-template-columns: 28px minmax(0, 1.35fr) minmax(118px, 0.95fr) 64px 56px minmax(128px, 1.1fr) 96px 88px 36px;
   margin-top: 16px;
 }
 .estimate-wizard-group-row {
@@ -16494,7 +16494,7 @@ html[data-theme='dark'] .estimate-wizard-line-picker-popover .estimate-wizard-ca
   background: var(--bg-hover, rgba(0, 0, 0, 0.04));
 }
 .estimate-wizard-group-row--custom {
-  grid-template-columns: 28px minmax(0, 1.35fr) minmax(118px, 0.95fr) 64px 56px minmax(128px, 1.1fr) 88px 36px;
+  grid-template-columns: 28px minmax(0, 1.35fr) minmax(118px, 0.95fr) 64px 56px minmax(128px, 1.1fr) 96px 88px 36px;
   cursor: default;
   padding: 10px 0;
 }
@@ -16531,6 +16531,9 @@ html[data-theme='dark'] .estimate-wizard-line-picker-popover .estimate-wizard-ca
   min-width: 0;
   width: 100%;
   font-size: 12px;
+}
+.estimate-wizard-group-markup--custom {
+  justify-self: start;
 }
 .estimate-wizard-group-chevron {
   width: 28px;

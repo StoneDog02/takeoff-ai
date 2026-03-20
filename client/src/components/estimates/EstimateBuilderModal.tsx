@@ -72,10 +72,8 @@ function recomputeLineItemGroupTotals(groups: LineItemGroup[]): LineItemGroup[] 
           0
         ) * 100
       ) / 100
-    const clientTotal =
-      g.source === 'custom'
-        ? costSubtotal
-        : Math.round(costSubtotal * (1 + (g.markupPct ?? 0) / 100) * 100) / 100
+    const mup = Math.min(500, Math.max(0, Number(g.markupPct) || 0))
+    const clientTotal = Math.round(costSubtotal * (1 + mup / 100) * 100) / 100
     return { ...g, costSubtotal, clientTotal }
   })
 }
@@ -200,19 +198,25 @@ function defaultWizardData(prefill?: PrefillClientInfo | null): WizardData {
 function lineItemGroupsToClientCostLineItems(groups: LineItemGroup[]): ClientFacingLineItem[] {
   let n = 0
   const out: ClientFacingLineItem[] = []
+  const globalFlat = groups.flatMap((g) => lineItemsToPctPriced(g.items))
+  const globalHard = hardSubtotalExcludingPctLines(globalFlat)
   for (const g of groups) {
-    if (g.source === 'custom' && g.items[0]) {
-      const i = g.items[0]
-      const total = Math.round(i.qty * i.unitCost * 100) / 100
-      out.push({
-        id: `pv-${n++}`,
-        description: i.description || '—',
-        quantity: i.qty,
-        unit: i.unit,
-        unit_price: i.unitCost,
-        total,
-        section: null,
-      })
+    if (g.source === 'custom' && g.items.length) {
+      for (const i of g.items) {
+        const total =
+          Math.round(
+            lineDollarAmount({ qty: i.qty, unitPrice: i.unitCost, unit: i.unit }, globalHard) * 100
+          ) / 100
+        out.push({
+          id: `pv-${n++}`,
+          description: i.description || '—',
+          quantity: i.qty,
+          unit: i.unit,
+          unit_price: i.unitCost,
+          total,
+          section: null,
+        })
+      }
     } else if (g.source === 'takeoff') {
       for (const i of g.items) {
         const t = Math.round(i.qty * i.unitCost * 100) / 100
@@ -288,11 +292,8 @@ function parseGroupsFromMeta(raw: unknown): LineItemGroup[] | null {
         costSubtotal = items.reduce((s, i) => s + i.qty * i.unitCost, 0)
       } else if (source === 'bid' && items.length >= 1) {
         costSubtotal = items.reduce((s, i) => s + i.qty * i.unitCost, 0)
-      } else if (source === 'custom' && items[0]) {
-        costSubtotal = items[0].qty * items[0].unitCost
       }
-      const clientTotal =
-        source === 'custom' ? costSubtotal : Math.round(costSubtotal * (1 + markupPct / 100) * 100) / 100
+      const clientTotal = Math.round(costSubtotal * (1 + markupPct / 100) * 100) / 100
       const subNotesRaw = Array.isArray(g.subNotes) ? g.subNotes : []
       const subNotes = subNotesRaw.map((n: Record<string, unknown>) => ({
         subcontractor: String(n.subcontractor ?? 'Subcontractor'),
@@ -309,7 +310,7 @@ function parseGroupsFromMeta(raw: unknown): LineItemGroup[] | null {
         source,
         items,
         costSubtotal,
-        markupPct: source === 'custom' ? 0 : markupPct,
+        markupPct,
         clientTotal,
         budgetCategory,
         gcSectionNote: g.gcSectionNote != null ? String(g.gcSectionNote) : '',
@@ -449,8 +450,12 @@ function sortLineItemGroupsForBudgetPreview(groups: LineItemGroup[]): LineItemGr
     .map(({ g }) => g)
 }
 
-function lineItemGroupsFromBudgetLineItems(items: BudgetLineItem[]): LineItemGroup[] {
+function lineItemGroupsFromBudgetLineItems(
+  items: BudgetLineItem[],
+  seedMarkupPct: number = DEFAULT_MARKUP_PCT
+): LineItemGroup[] {
   if (!items?.length) return []
+  const m = Math.min(500, Math.max(0, Number(seedMarkupPct) || DEFAULT_MARKUP_PCT))
   let n = 0
   const rows = items.map((b, i) => {
     const predicted = Math.max(0, Number(b.predicted) || 0)
@@ -463,8 +468,8 @@ function lineItemGroupsFromBudgetLineItems(items: BudgetLineItem[]): LineItemGro
       source: 'custom' as const,
       items: [{ id: rowId, description: label, qty: 1, unit: 'job', unitCost: predicted }],
       costSubtotal: predicted,
-      markupPct: 0,
-      clientTotal: predicted,
+      markupPct: m,
+      clientTotal: predicted * (1 + m / 100),
       budgetCategory: budgetCategoryKeyToLabel(budgetCategoryKey),
     }
   })
@@ -650,7 +655,8 @@ export function EstimateBuilderModal({
     (prefillClientInfo != null || prefillLineItems != null || initialBudgetLineItems != null || isReviseMode)
   const STEPS = isBuildMode ? STEPS_BUILD : STEPS_CREATE
 
-  const [step, setStep] = useState(1)
+  /** Editing an existing estimate: skip client-info step — open on line items. */
+  const [step, setStep] = useState(() => (isReviseMode ? 2 : 1))
   const [saved, setSaved] = useState(false)
   const [savedAndSent, setSavedAndSent] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -699,13 +705,23 @@ export function EstimateBuilderModal({
   useEffect(() => {
     if (isReviseMode || defaultMarkupBaseline === DEFAULT_MARKUP_PCT) return
     setLineItemGroups((prev) => {
-      const hasCat = prev.some((g) => g.source === 'takeoff' || g.source === 'bid')
-      if (!hasCat) return prev
-      if (!prev.every((g) => g.source === 'custom' || g.markupPct === DEFAULT_MARKUP_PCT)) return prev
+      if (prev.length === 0) return prev
       const t = defaultMarkupBaseline
-      return prev.map((g) =>
-        g.source === 'custom' ? g : { ...g, markupPct: t, clientTotal: g.costSubtotal * (1 + t / 100) }
-      )
+      const hasCat = prev.some((g) => g.source === 'takeoff' || g.source === 'bid')
+      if (hasCat) {
+        if (!prev.every((g) => g.source === 'custom' || g.markupPct === DEFAULT_MARKUP_PCT)) return prev
+        return recomputeLineItemGroupTotals(
+          prev.map((g) => {
+            if (g.source === 'takeoff' || g.source === 'bid') return { ...g, markupPct: t }
+            if (g.source === 'custom' && g.markupPct === DEFAULT_MARKUP_PCT) return { ...g, markupPct: t }
+            return g
+          })
+        )
+      }
+      if (prev.every((g) => g.source === 'custom' && g.markupPct === DEFAULT_MARKUP_PCT)) {
+        return recomputeLineItemGroupTotals(prev.map((g) => ({ ...g, markupPct: t })))
+      }
+      return prev
     })
   }, [defaultMarkupBaseline, isReviseMode])
 
@@ -931,11 +947,11 @@ export function EstimateBuilderModal({
     setLineItemGroups(
       recomputeLineItemGroupTotals(
         initialBudgetLineItems?.length
-          ? lineItemGroupsFromBudgetLineItems(initialBudgetLineItems)
+          ? lineItemGroupsFromBudgetLineItems(initialBudgetLineItems, defaultMarkupBaseline)
           : lineItemGroupsFromPrefill(prefillLineItems, defaultMarkupBaseline)
       )
     )
-    setStep(1)
+    setStep(isReviseMode ? 2 : 1)
     setSaved(false)
     setSavedAndSent(false)
     setCreatedProjectName('')
@@ -1072,10 +1088,7 @@ export function EstimateBuilderModal({
             <button
               type="button"
               className="estimate-wizard-reset"
-              onClick={() => {
-                reset()
-                setStep(1)
-              }}
+              onClick={reset}
             >
               Reset
             </button>
@@ -1752,10 +1765,8 @@ function Step2LineItems({
   const updateGroupMarkup = (groupId: string, markupPct: number) => {
     const m = Math.min(500, Math.max(0, markupPct))
     setLineItemGroups((prev) =>
-      prev.map((g) =>
-        g.id === groupId
-          ? { ...g, markupPct: m, clientTotal: g.costSubtotal * (1 + m / 100) }
-          : g
+      recomputeLineItemGroupTotals(
+        prev.map((g) => (g.id === groupId ? { ...g, markupPct: m } : g))
       )
     )
   }
@@ -1769,11 +1780,7 @@ function Step2LineItems({
   const applyAllCategoryMarkups = () => {
     const pct = Math.min(500, Math.max(0, Number(String(bulkMarkupStr).replace(/,/g, '')) || 0))
     setLineItemGroups((prev) =>
-      prev.map((g) =>
-        g.source === 'takeoff' || g.source === 'bid'
-          ? { ...g, markupPct: pct, clientTotal: g.costSubtotal * (1 + pct / 100) }
-          : g
-      )
+      recomputeLineItemGroupTotals(prev.map((g) => ({ ...g, markupPct: pct })))
     )
   }
 
@@ -1815,6 +1822,7 @@ function Step2LineItems({
 
   const addCustomLine = () => {
     const id = `custom-${Date.now()}`
+    const m = Math.min(500, Math.max(0, Number(defaultMarkupBaseline) || DEFAULT_MARKUP_PCT))
     setLineItemGroups((prev) =>
       recomputeLineItemGroupTotals([
         ...prev,
@@ -1832,7 +1840,7 @@ function Step2LineItems({
             },
           ],
           costSubtotal: 0,
-          markupPct: 0,
+          markupPct: m,
           clientTotal: 0,
           budgetCategory: 'Other',
         },
@@ -1846,6 +1854,7 @@ function Step2LineItems({
     const unitCost = product.default_unit_price ?? 0
     const budgetCategory = estimateBudgetCategoryFromProductItemType(product.item_type)
     const unit = nextUnitForCategory(budgetCategory, product.unit ?? '')
+    const m = Math.min(500, Math.max(0, Number(defaultMarkupBaseline) || DEFAULT_MARKUP_PCT))
     setLineItemGroups((prev) =>
       recomputeLineItemGroupTotals([
         ...prev,
@@ -1863,8 +1872,8 @@ function Step2LineItems({
             },
           ],
           costSubtotal: unitCost,
-          markupPct: 0,
-          clientTotal: unitCost,
+          markupPct: m,
+          clientTotal: unitCost * (1 + m / 100),
           budgetCategory,
         },
       ])
@@ -1878,6 +1887,8 @@ function Step2LineItems({
     const qty = Number(row.qty) || 1
     const unitCost = Number(row.price) || 0
     const unit = nextUnitForCategory('Materials', row.unit || '')
+    const m = Math.min(500, Math.max(0, Number(defaultMarkupBaseline) || DEFAULT_MARKUP_PCT))
+    const cost = qty * unitCost
     setLineItemGroups((prev) =>
       recomputeLineItemGroupTotals([
         ...prev,
@@ -1894,9 +1905,9 @@ function Step2LineItems({
               unitCost,
             },
           ],
-          costSubtotal: qty * unitCost,
-          markupPct: 0,
-          clientTotal: qty * unitCost,
+          costSubtotal: cost,
+          markupPct: m,
+          clientTotal: cost * (1 + m / 100),
           budgetCategory: 'Materials',
         },
       ])
@@ -1932,7 +1943,7 @@ function Step2LineItems({
       <div className="estimate-wizard-step-head">
         <h3 className="estimate-wizard-step-title">Line items</h3>
         <p className="estimate-wizard-step-sub">
-          Same categories and amounts as your project budget (for custom lines). Takeoff and bid scopes keep per-section markup below.
+          Same categories and amounts as your project budget for custom lines. Takeoff, bid scopes, and custom rows each have their own markup % — client preview rolls markup into General fees.
         </p>
       </div>
 
@@ -2154,9 +2165,9 @@ function Step2LineItems({
 
         {/* Grouped category / bid rows */}
         <div className="estimate-wizard-groups-table">
-          {groupedRows.length > 0 && (
+          {(groupedRows.length > 0 || customRows.length > 0) && (
             <div className="estimate-wizard-set-all-markup">
-              <span className="estimate-wizard-set-all-markup-label">Set all categories to</span>
+              <span className="estimate-wizard-set-all-markup-label">Set all rows to</span>
               <input
                 type="number"
                 min={0}
@@ -2165,7 +2176,7 @@ function Step2LineItems({
                 className="estimate-wizard-input estimate-wizard-set-all-markup-input"
                 value={bulkMarkupStr}
                 onChange={(e) => setBulkMarkupStr(e.target.value)}
-                aria-label="Markup percent for all categories"
+                aria-label="Markup percent for all line-item rows"
               />
               <span className="estimate-wizard-set-all-markup-pct">%</span>
               <button
@@ -2306,7 +2317,8 @@ function Step2LineItems({
                 <span className="estimate-wizard-label">Qty</span>
                 <span className="estimate-wizard-label">Unit</span>
                 <span className="estimate-wizard-label">Price / %</span>
-                <span className="estimate-wizard-label">Total</span>
+                <span className="estimate-wizard-label">Markup %</span>
+                <span className="estimate-wizard-label">Client total</span>
                 <span aria-hidden />
               </div>
             </>
@@ -2404,6 +2416,13 @@ function Step2LineItems({
                       className="estimate-wizard-input estimate-wizard-line-input-price"
                     />
                   )}
+                  <span className="estimate-wizard-group-markup estimate-wizard-group-markup--custom">
+                    <MarkupPctInline
+                      groupId={group.id}
+                      value={group.markupPct}
+                      onCommit={updateGroupMarkup}
+                    />
+                  </span>
                   <span className="estimate-wizard-group-client-total">{fmt(group.clientTotal)}</span>
                   <button
                     type="button"
