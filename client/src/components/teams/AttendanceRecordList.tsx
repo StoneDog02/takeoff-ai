@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { teamsApi } from '@/api/teamsClient'
 import type { AttendanceRecord, Employee } from '@/types/global'
 import { dayjs, formatDate, formatDateTime } from '@/lib/date'
+import { mergeAttendanceWithTimeEntries } from '@/lib/mergeAttendanceFromTimeEntries'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
 
 type AttFilter = 'all' | 'on-time' | 'early-out' | 'late'
@@ -19,16 +20,23 @@ export function AttendanceRecordList({ onSelectEmployee }: AttendanceRecordListP
 
   const load = () => {
     setLoading(true)
-    const from = dayjs().subtract(30, 'day').format('YYYY-MM-DD')
-    const to = dayjs().format('YYYY-MM-DD')
+    const fromDate = dayjs().subtract(30, 'day').format('YYYY-MM-DD')
+    const toDate = dayjs().format('YYYY-MM-DD')
+    const fromIso = dayjs().subtract(30, 'day').startOf('day').toISOString()
+    const toIso = dayjs().toISOString()
+    const attParams = employeeFilter
+      ? { employee_id: employeeFilter, from: fromDate, to: toDate }
+      : { from: fromDate, to: toDate }
+    const timeParams = employeeFilter
+      ? { employee_id: employeeFilter, from: fromIso, to: toIso }
+      : { from: fromIso, to: toIso }
     Promise.all([
-      teamsApi.attendance.list(
-        employeeFilter ? { employee_id: employeeFilter, from, to } : { from, to }
-      ),
+      teamsApi.attendance.list(attParams),
+      teamsApi.timeEntries.list(timeParams),
       teamsApi.employees.list(),
     ])
-      .then(([r, e]) => {
-        setRecords(r)
+      .then(([att, timeEnt, e]) => {
+        setRecords(mergeAttendanceWithTimeEntries(att, timeEnt))
         setEmployees(e)
       })
       .catch(() => {})

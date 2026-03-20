@@ -1,5 +1,6 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { syncAttendanceFromTimeEntry } = require('../lib/syncAttendanceFromTimeEntry')
 
 const router = express.Router()
 
@@ -52,7 +53,7 @@ router.post('/', async (req, res, next) => {
     const hours = entry
       ? Math.round(((new Date(clockOut) - new Date(entry.clock_in)) / (1000 * 60 * 60)) * 100) / 100
       : null
-    await supabase
+    const { data: updatedEntry, error: updErr } = await supabase
       .from('time_entries')
       .update({
         clock_out: clockOut,
@@ -61,6 +62,15 @@ router.post('/', async (req, res, next) => {
         gps_clock_out_log_id: log.id,
       })
       .eq('id', time_entry_id)
+      .select()
+      .single()
+    if (updErr) throw updErr
+    if (updatedEntry) {
+      await syncAttendanceFromTimeEntry(supabase, {
+        ...updatedEntry,
+        hours: updatedEntry.hours ?? hours,
+      })
+    }
     res.status(201).json(log)
   } catch (err) {
     next(err)

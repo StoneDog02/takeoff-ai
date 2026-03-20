@@ -9,6 +9,7 @@ import type {
   JobAssignment,
 } from '@/types/global'
 import { dayjs, formatDate, toISODate } from '@/lib/date'
+import { mergeAttendanceWithTimeEntries } from '@/lib/mergeAttendanceFromTimeEntries'
 import { getInitials } from './TeamsAvatar'
 import { WeekBars } from './WeekBars'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
@@ -105,13 +106,15 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
     })
     setLoading(true)
     const year = dayjs().year()
-    const fiveWeeksAgo = dayjs().subtract(5, 'week').startOf('week').format('YYYY-MM-DD')
-    const thirtyDaysAgo = dayjs().subtract(30, 'day').format('YYYY-MM-DD')
-    const today = dayjs().format('YYYY-MM-DD')
+    // Use ISO instants — date-only `to` becomes midnight UTC on the server and excluded same-day shifts.
+    const fiveWeeksStart = dayjs().subtract(5, 'week').startOf('week').toISOString()
+    const nowIso = dayjs().toISOString()
+    const attFrom = dayjs().subtract(30, 'day').format('YYYY-MM-DD')
+    const attTo = dayjs().format('YYYY-MM-DD')
 
     Promise.all([
-      teamsApi.timeEntries.list({ employee_id: emp.id, from: fiveWeeksAgo, to: today }),
-      teamsApi.attendance.list({ employee_id: emp.id, from: thirtyDaysAgo, to: today }),
+      teamsApi.timeEntries.list({ employee_id: emp.id, from: fiveWeeksStart, to: nowIso }),
+      teamsApi.attendance.list({ employee_id: emp.id, from: attFrom, to: attTo }),
       teamsApi.payRaises.list(emp.id),
       teamsApi.jobAssignments.list({ employee_id: emp.id, active_only: true }),
       getProjectsList().then((p) => {
@@ -175,13 +178,14 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
     weeklyHours.push(Math.round(h * 100) / 100)
   }
 
-  const onTimeCount = attendanceRecords.filter((r) => getAttendanceStatus(r) === 'on_time').length
-  const lateCount = attendanceRecords.filter((r) => getAttendanceStatus(r) === 'late').length
-  const earlyCount = attendanceRecords.filter((r) => getAttendanceStatus(r) === 'early_out').length
+  const mergedAttendance = mergeAttendanceWithTimeEntries(attendanceRecords, timeEntries)
+  const onTimeCount = mergedAttendance.filter((r) => getAttendanceStatus(r) === 'on_time').length
+  const lateCount = mergedAttendance.filter((r) => getAttendanceStatus(r) === 'late').length
+  const earlyCount = mergedAttendance.filter((r) => getAttendanceStatus(r) === 'early_out').length
   const attRate =
-    attendanceRecords.length > 0
-      ? Math.round((onTimeCount / attendanceRecords.length) * 100)
-      : 100
+    mergedAttendance.length > 0
+      ? Math.round((onTimeCount / mergedAttendance.length) * 100)
+      : null
 
   const currentJobId = assignments.find((a) => !a.ended_at)?.job_id
   const currentJobName = currentJobId ? jobNames[currentJobId] : null
@@ -232,7 +236,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
               { label: 'This Week', val: `${Math.round(hoursThisWeek * 100) / 100}h` },
               { label: 'This Month', val: `${Math.round(hoursThisMonth * 100) / 100}h` },
               { label: 'YTD Earnings', val: fmt(ytdDisplay) },
-              { label: 'Attendance', val: `${attRate}%` },
+              { label: 'Attendance', val: attRate != null ? `${attRate}%` : '—' },
             ].map((s) => (
               <div key={s.label} className="teams-panel-stat">
                 <div className="teams-panel-stat-value">{s.val}</div>
@@ -498,8 +502,8 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
                     <div className="teams-panel-list">
                       {recentTimeEntries.map((e) => {
                         const jobName = jobNames[e.job_id] ?? e.job_id
-                        const attRec = attendanceRecords.find(
-                          (r) => r.date === e.clock_in.slice(0, 10)
+                        const attRec = mergedAttendance.find(
+                          (r) => r.employee_id === e.employee_id && r.clock_in === e.clock_in
                         )
                         const status = attRec ? getAttendanceStatus(attRec) : 'on_time'
                         const att = ATT_CONFIG[status] ?? ATT_CONFIG.on_time
@@ -543,23 +547,23 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
                     <div className="teams-panel-rate-bar-wrap">
                       <div className="teams-panel-rate-bar-labels">
                         <span className="teams-muted">On-time rate</span>
-                        <span className="teams-panel-rate-value">{attRate}%</span>
+                        <span className="teams-panel-rate-value">{attRate != null ? `${attRate}%` : '—'}</span>
                       </div>
                       <div className="teams-panel-rate-bar">
                         <div
                           className="teams-panel-rate-bar-fill"
-                          style={{ width: `${attRate}%` }}
+                          style={{ width: `${attRate ?? 0}%` }}
                         />
                       </div>
                     </div>
                   </div>
                   <div className="teams-panel-section">
                     <div className="teams-panel-section-title">History</div>
-                    {attendanceRecords.length === 0 ? (
+                    {mergedAttendance.length === 0 ? (
                       <div className="teams-panel-empty">No attendance records</div>
                     ) : (
                       <div className="teams-panel-list">
-                        {[...attendanceRecords]
+                        {[...mergedAttendance]
                           .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf())
                           .slice(0, 15)
                           .map((r) => {

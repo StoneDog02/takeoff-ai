@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import type { Employee, JobAssignment } from '@/types/global'
 import { dayjs } from '@/lib/date'
+import { mergeAttendanceWithTimeEntries } from '@/lib/mergeAttendanceFromTimeEntries'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
 import { AddEmployeeWizardModal } from './AddEmployeeWizardModal'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
@@ -93,8 +94,9 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
           if (e.clock_out == null) live[e.employee_id] = true
         })
         setClockedInByEmployee(live)
+        const mergedAtt = mergeAttendanceWithTimeEntries(attRecords, timeEntries)
         const latestByEmp: Record<string, AttendanceFlag | null> = {}
-        attRecords
+        mergedAtt
           .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf())
           .forEach((r) => {
             if (latestByEmp[r.employee_id] != null) return

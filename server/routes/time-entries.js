@@ -1,7 +1,22 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { syncAttendanceFromTimeEntry } = require('../lib/syncAttendanceFromTimeEntry')
 
 const router = express.Router()
+
+/** Plain YYYY-MM-DD bounds are expanded so `to` is inclusive of that full calendar day in UTC (timestamptz compares). */
+function normalizeClockInQueryBounds(from, to) {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/
+  let fromB = from
+  let toB = to
+  if (from && typeof from === 'string' && dateOnly.test(from.trim())) {
+    fromB = `${from.trim()}T00:00:00.000Z`
+  }
+  if (to && typeof to === 'string' && dateOnly.test(to.trim())) {
+    toB = `${to.trim()}T23:59:59.999Z`
+  }
+  return { from: fromB, to: toB }
+}
 
 function computeHours(clockIn, clockOut) {
   if (!clockIn || !clockOut) return null
@@ -15,12 +30,13 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, from, to } = req.query
+    const { from: fromBound, to: toBound } = normalizeClockInQueryBounds(from, to)
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     let q = supabase.from('time_entries').select('*').order('clock_in', { ascending: false })
     if (effectiveEmployeeId) q = q.eq('employee_id', effectiveEmployeeId)
     if (job_id) q = q.eq('job_id', job_id)
-    if (from) q = q.gte('clock_in', from)
-    if (to) q = q.lte('clock_in', to)
+    if (fromBound) q = q.gte('clock_in', fromBound)
+    if (toBound) q = q.lte('clock_in', toBound)
     const { data, error } = await q
     if (error) throw error
     const entries = (data || []).map((e) => ({
@@ -56,7 +72,11 @@ router.post('/', async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
-    res.status(201).json({ ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) })
+    const row = { ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) }
+    if (row.clock_out) {
+      await syncAttendanceFromTimeEntry(supabase, row)
+    }
+    res.status(201).json(row)
   } catch (err) {
     next(err)
   }
@@ -91,7 +111,9 @@ router.patch('/:id/clock-out', async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
-    res.json({ ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) })
+    const row = { ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) }
+    await syncAttendanceFromTimeEntry(supabase, row)
+    res.json(row)
   } catch (err) {
     next(err)
   }
