@@ -1502,14 +1502,16 @@ export function ProjectsPage() {
   }, [paymentPrompt, id])
 
   if (id === undefined) {
+    const searchLower = search.trim().toLowerCase()
+    const searchMatch = (p: DashboardProject) =>
+      !searchLower || p.name.toLowerCase().includes(searchLower)
+    /** Search only — status tab counts must not use status-filtered rows or every badge goes wrong when filter !== 'all'. */
+    const searchFilteredProjects = projects.filter(searchMatch)
     const filterMatch = (p: DashboardProject) => {
       if (filter === 'all') return true
       return colMatchesStatus(filter, p.status ?? '')
     }
-    const searchLower = search.trim().toLowerCase()
-    const searchMatch = (p: DashboardProject) =>
-      !searchLower || p.name.toLowerCase().includes(searchLower)
-    const displayedProjects = projects.filter(filterMatch).filter(searchMatch)
+    const displayedProjects = searchFilteredProjects.filter(filterMatch)
     const activeCount = displayedProjects.filter((p) => (p.status ?? 'active').toLowerCase() === 'active').length
 
     const renderBoardCard = (p: DashboardProject, col: (typeof PIPELINE_COLUMNS)[number]) => {
@@ -1681,7 +1683,10 @@ export function ProjectsPage() {
           {/* Filter tabs */}
           <div className="projects-list-filters">
             {(['all', 'estimating', 'awaiting_approval', 'backlog', 'active', 'on_hold', 'completed'] as const).map((tab) => {
-              const count = tab === 'all' ? displayedProjects.length : displayedProjects.filter((p) => colMatchesStatus(tab, p.status ?? '')).length
+              const count =
+                tab === 'all'
+                  ? searchFilteredProjects.length
+                  : searchFilteredProjects.filter((p) => colMatchesStatus(tab, p.status ?? '')).length
               const label = FILTER_LABELS[tab] ?? tab
               return (
                 <button
