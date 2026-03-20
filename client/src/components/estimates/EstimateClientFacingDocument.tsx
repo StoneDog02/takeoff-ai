@@ -26,6 +26,86 @@ export type ClientFacingLineItem = {
   section?: string | null
 }
 
+function roundMoney(n: number): number {
+  return Math.round(Number(n) * 100) / 100
+}
+
+function sectionKeySlug(section: string | null): string {
+  if (section == null) return 'none'
+  return encodeURIComponent(section).slice(0, 80)
+}
+
+/**
+ * Homeowner-friendly view: one lump-sum row per takeoff / GC-work category instead of
+ * every quantity-takeoff line. Preserves line totals so subtotal / general fees stay correct.
+ */
+function summarizeLineItemsForClientView(
+  items: ClientFacingLineItem[],
+  section: string | null,
+  sectionWorkTypes: Record<string, string> | null
+): ClientFacingLineItem[] {
+  if (items.length === 0) return []
+
+  if (section == null) {
+    if (items.length === 1) return items
+    const sum = roundMoney(items.reduce((s, i) => s + Number(i.total), 0))
+    return [
+      {
+        id: `client-scope-summary-null-${items.length}`,
+        description: 'Additional scope',
+        quantity: 1,
+        unit: 'ls',
+        unit_price: sum,
+        total: sum,
+        section: null,
+      },
+    ]
+  }
+
+  const kind = inferSectionWorkKind(section, sectionWorkTypes)
+  if (kind === 'subcontractor') {
+    if (items.length === 1) return items
+    const sum = roundMoney(items.reduce((s, i) => s + Number(i.total), 0))
+    return [
+      {
+        id: `client-scope-summary-bid-${sectionKeySlug(section)}`,
+        description: section,
+        quantity: 1,
+        unit: 'job',
+        unit_price: sum,
+        total: sum,
+        section,
+      },
+    ]
+  }
+
+  const sum = roundMoney(items.reduce((s, i) => s + Number(i.total), 0))
+  const pres = sectionHeaderPresentation(section, kind, 'summary')
+  return [
+    {
+      id: `client-scope-summary-${sectionKeySlug(section)}`,
+      description: pres.title,
+      quantity: 1,
+      unit: 'ls',
+      unit_price: sum,
+      total: sum,
+      section,
+    },
+  ]
+}
+
+function applyClientScopeSummary(
+  lineItems: ClientFacingLineItem[],
+  sectionWorkTypes: Record<string, string> | null
+): ClientFacingLineItem[] {
+  const groups = groupBySection(lineItems)
+  const out: ClientFacingLineItem[] = []
+  for (const { section, items } of groups) {
+    out.push(...summarizeLineItemsForClientView(items, section, sectionWorkTypes))
+  }
+  return out
+}
+
 function groupBySection(
   items: ClientFacingLineItem[]
 ): { section: string | null; items: ClientFacingLineItem[] }[] {
@@ -69,6 +149,11 @@ export type EstimateClientFacingDocumentProps = {
   sectionWorkTypes?: Record<string, string> | null
   /** When set from portal API for change orders sent from the CO flow */
   portalDocumentKind?: 'estimate' | 'change_order'
+  /**
+   * `summary` (default): one lump-sum row per takeoff/GC category for homeowners.
+   * `full`: show every stored line (internal / power-user).
+   */
+  clientScopeLineDetail?: 'summary' | 'full'
 }
 
 export type SectionWorkKind = 'subcontractor' | 'gc_self_perform' | 'scope_detail'
@@ -84,7 +169,11 @@ function inferSectionWorkKind(
   return 'scope_detail'
 }
 
-function sectionHeaderPresentation(section: string, kind: SectionWorkKind) {
+function sectionHeaderPresentation(
+  section: string,
+  kind: SectionWorkKind,
+  presentation: 'summary' | 'detail' = 'summary'
+) {
   const title =
     kind === 'gc_self_perform'
       ? section.replace(/\s*\(your\s*work\)\s*$/i, '').trim()
@@ -94,14 +183,26 @@ function sectionHeaderPresentation(section: string, kind: SectionWorkKind) {
       badge: 'Subcontractor work',
       hint: 'This scope is priced and performed by an independent subcontractor — not by your general contractor.',
     },
-    gc_self_perform: {
-      badge: 'General contractor work',
-      hint: 'This scope is performed and priced directly by your general contractor.',
-    },
-    scope_detail: {
-      badge: 'Scope breakdown',
-      hint: 'Line-by-line detail from your contractor’s quantity takeoff or internal estimate.',
-    },
+    gc_self_perform:
+      presentation === 'summary'
+        ? {
+            badge: 'GC work (summary)',
+            hint: 'Total for work your general contractor performs in-house — not shown line-by-line.',
+          }
+        : {
+            badge: 'General contractor work',
+            hint: 'This scope is performed and priced directly by your general contractor.',
+          },
+    scope_detail:
+      presentation === 'summary'
+        ? {
+            badge: 'Scope summary',
+            hint: 'Category total for this part of the job — detailed material and takeoff lines are not listed here.',
+          }
+        : {
+            badge: 'Scope breakdown',
+            hint: 'Line-by-line detail from your contractor’s quantity takeoff or internal estimate.',
+          },
   }
   return { title, ...copy[kind], kind }
 }
@@ -127,13 +228,17 @@ export function EstimateClientFacingDocument({
   sectionNotes = null,
   sectionWorkTypes = null,
   portalDocumentKind = 'estimate',
+  clientScopeLineDetail = 'summary',
 }: EstimateClientFacingDocumentProps) {
+  const displayLineItems =
+    clientScopeLineDetail === 'full' ? lineItems : applyClientScopeSummary(lineItems, sectionWorkTypes)
   const subtotal =
-    Math.round(lineItems.reduce((sum, i) => sum + Number(i.total), 0) * 100) / 100
+    Math.round(displayLineItems.reduce((sum, i) => sum + Number(i.total), 0) * 100) / 100
   const totalRounded = Math.round(Number(total) * 100) / 100
   let generalFees = Math.round((totalRounded - subtotal) * 100) / 100
   if (generalFees < 0.005) generalFees = 0
-  const grouped = groupBySection(lineItems)
+  const grouped = groupBySection(displayLineItems)
+  const presentationMode: 'summary' | 'detail' = clientScopeLineDetail === 'full' ? 'detail' : 'summary'
   const hasMilestones = milestones && milestones.length > 0
 
   const notesBySection = new Map<string, ClientSectionNote>()
@@ -244,7 +349,7 @@ export function EstimateClientFacingDocument({
               <React.Fragment key={section ?? '__none'}>
                 {section != null && (() => {
                   const kind = inferSectionWorkKind(section, sectionWorkTypes)
-                  const pres = sectionHeaderPresentation(section, kind)
+                  const pres = sectionHeaderPresentation(section, kind, presentationMode)
                   return (
                     <tr className={`estimate-doc__section-row estimate-doc__section-row--${kind}`}>
                       <td colSpan={5} className="estimate-doc__section-header">

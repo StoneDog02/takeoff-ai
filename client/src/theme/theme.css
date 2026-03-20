@@ -8825,6 +8825,34 @@ html[data-theme='dark'] .estimates-detail-panel__inner {
   gap: 8px;
 }
 
+.estimate-wizard-send-to-panel {
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.estimate-wizard-send-to-panel-inner {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg-base));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.estimate-wizard-send-to-input {
+  max-width: 420px;
+}
+.estimate-wizard-send-to-hint {
+  margin: 0;
+  font-size: 12px;
+}
+.estimate-wizard-send-to-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red-light, #c45c5c);
+}
+
 /* ── Builder (reference: top bar + two-col layout + sidebar) ── */
 /* Builder wrapper: fill full width of page content */
 .estimates-page .estimates-builder-wrap {

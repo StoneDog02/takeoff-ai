@@ -214,7 +214,7 @@ function lineItemGroupsToClientCostLineItems(groups: LineItemGroup[]): ClientFac
           unit: i.unit,
           unit_price: i.unitCost,
           total,
-          section: null,
+          section: g.budgetCategory,
         })
       }
     } else if (g.source === 'takeoff') {
@@ -682,6 +682,8 @@ export function EstimateBuilderModal({
   const previewOpenRef = useRef(false)
   previewOpenRef.current = previewOpen
   const [gcCompanyName, setGcCompanyName] = useState('')
+  const [sendToError, setSendToError] = useState<string | null>(null)
+  const sendToEmailInputRef = useRef<HTMLInputElement>(null)
 
   const closePreviewOnly = useCallback(() => {
     queueMicrotask(() => setPreviewOpen(false))
@@ -880,7 +882,13 @@ export function EstimateBuilderModal({
   }
 
   const handleSaveAndSendEstimate = async () => {
-    if (!projectId || lineItemGroups.length === 0 || !data.clientEmail?.trim()) return
+    if (!projectId || lineItemGroups.length === 0) return
+    if (!data.clientEmail?.trim()) {
+      setSendToError('Enter an email address to send the estimate.')
+      queueMicrotask(() => sendToEmailInputRef.current?.focus())
+      return
+    }
+    setSendToError(null)
     setSaving(true)
     try {
       const eid = estimateId ?? (await estimatesApi.createEstimate({
@@ -957,6 +965,7 @@ export function EstimateBuilderModal({
     setCreatedProjectName('')
     setSavedEstimateId(null)
     setPresetCatalogResetKey((k) => k + 1)
+    setSendToError(null)
   }
 
   const handleSyncToBudget = async () => {
@@ -1209,6 +1218,38 @@ export function EstimateBuilderModal({
             {step === 2 && !isBuildMode && <Step2ReviewCreate data={data} />}
           </div>
 
+          {step === 2 && isBuildMode && !data.clientEmail?.trim() && (
+            <div className="estimate-wizard-send-to-panel">
+              <div className="estimate-wizard-send-to-panel-inner">
+                <label htmlFor="estimate-wizard-send-to-email" className="estimate-wizard-label">
+                  Send to
+                </label>
+                <input
+                  ref={sendToEmailInputRef}
+                  id="estimate-wizard-send-to-email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="client@example.com"
+                  className="estimate-wizard-input estimate-wizard-send-to-input"
+                  value={data.clientEmail}
+                  onChange={(e) => {
+                    setSendToError(null)
+                    setData((d) => ({ ...d, clientEmail: e.target.value }))
+                  }}
+                />
+                <p className="estimate-wizard-helper estimate-wizard-send-to-hint">
+                  Required for <strong>Save &amp; Send</strong>. You can use <strong>Save Estimate</strong> without it.
+                </p>
+                {sendToError ? (
+                  <p className="estimate-wizard-send-to-error" role="alert">
+                    {sendToError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          )}
+
           {/* Nav */}
           <div className="estimate-wizard-nav">
             <button
@@ -1250,7 +1291,7 @@ export function EstimateBuilderModal({
                   type="button"
                   className="estimate-wizard-nav-next btn btn-primary"
                   onClick={handleSaveAndSendEstimate}
-                  disabled={saving || lineItemGroups.length === 0 || !data.clientEmail?.trim()}
+                  disabled={saving || lineItemGroups.length === 0}
                 >
                   {saving ? 'Sending…' : 'Save & Send →'}
                 </button>
