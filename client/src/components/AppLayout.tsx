@@ -4,6 +4,8 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
+import { SupportBubble } from '@/components/support/SupportBubble'
+import { useSupportNewCount } from '@/hooks/useSupportNewCount'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
 import { supabase } from '@/lib/supabaseClient'
@@ -22,6 +24,8 @@ export function AppLayout() {
   const location = useLocation()
   const { user, isAdmin, type, role_label, employee, loading } = useAuth()
   const { previewRole } = usePreview()
+  const showAdminNavEnabled = isAdmin && previewRole !== 'project_manager'
+  const supportNewCount = useSupportNewCount(showAdminNavEnabled)
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -52,7 +56,8 @@ export function AppLayout() {
   useEffect(() => {
     if (loading) return
     if (!isAdmin || previewRole === 'project_manager') return
-    if (location.pathname !== '/admin') navigate('/admin', { replace: true })
+    if (location.pathname.startsWith('/admin')) return
+    navigate('/admin', { replace: true })
   }, [isAdmin, previewRole, location.pathname, loading, navigate])
 
   // Require auth: redirect to sign-in when session is gone (e.g. after sign out)
@@ -95,7 +100,7 @@ export function AppLayout() {
           .toUpperCase() || displayName.slice(0, 2).toUpperCase()
       : (user?.email ? user.email.split('@')[0].slice(0, 2).toUpperCase() : 'U')
 
-  const showAdminNav = isAdmin && previewRole !== 'project_manager'
+  const showAdminNav = showAdminNavEnabled
   const showPmNav = !isAdmin || previewRole === 'project_manager'
 
   const toggleCollapse = () => setNavCollapsed((c) => !c)
@@ -177,9 +182,27 @@ export function AppLayout() {
             {showAdminNav && (
               <>
                 <div className="nav-section-label">Admin</div>
-                <NavLink to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <NavLink end to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12h3l2-4 2 6 2-4 3 2" /><path d="M2 14h12" /></svg>
                   <span className="nav-label">Admin</span>
+                </NavLink>
+                <NavLink
+                  to="/admin/support"
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H6l-2 2V4z" /></svg>
+                  <span className="nav-label">Support Inbox</span>
+                  {supportNewCount > 0 ? (
+                    <span
+                      className="notif-dot support-nav-notif-dot support-nav-notif-dot--pulse"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {supportNewCount > 0 ? (
+                    <span className="sr-only">
+                      {supportNewCount} new support message{supportNewCount === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
                 </NavLink>
                 <div className="nav-divider" />
               </>
@@ -245,6 +268,8 @@ export function AppLayout() {
           </AppLayoutProvider>
         </div>
       </div>
+
+      <SupportBubble />
 
       {notificationsPanelOpen && (
         <>

@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
+import { SupportBubble } from '@/components/support/SupportBubble'
 import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/contexts/AuthContext'
@@ -155,6 +156,8 @@ export function EmployeeLayout() {
           </AppLayoutProvider>
         </div>
       </div>
+
+      <SupportBubble />
     </div>
   )
 }

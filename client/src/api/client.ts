@@ -189,6 +189,26 @@ export interface ConversationListItem {
   other_participants?: { id: string; name: string }[]
 }
 
+export interface SupportMessage {
+  id: string
+  organization_id: string | null
+  user_id: string | null
+  user_name: string | null
+  user_email: string | null
+  type: string
+  subject: string | null
+  message: string
+  page_url: string | null
+  page_title: string | null
+  status: string
+  priority: string
+  admin_notes: string | null
+  replied_at: string | null
+  resolved_at: string | null
+  created_at: string
+  metadata: Record<string, unknown> | null
+}
+
 export const api = {
   async runTakeoff(file: File, name?: string): Promise<TakeoffResponse> {
     const form = new FormData()
@@ -1033,6 +1053,64 @@ export const api = {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { error?: string }).error || res.statusText)
       }
+    },
+  },
+
+  /** In-app support messages (authenticated). Admin list/update hit /api/admin/support. */
+  support: {
+    async create(data: {
+      type: string
+      message: string
+      page_url: string
+      page_title: string
+      metadata?: Record<string, unknown>
+    }): Promise<{ id: string }> {
+      const headers = await getAuthHeaders()
+      const body: Record<string, unknown> = {
+        type: data.type,
+        message: data.message,
+        page_url: data.page_url,
+        page_title: data.page_title,
+      }
+      if (data.metadata && Object.keys(data.metadata).length > 0) {
+        body.metadata = data.metadata
+      }
+      const res = await fetch(`${API_BASE}/support`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<{ id: string }>(res)
+    },
+
+    async list(filters?: { status?: string; type?: string; q?: string }): Promise<{ messages: SupportMessage[] }> {
+      const headers = await getAuthHeaders()
+      const sp = new URLSearchParams()
+      if (filters?.status && filters.status !== 'all') sp.set('status', filters.status)
+      if (filters?.type && filters.type !== 'all') sp.set('type', filters.type)
+      if (filters?.q?.trim()) sp.set('q', filters.q.trim())
+      const q = sp.toString()
+      const res = await fetch(`${API_BASE}/admin/support${q ? `?${q}` : ''}`, { headers })
+      return handleResponse<{ messages: SupportMessage[] }>(res)
+    },
+
+    async update(
+      id: string,
+      data: { status?: string; priority?: string; admin_notes?: string }
+    ): Promise<SupportMessage> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/admin/support/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(data),
+      })
+      return handleResponse<SupportMessage>(res)
+    },
+
+    async getNewCount(): Promise<{ count: number }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/admin/support/new-count`, { headers })
+      return handleResponse<{ count: number }>(res)
     },
   },
 

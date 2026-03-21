@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from 'react-router-dom'
+import { PageTitle } from '@/components/PageTitle'
 
 const APP_ROUTES = ['/dashboard', '/projects', '/invoicing', '/estimates', '/revenue', '/teams', '/payroll', '/directory', '/contractors', '/settings']
 
@@ -14,6 +15,7 @@ export function RootLayout() {
   return (
     <div className="flex flex-col w-full min-h-screen">
       <main className={`flex-1 w-full min-h-0 flex flex-col ${isMarketing || isAppRoute ? 'p-0' : 'p-page'}`}>
+        <PageTitle />
         <Outlet />
       </main>
     </div>

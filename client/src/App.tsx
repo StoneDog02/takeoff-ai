@@ -19,6 +19,7 @@ import { PayrollPage } from '@/pages/PayrollPage'
 import { DirectoryPage } from '@/pages/DirectoryPage'
 import SettingsPage from '@/pages/SettingsPage'
 import { AdminPage } from '@/pages/AdminPage'
+import { SupportInboxPage } from '@/pages/admin/SupportInboxPage'
 import { AdminGuard } from '@/components/AdminGuard'
 import { LandingPage } from '@/routes/LandingPage'
 import { PrivacyPage } from '@/routes/PrivacyPage'
@@ -35,19 +36,16 @@ import { MessagesPage } from '@/pages/MessagesPage'
 import { BidPortal } from '@/pages/BidPortal'
 import { EstimatePortal } from '@/pages/EstimatePortal'
 import { InvoicePortal } from '@/pages/InvoicePortal'
+import { PortalLayout } from '@/components/PortalLayout'
 
 export const router = createBrowserRouter([
   {
-    path: '/bid/:token',
-    element: <BidPortal />,
-  },
-  {
-    path: '/estimate/:token',
-    element: <EstimatePortal />,
-  },
-  {
-    path: '/invoice/:token',
-    element: <InvoicePortal />,
+    element: <PortalLayout />,
+    children: [
+      { path: '/bid/:token', element: <BidPortal /> },
+      { path: '/estimate/:token', element: <EstimatePortal /> },
+      { path: '/invoice/:token', element: <InvoicePortal /> },
+    ],
   },
   {
     path: '/',
@@ -106,6 +104,7 @@ export const router = createBrowserRouter([
           { path: 'messages', element: <Navigate to="/directory" replace /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'admin', element: <AdminGuard><AdminPage /></AdminGuard> },
+          { path: 'admin/support', element: <AdminGuard><SupportInboxPage /></AdminGuard> },
         ],
       },
       { path: 'takeoff', element: <TakeoffPage /> },

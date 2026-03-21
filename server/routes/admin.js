@@ -79,4 +79,109 @@ router.get('/users', async (req, res, next) => {
   }
 })
 
+const SUPPORT_STATUSES = new Set(['new', 'seen', 'in_progress', 'resolved'])
+const SUPPORT_PRIORITIES = new Set(['low', 'normal', 'high', 'critical'])
+const SUPPORT_TYPES = new Set(['bug', 'feature', 'question', 'other'])
+
+/** GET /api/admin/support/new-count — messages with status new */
+router.get('/support/new-count', async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Admin client not configured' })
+    }
+    const { count, error } = await supabaseAdmin
+      .from('support_messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'new')
+    if (error) throw error
+    res.json({ count: count ?? 0 })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** GET /api/admin/support — list with optional filters, newest first */
+router.get('/support', async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Admin client not configured' })
+    }
+    const status = typeof req.query.status === 'string' ? req.query.status : ''
+    const type = typeof req.query.type === 'string' ? req.query.type : ''
+    const q = typeof req.query.q === 'string' ? req.query.trim() : ''
+
+    let query = supabaseAdmin.from('support_messages').select('*').order('created_at', { ascending: false })
+
+    if (status && status !== 'all' && SUPPORT_STATUSES.has(status)) {
+      query = query.eq('status', status)
+    }
+    if (type && type !== 'all' && SUPPORT_TYPES.has(type)) {
+      query = query.eq('type', type)
+    }
+    if (q) {
+      const esc = q.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      const pattern = `%${esc}%`
+      query = query.or(
+        `message.ilike.${pattern},user_email.ilike.${pattern},user_name.ilike.${pattern}`
+      )
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+    res.json({ messages: data ?? [] })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** PATCH /api/admin/support/:id — admin update */
+router.patch('/support/:id', async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Admin client not configured' })
+    }
+    const id = req.params.id
+    const body = req.body || {}
+    const patch = {}
+
+    if (body.status !== undefined) {
+      if (!SUPPORT_STATUSES.has(body.status)) {
+        return res.status(400).json({ error: 'Invalid status' })
+      }
+      patch.status = body.status
+      if (body.status === 'resolved') {
+        patch.resolved_at = new Date().toISOString()
+      } else {
+        patch.resolved_at = null
+      }
+    }
+    if (body.priority !== undefined) {
+      if (!SUPPORT_PRIORITIES.has(body.priority)) {
+        return res.status(400).json({ error: 'Invalid priority' })
+      }
+      patch.priority = body.priority
+    }
+    if (body.admin_notes !== undefined) {
+      patch.admin_notes = typeof body.admin_notes === 'string' ? body.admin_notes : null
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('support_messages')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Not found' })
+    res.json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
 module.exports = router
