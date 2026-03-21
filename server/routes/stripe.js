@@ -142,7 +142,8 @@ router.post('/setup-intent', async (req, res) => {
 
 /**
  * POST /api/stripe/create-subscription
- * Creates a Stripe subscription with 14-day trial. Requires auth (call after signUp with session).
+ * Creates a Stripe subscription. Standard plan gets 14-day trial; other plans charge immediately.
+ * Requires auth (call after signUp with session).
  * Body: { email, price_id }. user_id from token.
  */
 router.post('/create-subscription', requireAuth, async (req, res) => {
@@ -173,10 +174,20 @@ router.post('/create-subscription', requireAuth, async (req, res) => {
         invoice_settings: { default_payment_method: pm.id },
       })
     }
+    // 14-day trial only for Standard plan; other plans charge immediately
+    let trialDays
+    try {
+      const price = await stripe.prices.retrieve(price_id, { expand: ['product'] })
+      const product = price.product
+      const productName = typeof product === 'object' && product?.name ? product.name : ''
+      if (productName.toLowerCase() === 'standard') trialDays = 14
+    } catch {
+      // If we can't resolve the product, skip trial
+    }
     const subscription = await stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price: price_id }],
-      trial_period_days: 14,
+      ...(trialDays ? { trial_period_days: trialDays } : {}),
       metadata: { user_id: userId },
     })
     const sub = subscription

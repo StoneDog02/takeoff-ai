@@ -541,10 +541,14 @@ function Step5({
 }) {
   const useProductCards = products.length > 0;
   const [openFeaturesKey, setOpenFeaturesKey] = useState<string | null>(null);
+  const singlePlan = useProductCards ? products.length === 1 : plans.length === 1;
 
   return (
     <div>
-      <StepHeader title="Choose your plan" sub="All plans include a 14-day free trial. No credit card until you're ready." />
+      <StepHeader
+        title="Choose your plan"
+        sub="Start with a 14-day free trial on Standard. You'll add a payment method next — you won't be charged until the trial ends."
+      />
 
       {useProductCards && (
         <div style={{ marginBottom: "24px" }}>
@@ -617,14 +621,18 @@ function Step5({
       <Field label="Plan" error={errors.plan}>
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: useProductCards
-              ? products.length <= 2
-                ? "1fr 1fr"
-                : "1fr 1fr 1fr"
-              : plans.length <= 2
-                ? "1fr 1fr"
-                : "1fr 1fr 1fr",
+            display: singlePlan ? "flex" : "grid",
+            justifyContent: singlePlan ? "center" : undefined,
+            flexWrap: singlePlan ? "wrap" : undefined,
+            gridTemplateColumns: singlePlan
+              ? undefined
+              : useProductCards
+                ? products.length <= 2
+                  ? "1fr 1fr"
+                  : "1fr 1fr 1fr"
+                : plans.length <= 2
+                  ? "1fr 1fr"
+                  : "1fr 1fr 1fr",
             gap: "24px",
             ...(errors.plan ? { padding: "12px", borderRadius: "10px", border: `2px solid ${ACCENT}` } : {}),
           }}
@@ -660,6 +668,9 @@ function Step5({
                 product.description ||
                 (isStandard ? "Everything you need to run your business." : "Subscribe to this plan.");
               const selected = price ? form.plan === price.id : false;
+              const trialNote =
+                meta.trial_note ||
+                (isStandard ? "14-day free trial" : undefined);
 
               return (
                 <PricingCard
@@ -672,6 +683,7 @@ function Step5({
                   offerBadge={offerBadge}
                   originalPriceFormatted={originalPriceFormatted}
                   discountBadge={discountBadge}
+                  trialNote={trialNote}
                   disclaimer="No contracts — cancel anytime."
                   selectable
                   selected={selected}
@@ -698,6 +710,7 @@ function Step5({
                 price={{ amount: p.amount, currency: p.currency, formatted: p.formatted, interval: p.interval }}
                 features={[]}
                 cta="Select plan"
+                trialNote={p.name.toLowerCase() === "standard" ? "14-day free trial" : undefined}
                 billingNote={p.interval === "year" ? "Billed annually" : "Billed monthly"}
                 disclaimer="No contracts — cancel anytime."
                 selectable

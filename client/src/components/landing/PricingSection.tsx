@@ -175,7 +175,13 @@ export function PricingSection() {
           </div>
         )}
         {!loading && !error && products.length > 0 && (
-          <div className="grid md:grid-cols-3 gap-6 max-w-[1000px] mx-auto items-stretch reveal mt-12">
+          <div
+            className={
+              products.length === 1
+                ? 'flex justify-center reveal mt-12'
+                : 'grid md:grid-cols-3 gap-6 max-w-[1000px] mx-auto items-stretch reveal mt-12'
+            }
+          >
             {products.map((product) => {
               const prices = Array.isArray(product.prices) ? product.prices : []
               const priceMonth = prices.find((p) => p.interval === 'month')
@@ -197,6 +203,9 @@ export function PricingSection() {
               const description =
                 product.description ||
                 (isStandard ? 'Everything you need to run your business.' : 'Subscribe to this plan.')
+              const trialNote =
+                meta.trial_note ||
+                (isStandard ? '14-day free trial' : undefined)
 
               return (
                 <PricingCard
@@ -209,6 +218,7 @@ export function PricingSection() {
                   offerBadge={offerBadge}
                   originalPriceFormatted={originalPriceFormatted}
                   discountBadge={discountBadge}
+                  trialNote={trialNote}
                   billingNote={meta.billing_note || (yearly ? 'Billed annually — lock in this rate while it lasts.' : 'Billed monthly — lock in this rate while it lasts.')}
                   disclaimer="No contracts — cancel anytime."
                   ctaHref="/sign-up"

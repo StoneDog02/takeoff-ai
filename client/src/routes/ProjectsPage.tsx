@@ -366,10 +366,6 @@ export function ProjectsPage() {
   const [reviseEstimate, setReviseEstimate] = useState<{ projectId: string; estimateId: string } | null>(null)
   /** List view: converting project to job (disable confirm button). */
   const [convertInProgress, setConvertInProgress] = useState(false)
-  /** Detail view (backlog): linked accepted estimate id for "Sync budget from estimate". */
-  const [linkedAcceptedEstimateId, setLinkedAcceptedEstimateId] = useState<string | null>(null)
-  const [syncingBudgetFromEstimate, setSyncingBudgetFromEstimate] = useState(false)
-
   const TAKEOFF_PROGRESS_MESSAGES = [
     'Uploading plan…',
     'Analyzing drawings…',
@@ -551,21 +547,6 @@ export function ProjectsPage() {
     if (id !== undefined || projects.length === 0) return
     refetchEstimatesForList()
   }, [id, projects, refetchEstimatesForList])
-
-  // Detail view (backlog): resolve linked accepted estimate so we can offer "Sync budget from estimate"
-  useEffect(() => {
-    if (!id || !project || (project.status ?? '') !== 'backlog') {
-      setLinkedAcceptedEstimateId(null)
-      return
-    }
-    estimatesApi
-      .getEstimates(id)
-      .then((list) => {
-        const accepted = (list ?? []).find((e) => (e.status ?? '').toLowerCase() === 'accepted')
-        setLinkedAcceptedEstimateId(accepted?.id ?? null)
-      })
-      .catch(() => setLinkedAcceptedEstimateId(null))
-  }, [id, project?.id, project?.status])
 
   // Accepted estimate + line-level meta for progress milestones (phase payment prompt).
   useEffect(() => {
@@ -1231,9 +1212,6 @@ export function ProjectsPage() {
   const showActivateProjectModal =
     activateModalOpen && (activateBoardRow != null || activateDetailTarget != null)
   const activateContextId = activateBoardRow?.id ?? activateDetailTarget?.id ?? ''
-  const activateEstimateId = activateContextId
-    ? (activateContextId === id ? linkedAcceptedEstimateId : estimatesByProjectId[activateContextId]?.id) ?? null
-    : null
   const activateContextClient =
     activateBoardRow != null
       ? (activateBoardRow.assigned_to_name || activateBoardRow.client || '—').trim() || '—'
@@ -1333,31 +1311,6 @@ export function ProjectsPage() {
             </p>
           )}
           <div className="activate-project-modal-actions">
-            {activateEstimateId ? (
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={activateSubmitting || syncingBudgetFromEstimate}
-                onClick={async () => {
-                  if (!activateEstimateId) return
-                  setSyncingBudgetFromEstimate(true)
-                  try {
-                    await estimatesApi.syncProjectBudgetFromEstimate(activateEstimateId)
-                    if (activateContextId === id) setDetailRefreshTrigger((t) => t + 1)
-                    api.dashboard.getProjects().then(setProjects).catch(() => {})
-                  } catch (err) {
-                    console.error('[ProjectsPage] activate modal sync budget', err)
-                    if (typeof window !== 'undefined' && window.alert) {
-                      window.alert(err instanceof Error ? err.message : 'Sync failed')
-                    }
-                  } finally {
-                    setSyncingBudgetFromEstimate(false)
-                  }
-                }}
-              >
-                {syncingBudgetFromEstimate ? 'Syncing…' : 'Sync budget from estimate'}
-              </button>
-            ) : null}
             <button
               type="button"
               className="btn btn-ghost"
@@ -2553,41 +2506,6 @@ export function ProjectsPage() {
                 This project is approved and ready to start. Set a start date and activate when you&apos;re ready to begin.
               </p>
               <div className="project-backlog-banner-actions">
-                <button
-                  type="button"
-                  className="project-overview-hero-btn project-overview-hero-btn-ghost shrink-0"
-                  disabled={syncingBudgetFromEstimate}
-                  onClick={async () => {
-                    if (!id) return
-                    setSyncingBudgetFromEstimate(true)
-                    try {
-                      let estimateId = linkedAcceptedEstimateId
-                      if (!estimateId) {
-                        const list = await estimatesApi.getEstimates(id)
-                        const accepted = (list ?? []).find((e) => (e.status ?? '').toLowerCase() === 'accepted')
-                        estimateId = accepted?.id ?? null
-                      }
-                      if (!estimateId) {
-                        if (typeof window !== 'undefined' && window.alert) {
-                          window.alert('No accepted estimate found for this project.')
-                        }
-                        return
-                      }
-                      await estimatesApi.syncProjectBudgetFromEstimate(estimateId)
-                      setLinkedAcceptedEstimateId(estimateId)
-                      setDetailRefreshTrigger((t) => t + 1)
-                    } catch (err) {
-                      console.error('[ProjectsPage] sync budget from estimate', err)
-                      if (typeof window !== 'undefined' && window.alert) {
-                        window.alert(err instanceof Error ? err.message : 'Sync failed')
-                      }
-                    } finally {
-                      setSyncingBudgetFromEstimate(false)
-                    }
-                  }}
-                >
-                  {syncingBudgetFromEstimate ? 'Syncing…' : 'Sync budget from estimate'}
-                </button>
                 <button
                   type="button"
                   className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate shrink-0"

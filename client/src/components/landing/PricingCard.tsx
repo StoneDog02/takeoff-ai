@@ -22,6 +22,8 @@ interface PricingCardProps {
   discountBadge?: string
   /** Below price e.g. "Billed monthly — lock in this rate while it lasts." */
   billingNote?: string
+  /** Highlight e.g. "14-day free trial" (shown under the description) */
+  trialNote?: string
   /** Below CTA e.g. "No contracts — cancel anytime." */
   disclaimer?: string
   /** Signup flow: card is selectable and shows selected state */
@@ -47,6 +49,7 @@ export function PricingCard({
   originalPriceFormatted,
   discountBadge,
   billingNote,
+  trialNote,
   disclaimer = 'No contracts — cancel anytime.',
   selectable = false,
   selected = false,
@@ -88,7 +91,15 @@ export function PricingCard({
       )}
 
       <h3 className="font-sora text-[28px] text-[#F7F6F3] m-0 mb-1 leading-tight">{name}</h3>
-      <p className="text-sm text-[#666] m-0 mb-7">{description}</p>
+      <p className="text-sm text-[#666] m-0 mb-4">{description}</p>
+
+      {trialNote && (
+        <div className="mb-5">
+          <span className="inline-flex items-center rounded-full border border-[#22c55e]/35 bg-[#22c55e]/10 px-3 py-1.5 font-dm-sans text-[13px] font-semibold tracking-wide text-[#4ade80]">
+            {trialNote}
+          </span>
+        </div>
+      )}
 
       <div className="pc-price-block">
         {(originalPriceFormatted || discountBadge) && (
