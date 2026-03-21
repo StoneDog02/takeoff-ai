@@ -41,7 +41,7 @@ import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeletePr
 import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
 import type { BuilderPhase, BuilderMilestone } from '@/components/projects/ScheduleBuilder'
 import { formatDate, dayjs, formatRelative } from '@/lib/date'
-import { SetupWizard, SetupBanner, EMPTY_WIZARD_PROJECT, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
+import { SetupWizard, SetupBanner, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
 import {
   EstimateBuilderModal,
   type PrefillClientInfo,
@@ -271,7 +271,6 @@ export function ProjectsPage() {
   const [error, setError] = useState<string | null>(null)
   const [bulkSendOpen, setBulkSendOpen] = useState(false)
   const [bulkSendIds, setBulkSendIds] = useState<string[]>([])
-  const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [newEstimateOpen, setNewEstimateOpen] = useState(false)
   const [estimateModalJobs, setEstimateModalJobs] = useState<Job[]>([])
   const [filter, setFilter] = useState<'all' | 'estimating' | 'awaiting_approval' | 'backlog' | 'active' | 'on_hold' | 'completed'>('all')
@@ -377,12 +376,12 @@ export function ProjectsPage() {
   const TAKEOFF_PROGRESS_INTERVAL_MS = 800
   const TAKEOFF_PROGRESS_STEP = 4
 
-  // Open New Project modal after the page has loaded and grid slide-in animation has finished (?new=1)
+  // Open New Estimate flow after the page has loaded and grid slide-in animation has finished (?new=1)
   useEffect(() => {
     if (!id && !loading && searchParams.get('new') === '1') {
       const delay = 550
       const t = setTimeout(() => {
-        setNewProjectOpen(true)
+        setNewEstimateOpen(true)
         const next = new URLSearchParams(searchParams)
         next.delete('new')
         setSearchParams(next, { replace: true })
@@ -1624,7 +1623,7 @@ export function ProjectsPage() {
               >
                 Products & Services
               </button>
-              <button type="button" onClick={() => setNewProjectOpen(true)} className="projects-list-new-btn">
+              <button type="button" onClick={() => setNewEstimateOpen(true)} className="projects-list-new-btn">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
@@ -1687,7 +1686,7 @@ export function ProjectsPage() {
                           + New Estimate
                         </button>
                       ) : col.key === 'active' ? (
-                        <button type="button" className="projects-board-add" onClick={() => setNewProjectOpen(true)}>
+                        <button type="button" className="projects-board-add" onClick={() => setNewEstimateOpen(true)}>
                           + New Project
                         </button>
                       ) : null}
@@ -1809,7 +1808,7 @@ export function ProjectsPage() {
               )}
               <button
                 type="button"
-                onClick={() => setNewProjectOpen(true)}
+                onClick={() => setNewEstimateOpen(true)}
                 className="projects-new-card"
               >
                 <div className="projects-new-card-icon">
@@ -1820,17 +1819,6 @@ export function ProjectsPage() {
                 <span className="projects-new-card-text">Start a new project</span>
               </button>
             </div>
-          )}
-          {newProjectOpen && (
-            <SetupWizard
-              project={EMPTY_WIZARD_PROJECT}
-              onClose={() => setNewProjectOpen(false)}
-              onComplete={(createdProject, extras) => {
-                setNewProjectOpen(false)
-                if (extras?.workTypes?.length) setWorkTypesByProject((prev) => ({ ...prev, [createdProject.id]: extras.workTypes! }))
-                navigate(`/projects/${createdProject.id}`)
-              }}
-            />
           )}
           {newEstimateOpen && (
             <EstimateBuilderModal
