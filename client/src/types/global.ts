@@ -576,6 +576,8 @@ export interface TimeEntry {
   hours?: number
   source: TimeEntrySource
   gps_clock_out_log_id?: string
+  /** Project work type (e.g. General Labor) chosen at clock-in. */
+  project_work_type_id?: string
   created_at?: string
 }
 

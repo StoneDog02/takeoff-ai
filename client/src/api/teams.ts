@@ -148,6 +148,7 @@ export const teamsApi = {
       clock_in?: string
       clock_out?: string
       source?: TimeEntry['source']
+      project_work_type_id?: string
     }): Promise<TimeEntry> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/time-entries`, {

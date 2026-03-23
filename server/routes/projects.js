@@ -91,6 +91,50 @@ async function loadProject(req, res, next) {
   next()
 }
 
+/** Like loadProject, but also allows employees with an active assignment to this job (read-only flows, e.g. work types for clock-in). */
+async function loadProjectForOwnerOrAssignedEmployee(req, res, next) {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' })
+  const { id } = req.params
+  const trimmed = typeof id === 'string' ? id.trim() : ''
+  if (!trimmed || trimmed === 'undefined') {
+    return res.status(400).json({ error: 'Project ID is missing or invalid. Close the dialog and open the project again.' })
+  }
+  const db = defaultSupabase
+  if (!db) return res.status(503).json({ error: 'Database not configured' })
+  const { data: project, error } = await db
+    .from('projects')
+    .select('*')
+    .eq('id', trimmed)
+    .maybeSingle()
+  if (error) {
+    console.warn('[projects] loadProjectForOwnerOrAssignedEmployee error', { projectId: trimmed, error: error.message })
+    return res.status(500).json({ error: 'Failed to load project' })
+  }
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
+  }
+  if (project.user_id === req.user.id) {
+    req.params.id = trimmed
+    req.project = project
+    return next()
+  }
+  if (req.employee) {
+    const { data: assignment } = await db
+      .from('job_assignments')
+      .select('id')
+      .eq('employee_id', req.employee.id)
+      .eq('job_id', trimmed)
+      .is('ended_at', null)
+      .maybeSingle()
+    if (assignment) {
+      req.params.id = trimmed
+      req.project = project
+      return next()
+    }
+  }
+  return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
+}
+
 // --- Projects CRUD ---
 /** GET / - list projects with summary for cards (phases, budget actual, days left) */
 router.get('/', (req, res, next) => {
@@ -1620,7 +1664,7 @@ router.post('/:id/subcontractors/bulk-send', loadProject, async (req, res, next)
 })
 
 // --- Project work types ---
-router.get('/:id/work-types', loadProject, async (req, res, next) => {
+router.get('/:id/work-types', loadProjectForOwnerOrAssignedEmployee, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     const { data, error } = await supabase

@@ -1,23 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { MapPin, Clock, CheckCircle, AlertTriangle, ChevronRight, LogOut, Calendar } from 'lucide-react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
+import { api } from '@/api/client'
 import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
 import type { JobGeofence, TimeEntry } from '@/types/global'
 import type { Project, ProjectWorkType } from '@/types/global'
 import { WorkTypeIcon } from '@/components/projects/WorkTypeIcon'
-import { dayjs } from '@/lib/date'
-
-/** Default work types shown when a project has none configured (e.g. before API persistence). */
-function getDefaultWorkTypesForProject(projectId: string): ProjectWorkType[] {
-  return [
-    { id: `wt-${projectId}-labor`, project_id: projectId, name: 'General Labor', description: 'Hourly labor', rate: 85, unit: 'hr', type_key: 'labor' },
-    { id: `wt-${projectId}-tile`, project_id: projectId, name: 'Tile Install', description: 'Floor or wall', rate: 18, unit: 'sf', type_key: 'tile' },
-    { id: `wt-${projectId}-plumbing`, project_id: projectId, name: 'Plumbing – Rough-in', description: 'Per fixture', rate: 450, unit: 'ea', type_key: 'plumbing' },
-  ]
-}
-
 import { getWorkTypeStyle } from '@/components/projects/CustomWorkTypeColorPicker'
+import { dayjs } from '@/lib/date'
 
 function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000
@@ -97,6 +88,8 @@ export function EmployeeClockPage() {
   const [confirmingClockOut, setConfirmingClockOut] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [workTypesList, setWorkTypesList] = useState<ProjectWorkType[]>([])
+  const [workTypesLoading, setWorkTypesLoading] = useState(false)
   const watchIdRef = useRef<number | null>(null)
 
   const displayName = employeeName ?? authEmployee?.name ?? 'Employee'
@@ -108,8 +101,6 @@ export function EmployeeClockPage() {
       ? distanceMeters(geofence.center_lat, geofence.center_lng, location.lat, location.lng) <=
         (geofence.radius_unit === 'meters' ? geofence.radius_value : feetToMeters(geofence.radius_value))
       : null
-
-  const workTypesForJob = selectedJobId ? getDefaultWorkTypesForProject(selectedJobId) : []
 
   const clockedIn = !!activeEntry
   const clockInTime = activeEntry ? new Date(activeEntry.clock_in) : null
@@ -183,26 +174,73 @@ export function EmployeeClockPage() {
 
   useEffect(() => {
     if (!employeeId) return
+    let cancelled = false
     setLoading(true)
     const weekAgo = dayjs().subtract(7, 'day').toISOString()
-    teamsApi.timeEntries
-      .list({ employee_id: employeeId, from: weekAgo })
-      .then((entries) => {
+    ;(async () => {
+      try {
+        const entries = await teamsApi.timeEntries.list({ employee_id: employeeId, from: weekAgo })
+        if (cancelled) return
         const open = entries.find((e) => !e.clock_out)
         setActiveEntry(open ?? null)
         setRecentEntries(entries)
         if (open) {
           setStep('clocked_in')
           setSelectedJobId(open.job_id)
-          setSelectedWorkType(getDefaultWorkTypesForProject(open.job_id)[0])
+          if (open.project_work_type_id) {
+            try {
+              const wts = await api.projects.getWorkTypes(open.job_id)
+              if (cancelled) return
+              const w = wts.find((x) => x.id === open.project_work_type_id)
+              setSelectedWorkType(
+                w
+                  ? {
+                      ...w,
+                      rate: typeof w.rate === 'number' ? w.rate : Number(w.rate) || 0,
+                    }
+                  : null
+              )
+            } catch {
+              if (!cancelled) setSelectedWorkType(null)
+            }
+          } else {
+            setSelectedWorkType(null)
+          }
         }
+      } catch {
+        if (!cancelled) {
+          setActiveEntry(null)
+          setRecentEntries([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [employeeId])
+
+  useEffect(() => {
+    if (!selectedJobId || step !== 'work_types') return
+    setWorkTypesLoading(true)
+    setMessage(null)
+    api.projects
+      .getWorkTypes(selectedJobId)
+      .then((rows) => {
+        setWorkTypesList(
+          rows.map((w) => ({
+            ...w,
+            rate: typeof w.rate === 'number' ? w.rate : Number(w.rate) || 0,
+          }))
+        )
       })
       .catch(() => {
-        setActiveEntry(null)
-        setRecentEntries([])
+        setWorkTypesList([])
+        setMessage('Could not load work types for this job.')
       })
-      .finally(() => setLoading(false))
-  }, [employeeId])
+      .finally(() => setWorkTypesLoading(false))
+  }, [selectedJobId, step])
 
   useEffect(() => {
     if (!activeEntry || !selectedJobId) return
@@ -262,6 +300,7 @@ export function EmployeeClockPage() {
         job_id: selectedJobId,
         clock_in: dayjs().toISOString(),
         source: 'manual',
+        project_work_type_id: workType.id,
       })
       setActiveEntry(entry)
       setSelectedWorkType(workType)
@@ -355,7 +394,7 @@ export function EmployeeClockPage() {
 
       <div className="relative z-10">
         {/* ── Clocked in (takes priority) ── */}
-        {clockedIn && selectedJob && selectedWorkType && (
+        {clockedIn && selectedJob && (
           <>
             <div className="clock-fade-up flex items-center gap-2 mb-4">
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
@@ -363,9 +402,14 @@ export function EmployeeClockPage() {
             </div>
             <div className="clock-fade-up mb-2">
               <h2 className="text-xl font-extrabold text-gray-900 dark:text-landing-white">{selectedJob.name}</h2>
-              <div className="flex items-center gap-2 text-sm text-muted mt-1">
-                <WorkTypeIcon typeKey={selectedWorkType.type_key} size={14} customColor={selectedWorkType.custom_color} /> {selectedWorkType.name}
-              </div>
+              {selectedWorkType ? (
+                <div className="flex items-center gap-2 text-sm text-muted mt-1">
+                  <WorkTypeIcon typeKey={selectedWorkType.type_key} size={14} customColor={selectedWorkType.custom_color} />{' '}
+                  {selectedWorkType.name}
+                </div>
+              ) : (
+                <div className="text-sm text-muted mt-1">Work type not recorded</div>
+              )}
             </div>
             <div
               className="clock-fade-up rounded-2xl p-6 mb-6 text-center"
@@ -430,33 +474,41 @@ export function EmployeeClockPage() {
             <div className="clock-fade-up text-[10px] font-bold uppercase tracking-widest text-muted mb-3">
               What are you working on?
             </div>
-            <div className="space-y-3">
-              {workTypesForJob.map((wt) => {
-                const style = getWorkTypeStyle(wt.type_key, wt.custom_color)
-                return (
-                  <button
-                    key={wt.id}
-                    type="button"
-                    onClick={() => handleClockIn(wt)}
-                    disabled={loading || (!!geofence && isInsideGeofence === false)}
-                    className="w-full rounded-xl border-2 p-4 flex items-center gap-4 text-left transition-all hover:opacity-90 disabled:opacity-50"
-                    style={{ backgroundColor: style.bg, borderColor: `${style.rate}40` }}
-                  >
-                    <div
-                      className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-600 dark:text-gray-400"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.7)', color: style.rate }}
+            {workTypesLoading ? (
+              <p className="text-sm text-muted py-8 text-center">Loading work types…</p>
+            ) : workTypesList.length === 0 ? (
+              <p className="text-sm text-muted py-6 text-center leading-relaxed">
+                No work types are set up for this job yet. Ask your manager to add them under the project&apos;s work types settings.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {workTypesList.map((wt) => {
+                  const style = getWorkTypeStyle(wt.type_key, wt.custom_color)
+                  return (
+                    <button
+                      key={wt.id}
+                      type="button"
+                      onClick={() => handleClockIn(wt)}
+                      disabled={loading || (!!geofence && isInsideGeofence === false)}
+                      className="w-full rounded-xl border-2 p-4 flex items-center gap-4 text-left transition-all hover:opacity-90 disabled:opacity-50"
+                      style={{ backgroundColor: style.bg, borderColor: `${style.rate}40` }}
                     >
-                      <WorkTypeIcon typeKey={wt.type_key} size={20} className="shrink-0" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-gray-900 dark:text-landing-white">{wt.name}</div>
-                      <div className="text-xs text-muted mt-0.5">Tap to clock in</div>
-                    </div>
-                    <ChevronRight size={20} className="text-muted flex-shrink-0" />
-                  </button>
-                )
-              })}
-            </div>
+                      <div
+                        className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-600 dark:text-gray-400"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.7)', color: style.rate }}
+                      >
+                        <WorkTypeIcon typeKey={wt.type_key} size={20} className="shrink-0" customColor={wt.custom_color} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-gray-900 dark:text-landing-white">{wt.name}</div>
+                        <div className="text-xs text-muted mt-0.5">Tap to clock in</div>
+                      </div>
+                      <ChevronRight size={20} className="text-muted flex-shrink-0" />
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             {message && <p className="text-sm text-center text-muted mt-4">{message}</p>}
             {geofence && isInsideGeofence === false && (
               <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 dark:bg-amber-500/15 p-3 mt-4">

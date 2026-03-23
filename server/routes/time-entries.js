@@ -2,6 +2,23 @@ const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { syncAttendanceFromTimeEntry } = require('../lib/syncAttendanceFromTimeEntry')
 
+/** Validate work type belongs to job (service client; avoids trusting client). */
+async function assertWorkTypeForJob(supabase, jobId, projectWorkTypeId) {
+  if (projectWorkTypeId == null || projectWorkTypeId === '') return null
+  const { data: wt, error } = await supabase
+    .from('project_work_types')
+    .select('id, project_id')
+    .eq('id', projectWorkTypeId)
+    .maybeSingle()
+  if (error) throw error
+  if (!wt || wt.project_id !== jobId) {
+    const err = new Error('Invalid work type for this job')
+    err.statusCode = 400
+    throw err
+  }
+  return wt.id
+}
+
 const router = express.Router()
 
 /** Plain YYYY-MM-DD bounds are expanded so `to` is inclusive of that full calendar day in UTC (timestamptz compares). */
@@ -53,9 +70,17 @@ router.post('/', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
-    const { employee_id, job_id, clock_in, clock_out, source } = req.body || {}
+    const { employee_id, job_id, clock_in, clock_out, source, project_work_type_id } = req.body || {}
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     if (!effectiveEmployeeId || !job_id) return res.status(400).json({ error: 'employee_id and job_id required' })
+    const db = defaultSupabase || supabase
+    let resolvedWtId = null
+    try {
+      resolvedWtId = await assertWorkTypeForJob(db, job_id, project_work_type_id)
+    } catch (e) {
+      if (e.statusCode === 400) return res.status(400).json({ error: e.message })
+      throw e
+    }
     const clockIn = clock_in || new Date().toISOString()
     const clockOut = clock_out || null
     const hours = clockOut ? computeHours(clockIn, clockOut) : null
@@ -68,6 +93,7 @@ router.post('/', async (req, res, next) => {
         clock_out: clockOut,
         hours,
         source: source || 'manual',
+        ...(resolvedWtId != null && { project_work_type_id: resolvedWtId }),
       })
       .select()
       .single()
