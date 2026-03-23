@@ -1,4 +1,3 @@
-import { Suspense, lazy } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RootLayout } from '@/components/Layout'
 import { AppLayout } from '@/components/AppLayout'
@@ -11,9 +10,6 @@ import { ProjectsPage } from '@/routes/ProjectsPage'
 import { RevenuePage } from '@/pages/RevenuePage'
 import { DocumentsPage } from '@/pages/DocumentsPage'
 import { AccountingPage } from '@/pages/AccountingPage'
-import { LoadingSkeleton } from '@/components/LoadingSkeleton'
-
-const EstimatesPage = lazy(() => import('@/pages/EstimatesPage').then((m) => ({ default: m.EstimatesPage })))
 import { TeamsPage } from '@/pages/TeamsPage'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { DirectoryPage } from '@/pages/DirectoryPage'
@@ -77,26 +73,12 @@ export const router = createBrowserRouter([
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'projects', element: <ProjectsPage /> },
           { path: 'projects/:id', element: <ProjectsPage /> },
-          { path: 'revenue', element: <RevenuePage /> },
+          { path: 'financials', element: <RevenuePage /> },
+          { path: 'revenue', element: <Navigate to="/financials" replace /> },
           { path: 'accounting', element: <AccountingPage /> },
-          {
-            path: 'invoicing',
-            element: (
-              <Suspense
-                fallback={
-                  <div className="dashboard-app estimates-page flex flex-col min-h-0 flex-1">
-                    <div className="estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0">
-                      <LoadingSkeleton variant="page" className="min-h-[30vh]" />
-                    </div>
-                  </div>
-                }
-              >
-                <EstimatesPage />
-              </Suspense>
-            ),
-          },
+          { path: 'invoicing', element: <Navigate to="/financials?tab=invoicing" replace /> },
           { path: 'documents', element: <DocumentsPage /> },
-          { path: 'estimates', element: <Navigate to="/invoicing" replace /> },
+          { path: 'estimates', element: <Navigate to="/financials?tab=invoicing" replace /> },
           { path: 'teams', element: <TeamsPage /> },
           { path: 'payroll', element: <PayrollPage /> },
           { path: 'directory', element: <DirectoryPage /> },

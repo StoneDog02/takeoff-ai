@@ -2,8 +2,33 @@ const express = require('express')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 
+const FULL_ITEM_TYPES = ['service', 'product', 'labor', 'sub', 'material', 'equipment']
+
 function getSupabase(req) {
   return req.supabase || defaultSupabase
+}
+
+/** Trim + lowercase; default service. */
+function normalizeItemType(raw) {
+  if (typeof raw !== 'string') return 'service'
+  const t = raw.trim().toLowerCase()
+  return FULL_ITEM_TYPES.includes(t) ? t : 'service'
+}
+
+/**
+ * Older DBs only allow service | product | labor. Map extended types so inserts still succeed
+ * until migrations are applied (material→product, sub→labor, equipment→service).
+ */
+function toLegacyItemType(t) {
+  const map = {
+    service: 'service',
+    product: 'product',
+    labor: 'labor',
+    material: 'product',
+    sub: 'labor',
+    equipment: 'service',
+  }
+  return map[t] || 'service'
 }
 
 /** GET /api/custom-products */
@@ -28,24 +53,21 @@ router.post('/', async (req, res) => {
   const supabase = getSupabase(req)
   if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
   try {
-    const { name, description, unit, default_unit_price, item_type, sub_cost, markup_pct, billed_price, trades, taxable } = req.body
-    const { data, error } = await supabase
-      .from('custom_products')
-      .insert({
-        user_id: req.user.id,
-        name: name || 'Product',
-        description: description || null,
-        unit: unit || 'ea',
-        default_unit_price: Number(default_unit_price) || 0,
-        item_type: ['service', 'product', 'labor', 'sub', 'material', 'equipment'].includes(item_type) ? item_type : null,
-        sub_cost: sub_cost != null ? Number(sub_cost) : null,
-        markup_pct: markup_pct != null ? Number(markup_pct) : null,
-        billed_price: billed_price != null ? Number(billed_price) : null,
-        trades: Array.isArray(trades) ? trades : [],
-        taxable: !!taxable,
-      })
-      .select()
-      .single()
+    const { name, description, unit, default_unit_price, item_type } = req.body
+    const normalizedType = normalizeItemType(item_type)
+    const baseRow = {
+      user_id: req.user.id,
+      name: name || 'Product',
+      description: description || null,
+      unit: unit || 'ea',
+      default_unit_price: Number(default_unit_price) || 0,
+      item_type: normalizedType,
+    }
+    let { data, error } = await supabase.from('custom_products').insert(baseRow).select().single()
+    if (error?.code === '23514' && normalizedType !== toLegacyItemType(normalizedType)) {
+      const retryRow = { ...baseRow, item_type: toLegacyItemType(normalizedType) }
+      ;({ data, error } = await supabase.from('custom_products').insert(retryRow).select().single())
+    }
     if (error) throw error
     res.status(201).json(data)
   } catch (err) {
@@ -60,24 +82,34 @@ router.patch('/:id', async (req, res) => {
   if (!supabase) return res.status(401).json({ error: 'Unauthorized' })
   try {
     const { id } = req.params
-    const { name, description, unit, default_unit_price, item_type, sub_cost, markup_pct, billed_price, trades, taxable } = req.body
+    const { name, description, unit, default_unit_price, item_type } = req.body
     const updates = {}
     if (name !== undefined) updates.name = name
     if (description !== undefined) updates.description = description
     if (unit !== undefined) updates.unit = unit
     if (default_unit_price !== undefined) updates.default_unit_price = Number(default_unit_price)
-    if (item_type !== undefined) updates.item_type = ['service', 'product', 'labor', 'sub', 'material', 'equipment'].includes(item_type) ? item_type : null
-    if (sub_cost !== undefined) updates.sub_cost = sub_cost != null ? Number(sub_cost) : null
-    if (markup_pct !== undefined) updates.markup_pct = markup_pct != null ? Number(markup_pct) : null
-    if (billed_price !== undefined) updates.billed_price = billed_price != null ? Number(billed_price) : null
-    if (trades !== undefined) updates.trades = Array.isArray(trades) ? trades : []
-    if (taxable !== undefined) updates.taxable = !!taxable
-    const { data, error } = await supabase
+    if (item_type !== undefined) {
+      const normalizedType = normalizeItemType(item_type)
+      updates.item_type = normalizedType
+    }
+    let { data, error } = await supabase
       .from('custom_products')
       .update(updates)
       .eq('id', id)
       .select()
       .single()
+    if (error?.code === '23514' && updates.item_type !== undefined) {
+      const t = updates.item_type
+      const legacy = toLegacyItemType(t)
+      if (legacy !== t) {
+        ;({ data, error } = await supabase
+          .from('custom_products')
+          .update({ ...updates, item_type: legacy })
+          .eq('id', id)
+          .select()
+          .single())
+      }
+    }
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Not found' })
     res.json(data)

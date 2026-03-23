@@ -15,7 +15,7 @@ import {
 
 type InvoicingTab = 'client_invoices' | 'subcontractor_payouts'
 
-export function EstimatesPage() {
+export function EstimatesPage({ embedded = false }: { embedded?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [jobs, setJobs] = useState<Job[]>([])
   const [showBuilder, setShowBuilder] = useState(false)
@@ -61,10 +61,17 @@ export function EstimatesPage() {
     }
   }
 
+  const rootClass = embedded
+    ? 'estimates-page estimates-page--embedded flex flex-col min-h-0 flex-1 w-full'
+    : 'dashboard-app estimates-page flex flex-col min-h-0 flex-1'
+  const wrapClass = embedded
+    ? 'estimates-page__wrap estimates-page__wrap--embedded w-full max-w-none mx-0 px-0 sm:px-0 lg:px-0 py-0 flex flex-col flex-1 min-h-0'
+    : 'estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0'
+
   if (loading) {
     return (
-      <div className="dashboard-app estimates-page flex flex-col min-h-0 flex-1">
-        <div className="estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0">
+      <div className={rootClass}>
+        <div className={wrapClass}>
           <LoadingSkeleton variant="page" className="min-h-[30vh]" />
         </div>
       </div>
@@ -114,7 +121,7 @@ export function EstimatesPage() {
     .reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0)
 
   return (
-    <div className="dashboard-app estimates-page flex flex-col min-h-0 flex-1">
+    <div className={rootClass}>
       {showBuilder && (
         <NewInvoiceModal
           jobs={jobs}
@@ -143,9 +150,13 @@ export function EstimatesPage() {
         </div>
       )}
 
-      <div className="estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0">
-        <div className="dashboard-page-header mb-6 flex justify-between items-center w-full flex-wrap gap-4">
-          <h1 className="dashboard-title">Invoicing</h1>
+      <div className={wrapClass}>
+        <div className={`dashboard-page-header mb-6 flex justify-between items-center w-full flex-wrap gap-4 ${embedded ? 'mb-4' : ''}`}>
+          {embedded ? (
+            <h2 className="dashboard-title text-lg sm:text-xl">Invoicing</h2>
+          ) : (
+            <h1 className="dashboard-title">Invoicing</h1>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
               type="button"

@@ -56,3 +56,21 @@ export function estimateBudgetCategoryFromProductItemType(itemType?: string | nu
   if (t === 'product' || t === 'material') return 'Materials'
   return 'Other'
 }
+
+/** Inverse: budget label → `custom_products.item_type` (DB / API). */
+export function itemTypeFromLineItemBudgetCategoryLabel(
+  label: LineItemBudgetCategoryLabel
+): 'service' | 'product' | 'labor' | 'sub' | 'material' | 'equipment' {
+  switch (label) {
+    case 'Labor':
+      return 'labor'
+    case 'Materials':
+      return 'material'
+    case 'Subcontractors':
+      return 'sub'
+    case 'Equipment':
+      return 'equipment'
+    default:
+      return 'service'
+  }
+}

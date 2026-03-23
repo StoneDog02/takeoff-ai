@@ -527,8 +527,8 @@ export function DashboardPage() {
               const icon = alert.type === 'invoice' ? '🧾' : alert.type === 'estimate' ? '📋' : '⚠️'
               const onAction = () => {
                 if (alert.type === 'budget_overrun') navigate(`/projects/${alert.entityId}`)
-                else if (alert.type === 'estimate') navigate('/invoicing')
-                else navigate('/revenue')
+                else if (alert.type === 'estimate') navigate('/financials?tab=invoicing')
+                else navigate('/financials')
               }
               return (
                 <div

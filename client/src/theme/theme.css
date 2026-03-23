@@ -10154,6 +10154,7 @@ html[data-theme='dark'] .estimates-detail-panel__inner {
 .estimates-ps-table { width: 100%; border-collapse: collapse; }
 
 /* ── Add Product / Edit Product modal form ── */
+/* Above .estimates-detail-panel (z-index 1100) so Products & Services modals aren’t covered */
 .add-product-modal-overlay {
   position: fixed;
   inset: 0;
@@ -10161,7 +10162,7 @@ html[data-theme='dark'] .estimates-detail-panel__inner {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1200;
   padding: 24px;
 }
 .add-product-modal-card {
@@ -10174,6 +10175,112 @@ html[data-theme='dark'] .estimates-detail-panel__inner {
   max-height: calc(100vh - 48px);
   overflow-y: auto;
 }
+
+/* Delete confirm is portaled to document.body (outside .dashboard-app): own tokens + buttons (global .btn is red). */
+.add-product-delete-modal {
+  --del-surface: #ffffff;
+  --del-border: rgba(0, 0, 0, 0.1);
+  --del-text: #1c1a18;
+  --del-muted: #6b6764;
+  --del-warning-bg: rgba(192, 57, 43, 0.08);
+  --del-warning-border: rgba(192, 57, 43, 0.22);
+  --del-warning-text: #8b2e22;
+  --del-red: #c0392b;
+  --del-red-hover: #a93226;
+}
+html.dark .add-product-delete-modal,
+html[data-theme='dark'] .add-product-delete-modal {
+  --del-surface: #141414;
+  --del-border: rgba(255, 255, 255, 0.12);
+  --del-text: #f0ece8;
+  --del-muted: #9c9894;
+  --del-warning-bg: rgba(232, 93, 76, 0.12);
+  --del-warning-border: rgba(232, 93, 76, 0.35);
+  --del-warning-text: #e8897e;
+  --del-red: #e85d4c;
+  --del-red-hover: #d64d3d;
+}
+.add-product-delete-modal .add-product-modal-card {
+  background: var(--del-surface);
+  border-color: var(--del-border);
+  color: var(--del-text);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+}
+.add-product-delete-modal .add-product-modal-title {
+  color: var(--del-text);
+  margin-bottom: 12px;
+}
+.add-product-delete-modal__lead {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--del-muted);
+}
+.add-product-delete-modal__lead strong {
+  color: var(--del-text);
+  font-weight: 600;
+}
+.add-product-delete-modal__warning {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--del-warning-text);
+  background: var(--del-warning-bg);
+  border: 1px solid var(--del-warning-border);
+}
+.add-product-delete-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--del-border);
+}
+.add-product-delete-modal__cancel,
+.add-product-delete-modal__confirm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.add-product-delete-modal__cancel {
+  border: 1px solid var(--del-border);
+  background: transparent;
+  color: var(--del-muted);
+}
+.add-product-delete-modal__cancel:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--del-text);
+}
+html.dark .add-product-delete-modal__cancel:hover:not(:disabled),
+html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+.add-product-delete-modal__confirm {
+  border: none;
+  background: var(--del-red);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.add-product-delete-modal__confirm:hover:not(:disabled) {
+  background: var(--del-red-hover);
+}
+.add-product-delete-modal__cancel:disabled,
+.add-product-delete-modal__confirm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .add-product-modal-title {
   font-size: 18px;
   font-weight: 700;
@@ -16965,9 +17072,55 @@ html[data-theme='dark'] .estimate-wizard-line-picker-popover .estimate-wizard-ca
   min-width: 28px;
   flex-shrink: 0;
 }
+/* Custom lines: min widths + horizontal scroll — avoids collapsed columns & overlapping headers */
+.estimate-wizard-custom-lines-block {
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
+.estimate-wizard-custom-lines-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-left: -2px;
+  margin-right: -2px;
+  padding: 0 2px 10px;
+}
+.estimate-wizard-custom-lines-scroll-inner {
+  min-width: 780px;
+}
+.estimate-wizard-group-header-cell {
+  display: block;
+  margin: 0;
+  padding: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  color: var(--text-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  max-width: 100%;
+}
+.estimate-wizard-group-header-cell--action {
+  min-width: 36px;
+}
 .estimate-wizard-groups-header--custom {
-  grid-template-columns: 28px minmax(0, 1.35fr) minmax(118px, 0.95fr) 64px 56px minmax(128px, 1.1fr) 96px 88px 36px;
-  margin-top: 16px;
+  grid-template-columns:
+    28px
+    minmax(220px, 2fr)
+    minmax(148px, 1.1fr)
+    72px
+    92px
+    minmax(160px, 1.2fr)
+    104px
+    100px
+    40px;
+  gap: 12px;
+  align-items: end;
+  padding-bottom: 6px;
+  margin-top: 8px;
 }
 .estimate-wizard-group-row {
   display: grid;
@@ -16983,9 +17136,48 @@ html[data-theme='dark'] .estimate-wizard-line-picker-popover .estimate-wizard-ca
   background: var(--bg-hover, rgba(0, 0, 0, 0.04));
 }
 .estimate-wizard-group-row--custom {
-  grid-template-columns: 28px minmax(0, 1.35fr) minmax(118px, 0.95fr) 64px 56px minmax(128px, 1.1fr) 96px 88px 36px;
+  grid-template-columns:
+    28px
+    minmax(220px, 2fr)
+    minmax(148px, 1.1fr)
+    72px
+    92px
+    minmax(160px, 1.2fr)
+    104px
+    100px
+    40px;
+  gap: 12px;
   cursor: default;
-  padding: 10px 0;
+  padding: 12px 0;
+}
+.estimate-wizard-group-row--custom .estimate-wizard-line-input-name {
+  min-width: 200px;
+  width: 100%;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.estimate-wizard-group-row--custom .estimate-wizard-line-input-category {
+  min-width: 140px;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.estimate-wizard-group-row--custom .estimate-wizard-line-input-num {
+  min-width: 64px;
+  text-align: right;
+  padding: 8px 10px;
+}
+.estimate-wizard-group-row--custom .estimate-wizard-line-input-unit {
+  min-width: 84px;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.estimate-wizard-group-row--custom .estimate-wizard-line-input-price {
+  min-width: 88px;
+  text-align: right;
+  padding: 8px 10px;
+}
+.estimate-wizard-group-row--custom .estimate-wizard-custom-price-cell {
+  min-width: 160px;
 }
 .estimate-wizard-custom-price-cell {
   display: flex;
@@ -17015,11 +17207,6 @@ html[data-theme='dark'] .estimate-wizard-line-picker-popover .estimate-wizard-ca
 }
 .estimate-wizard-group-row--custom:hover {
   background: transparent;
-}
-.estimate-wizard-group-row--custom .estimate-wizard-line-input-category {
-  min-width: 0;
-  width: 100%;
-  font-size: 12px;
 }
 .estimate-wizard-group-markup--custom {
   justify-self: start;

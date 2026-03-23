@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { PageTitle } from '@/components/PageTitle'
 
-const APP_ROUTES = ['/dashboard', '/projects', '/invoicing', '/estimates', '/revenue', '/teams', '/payroll', '/directory', '/contractors', '/settings']
+const APP_ROUTES = ['/dashboard', '/projects', '/financials', '/estimates', '/teams', '/payroll', '/directory', '/contractors', '/settings']
 
 export function RootLayout() {
   const location = useLocation()

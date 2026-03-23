@@ -3,7 +3,14 @@ import { createPortal } from 'react-dom'
 import { api } from '@/api/client'
 import { estimatesApi } from '@/api/estimates'
 import { settingsApi } from '@/api/settings'
-import type { BudgetLineItem, CustomProduct, Job, PipelineMilestone, Project } from '@/types/global'
+import type {
+  BudgetLineItem,
+  CustomProduct,
+  CustomProductItemType,
+  Job,
+  PipelineMilestone,
+  Project,
+} from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
 import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import {
@@ -106,6 +113,114 @@ export type LineItemGroup = {
   gcSectionNote?: string
   /** Subcontractor bid notes (e.g. from portal). */
   subNotes?: { subcontractor: string; text: string }[]
+}
+
+/** Dedupe key aligned with EstimatingWorkspace `gcScopeLibraryKey` / catalog picker. */
+function catalogLineDedupeKey(name: string, unit: string) {
+  return `${name.trim().toLowerCase().replace(/\s+/g, ' ')}|${(unit || 'ea').trim().toLowerCase()}`
+}
+
+function itemTypeFromEstimateBudgetCategory(cat: EstimateGroupBudgetCategory): CustomProductItemType {
+  switch (cat) {
+    case 'Labor':
+      return 'labor'
+    case 'Materials':
+      return 'material'
+    case 'Subcontractors':
+      return 'sub'
+    case 'Equipment':
+      return 'equipment'
+    default:
+      return 'service'
+  }
+}
+
+/**
+ * Create or update `custom_products` from every custom line group (name + unit + price).
+ * Returns the merged catalog list for the picker. Safe to call when opening catalog or before save.
+ */
+async function syncCustomLineGroupsToProductCatalog(groups: LineItemGroup[]): Promise<CustomProduct[]> {
+  if (USE_MOCK_ESTIMATES) {
+    return MOCK_CUSTOM_PRODUCTS
+  }
+  let existing: CustomProduct[] = []
+  try {
+    existing = await estimatesApi.getCustomProducts()
+  } catch {
+    return existing
+  }
+  for (const g of groups) {
+    if (!customLineGroupReadyForCatalog(g)) continue
+    const row = g.items[0]
+    const name = (row.description || g.categoryName || '').trim()
+    const unit = (row.unit || 'ea').trim() || 'ea'
+    const price = Math.max(0, Number(row.unitCost) || 0)
+    const key = catalogLineDedupeKey(name, unit)
+    const match = existing.find((p) => catalogLineDedupeKey(p.name, p.unit || 'ea') === key)
+    try {
+      if (match) {
+        if (Number(match.default_unit_price) !== price) {
+          const updated = await estimatesApi.updateCustomProduct(match.id, { default_unit_price: price })
+          existing = existing.map((p) => (p.id === match.id ? updated : p))
+        }
+      } else {
+        const created = await estimatesApi.createCustomProduct({
+          name,
+          unit,
+          default_unit_price: price,
+          item_type: itemTypeFromEstimateBudgetCategory(g.budgetCategory),
+        })
+        existing = [created, ...existing.filter((p) => p.id !== created.id)]
+      }
+    } catch (err) {
+      console.warn('[EstimateBuilderModal] sync custom line to catalog', err)
+    }
+  }
+  return existing
+}
+
+function lineItemGroupFromCatalogPayload(payload: {
+  name: string
+  unit: string
+  unitCost: number
+  budgetCategory: EstimateGroupBudgetCategory
+}): LineItemGroup {
+  const cost = Math.max(0, Number(payload.unitCost) || 0)
+  const name = payload.name.trim()
+  return {
+    id: '__catalog_sync__',
+    categoryName: name,
+    source: 'custom',
+    items: [
+      {
+        id: '__row__',
+        description: name,
+        qty: 1,
+        unit: payload.unit,
+        unitCost: cost,
+      },
+    ],
+    costSubtotal: cost,
+    markupPct: 0,
+    clientTotal: cost,
+    budgetCategory: payload.budgetCategory,
+  }
+}
+
+/** Only push custom lines to Products & Services when the row is fully filled (avoids partial names / $0 catalog rows). */
+function customLineGroupReadyForCatalog(g: LineItemGroup): boolean {
+  if (g.source !== 'custom' || g.items.length !== 1) return false
+  const row = g.items[0]
+  if (row.unit === 'pct') return false
+  const name = (row.description || g.categoryName || '').trim()
+  if (!name) return false
+  const unit = (row.unit || '').trim()
+  if (!unit) return false
+  const qty = Number(row.qty) || 0
+  if (qty <= 0) return false
+  const price = Math.max(0, Number(row.unitCost) || 0)
+  if (price <= 0) return false
+  return true
 }
 
 const STEPS_CREATE = [
@@ -827,6 +942,7 @@ export function EstimateBuilderModal({
     if (!projectId || lineItemGroups.length === 0) return
     setSaving(true)
     try {
+      await syncCustomLineGroupsToProductCatalog(lineItemGroups)
       if (estimateId) {
         await estimatesApi.updateEstimate(estimateId, persistEstimatePayload())
         for (const lineId of loadedLineItemIds) {
@@ -891,6 +1007,7 @@ export function EstimateBuilderModal({
     setSendToError(null)
     setSaving(true)
     try {
+      await syncCustomLineGroupsToProductCatalog(lineItemGroups)
       const eid = estimateId ?? (await estimatesApi.createEstimate({
         job_id: projectId,
         title: data.projectName?.trim() || 'Estimate',
@@ -1783,6 +1900,60 @@ function Step2LineItems({
       .finally(() => setLoadingProducts(false))
   }, [])
 
+  const lineItemGroupsRef = useRef(lineItemGroups)
+  useEffect(() => {
+    lineItemGroupsRef.current = lineItemGroups
+  }, [lineItemGroups])
+
+  /** Opening the catalog syncs completed custom lines only (see `customLineGroupReadyForCatalog`). */
+  useEffect(() => {
+    if (!catalogOpen || USE_MOCK_ESTIMATES) return
+    let cancelled = false
+    void (async () => {
+      const list = await syncCustomLineGroupsToProductCatalog(lineItemGroupsRef.current)
+      if (!cancelled) setProducts(list)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [catalogOpen])
+
+  const maybePersistCustomLineToCatalog = useCallback(
+    async (payload: {
+      name: string
+      unit: string
+      unitCost: number
+      budgetCategory: EstimateGroupBudgetCategory
+    }) => {
+      const synthetic = lineItemGroupFromCatalogPayload(payload)
+      if (!customLineGroupReadyForCatalog(synthetic)) return
+      const list = await syncCustomLineGroupsToProductCatalog([synthetic])
+      setProducts(list)
+    },
+    []
+  )
+
+  /** Call when the user leaves a field (blur) — syncs to catalog only if the row is complete. */
+  const flushPersistCustomLineIfReady = useCallback(
+    (groupId: string) => {
+      if (USE_MOCK_ESTIMATES) return
+      queueMicrotask(() => {
+        const g = lineItemGroupsRef.current.find(
+          (x) => x.id === groupId && x.source === 'custom' && x.items.length === 1
+        )
+        if (!g || !customLineGroupReadyForCatalog(g)) return
+        const row = g.items[0]
+        void maybePersistCustomLineToCatalog({
+          name: (row.description || g.categoryName || '').trim(),
+          unit: row.unit,
+          unitCost: row.unitCost,
+          budgetCategory: g.budgetCategory,
+        })
+      })
+    },
+    [maybePersistCustomLineToCatalog]
+  )
+
   const filteredProducts = catalogQuery.trim()
     ? products.filter((p) => {
         const q = catalogQuery.toLowerCase()
@@ -2347,34 +2518,35 @@ function Step2LineItems({
             )
           })}
 
-          {/* Custom line items at bottom — full editing */}
+          {/* Custom line items — wide grid in horizontal scroll so columns never collapse */}
           {customRows.length > 0 && (
-            <>
+            <div className="estimate-wizard-custom-lines-block">
               <div className="estimate-wizard-custom-section-label">Custom line items</div>
-              <div className="estimate-wizard-groups-header estimate-wizard-groups-header--custom">
-                <span className="estimate-wizard-groups-header__chevron-gap" aria-hidden />
-                <span className="estimate-wizard-label">Description</span>
-                <span className="estimate-wizard-label">Category</span>
-                <span className="estimate-wizard-label">Qty</span>
-                <span className="estimate-wizard-label">Unit</span>
-                <span className="estimate-wizard-label">Price / %</span>
-                <span className="estimate-wizard-label">Markup %</span>
-                <span className="estimate-wizard-label">Client total</span>
-                <span aria-hidden />
-              </div>
-            </>
-          )}
-          {customRows.map((group) => {
-            const item = group.items[0]
-            if (!item) return null
-            return (
-              <div key={group.id} className="estimate-wizard-group-row-wrap estimate-wizard-group-row-wrap--custom">
-                <div className="estimate-wizard-group-row estimate-wizard-group-row--custom">
+              <div className="estimate-wizard-custom-lines-scroll">
+                <div className="estimate-wizard-custom-lines-scroll-inner">
+                  <div className="estimate-wizard-groups-header estimate-wizard-groups-header--custom">
+                    <span className="estimate-wizard-groups-header__chevron-gap" aria-hidden />
+                    <span className="estimate-wizard-group-header-cell">Description</span>
+                    <span className="estimate-wizard-group-header-cell">Category</span>
+                    <span className="estimate-wizard-group-header-cell">Qty</span>
+                    <span className="estimate-wizard-group-header-cell">Unit</span>
+                    <span className="estimate-wizard-group-header-cell">Price / %</span>
+                    <span className="estimate-wizard-group-header-cell">Markup %</span>
+                    <span className="estimate-wizard-group-header-cell">Client total</span>
+                    <span className="estimate-wizard-group-header-cell estimate-wizard-group-header-cell--action" aria-hidden />
+                  </div>
+                  {customRows.map((group) => {
+                    const item = group.items[0]
+                    if (!item) return null
+                    return (
+                      <div key={group.id} className="estimate-wizard-group-row-wrap estimate-wizard-group-row-wrap--custom">
+                        <div className="estimate-wizard-group-row estimate-wizard-group-row--custom">
                   <span className="estimate-wizard-group-chevron" aria-hidden />
                   <input
                     type="text"
                     value={item.description}
                     onChange={(e) => updateCustomGroupItem(group.id, { description: e.target.value })}
+                    onBlur={() => flushPersistCustomLineIfReady(group.id)}
                     placeholder="Description"
                     className="estimate-wizard-input estimate-wizard-line-input-name"
                   />
@@ -2383,6 +2555,7 @@ function Step2LineItems({
                     onChange={(e) =>
                       updateGroupBudgetCategory(group.id, e.target.value as EstimateGroupBudgetCategory)
                     }
+                    onBlur={() => flushPersistCustomLineIfReady(group.id)}
                     className="estimate-wizard-input estimate-wizard-line-input-category"
                     aria-label="Budget category"
                   >
@@ -2398,11 +2571,13 @@ function Step2LineItems({
                     step={1}
                     value={item.qty}
                     onChange={(e) => updateCustomGroupItem(group.id, { qty: Number(e.target.value) || 0 })}
+                    onBlur={() => flushPersistCustomLineIfReady(group.id)}
                     className="estimate-wizard-input estimate-wizard-line-input-num"
                   />
                   <select
                     value={item.unit || 'ea'}
                     onChange={(e) => updateCustomGroupItem(group.id, { unit: e.target.value })}
+                    onBlur={() => flushPersistCustomLineIfReady(group.id)}
                     className="estimate-wizard-input estimate-wizard-line-input-unit"
                     aria-label="Unit"
                   >
@@ -2423,12 +2598,15 @@ function Step2LineItems({
                         min={0}
                         max={100}
                         step={0.5}
-                        value={item.unitCost}
+                        value={item.unitCost === 0 ? '' : item.unitCost}
                         onChange={(e) =>
                           updateCustomGroupItem(group.id, {
-                            unitCost: cappedPctValue(Number(e.target.value) || 0),
+                            unitCost: cappedPctValue(
+                              e.target.value === '' ? 0 : Number(e.target.value) || 0
+                            ),
                           })
                         }
+                        onBlur={() => flushPersistCustomLineIfReady(group.id)}
                         placeholder="0"
                         aria-label="Percentage of estimate subtotal"
                         className="estimate-wizard-input estimate-wizard-line-input-price estimate-wizard-line-input-pct"
@@ -2451,8 +2629,15 @@ function Step2LineItems({
                       type="number"
                       min={0}
                       step={0.01}
-                      value={item.unitCost}
-                      onChange={(e) => updateCustomGroupItem(group.id, { unitCost: Number(e.target.value) || 0 })}
+                      value={item.unitCost === 0 ? '' : item.unitCost}
+                      onChange={(e) => {
+                        const raw = e.target.value
+                        const n = raw === '' ? 0 : Number(raw)
+                        updateCustomGroupItem(group.id, {
+                          unitCost: Number.isFinite(n) && n >= 0 ? n : 0,
+                        })
+                      }}
+                      onBlur={() => flushPersistCustomLineIfReady(group.id)}
                       placeholder="0"
                       className="estimate-wizard-input estimate-wizard-line-input-price"
                     />
@@ -2475,8 +2660,12 @@ function Step2LineItems({
                   </button>
                 </div>
               </div>
-            )
-          })}
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="estimate-wizard-add-line-toolbar" ref={addLineToolbarRef}>

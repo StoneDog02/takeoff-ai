@@ -22,6 +22,7 @@ export function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
+  const isFinancialsActive = location.pathname === '/financials'
   const { user, isAdmin, type, role_label, employee, loading } = useAuth()
   const { previewRole } = usePreview()
   const showAdminNavEnabled = isAdmin && previewRole !== 'project_manager'
@@ -142,9 +143,9 @@ export function AppLayout() {
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
                   <span className="nav-label">Projects</span>
                 </NavLink>
-                <NavLink to="/invoicing" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12V4l6-2 6 2v8l-6 2-6-2z" /></svg>
-                  <span className="nav-label">Invoicing</span>
+                <NavLink to="/financials" className={() => `nav-item ${isFinancialsActive ? 'active' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
+                  <span className="nav-label">Financials</span>
                 </NavLink>
                 <NavLink to="/documents" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
@@ -155,10 +156,6 @@ export function AppLayout() {
                     <circle cx="11.25" cy="4" r="0.65" fill="currentColor" stroke="none" />
                   </svg>
                   <span className="nav-label">Documents</span>
-                </NavLink>
-                <NavLink to="/revenue" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
-                  <span className="nav-label">Revenue</span>
                 </NavLink>
 
                 <div className="nav-divider" />
@@ -291,7 +288,7 @@ export function AppLayout() {
                 ) : dismissedAlerts.length > 0 ? (
                   <ul className="notifications-panel-alerts" role="list">
                     {dismissedAlerts.map((a) => {
-                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/invoicing' : '/revenue'
+                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/financials?tab=invoicing' : '/financials'
                       return (
                         <li key={a.id}>
                           <Link to={href} className="notifications-panel-alert" onClick={() => setNotificationsPanelOpen(false)}>

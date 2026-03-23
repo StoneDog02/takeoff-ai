@@ -4,11 +4,11 @@ import { getDocumentTitle } from '@/lib/documentTitle'
 
 /** Syncs `document.title` to the current route (see `getDocumentTitle`). */
 export function PageTitle() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
 
   useEffect(() => {
-    document.title = getDocumentTitle(pathname)
-  }, [pathname])
+    document.title = getDocumentTitle(pathname, search)
+  }, [pathname, search])
 
   return null
 }

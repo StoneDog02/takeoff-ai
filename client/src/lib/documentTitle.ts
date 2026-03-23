@@ -10,10 +10,15 @@ const SEP = ' · '
  * Browser tab title for the current path. Pattern: "{context} · Proj-X" so tabs stay
  * distinct and support metadata (e.g. support page_title) stays readable.
  */
-export function getDocumentTitle(pathname: string): string {
+export function getDocumentTitle(pathname: string, search: string = ''): string {
   const p = pathname.replace(/\/$/, '') || '/'
 
   if (p === '/' || p === '/landing') return LANDING_DOCUMENT_TITLE
+
+  if (p === '/financials') {
+    const tab = new URLSearchParams(search).get('tab')
+    if (tab === 'invoicing') return `Invoicing${SEP}${APP_TAB_NAME}`
+  }
 
   const map: Record<string, string> = {
     '/privacy': 'Privacy',
@@ -24,7 +29,7 @@ export function getDocumentTitle(pathname: string): string {
     '/accept-invite': 'Invite',
     '/dashboard': 'Dashboard',
     '/projects': 'Projects',
-    '/revenue': 'Revenue',
+    '/financials': 'Financials',
     '/accounting': 'Accounting',
     '/invoicing': 'Invoicing',
     '/documents': 'Documents',

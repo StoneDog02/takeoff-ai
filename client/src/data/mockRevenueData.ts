@@ -1,5 +1,5 @@
 /**
- * Mock data for the Revenue page. Use ?demo=1 on /revenue to load this data
+ * Mock data for the Revenue page. Use ?demo=1 on /financials to load this data
  * or it loads automatically when the API fails (fallback).
  */
 import type { Job, Invoice, JobSpendSummary, JobExpense } from '@/types/global'

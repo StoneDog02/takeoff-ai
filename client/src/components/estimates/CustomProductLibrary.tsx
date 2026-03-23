@@ -1,11 +1,18 @@
 import { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { estimatesApi } from '@/api/estimates'
 import type { CustomProduct } from '@/types/global'
 import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import AddProductModal, { type AddProductModalPayload } from '@/components/estimates/AddProductModal'
 import { ProductsDrawer, type ProductsDrawerProduct, type ProductsDrawerType } from '@/components/estimates/ProductsDrawer'
-
-const UNIT_OPTIONS = ['ea', 'hr', 'sqft', 'lf', 'gal', 'sheet', 'load', 'flat']
+import {
+  estimateBudgetCategoryFromProductItemType,
+  itemTypeFromLineItemBudgetCategoryLabel,
+  LINE_ITEM_BUDGET_CATEGORY_LABELS,
+  nextUnitForCategory,
+  unitOptionsForCategory,
+  type LineItemBudgetCategoryLabel,
+} from '@/lib/categoryUnits'
 
 function itemTypeToDrawerType(itemType?: string | null): ProductsDrawerType {
   const t = (itemType || 'service').toLowerCase()
@@ -39,11 +46,20 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<CustomProduct | null>(null)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({
+  const [deleteTarget, setDeleteTarget] = useState<CustomProduct | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [form, setForm] = useState<{
+    name: string
+    description: string
+    unit: string
+    default_unit_price: number
+    category: LineItemBudgetCategoryLabel
+  }>({
     name: '',
     description: '',
     unit: 'ea',
     default_unit_price: 0,
+    category: 'Other',
   })
 
   const load = () => {
@@ -67,17 +83,19 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
   const openCreate = () => {
     setCreating(true)
     setEditing(null)
-    setForm({ name: '', description: '', unit: 'ea', default_unit_price: 0 })
+    setForm({ name: '', description: '', unit: 'ea', default_unit_price: 0, category: 'Other' })
   }
 
   const openEdit = (p: CustomProduct) => {
     setEditing(p)
     setCreating(false)
+    const category = estimateBudgetCategoryFromProductItemType(p.item_type)
     setForm({
       name: p.name,
       description: p.description ?? '',
       unit: p.unit,
       default_unit_price: p.default_unit_price,
+      category,
     })
   }
 
@@ -123,6 +141,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
         description: form.description.trim() || undefined,
         unit: form.unit,
         default_unit_price: form.default_unit_price,
+        item_type: itemTypeFromLineItemBudgetCategoryLabel(form.category),
       })
       load()
       closeModal()
@@ -131,18 +150,29 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
     }
   }
 
-  const deleteProduct = async (id: string) => {
-    if (!confirm('Delete this product?')) return
+  const requestDeleteProduct = (id: string) => {
+    const target = products.find((p) => p.id === id) ?? null
+    if (!target) return
+    setDeleteTarget(target)
+  }
+
+  const confirmDeleteProduct = async () => {
+    if (!deleteTarget) return
     if (USE_MOCK_ESTIMATES) {
+      setDeleteTarget(null)
       closeModal()
       return
     }
     try {
-      await estimatesApi.deleteCustomProduct(id)
+      setDeleting(true)
+      await estimatesApi.deleteCustomProduct(deleteTarget.id)
       load()
+      setDeleteTarget(null)
       closeModal()
     } catch (err) {
       console.error(err)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -170,7 +200,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
           if (full) openEdit(full)
         }}
         onDelete={(dp) => {
-          void deleteProduct(String(dp.id))
+          requestDeleteProduct(String(dp.id))
         }}
       />
 
@@ -227,6 +257,31 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
                 />
               </div>
               <div className="add-product-form-row">
+                <label htmlFor="add-product-category" className="add-product-form-label">
+                  Category
+                </label>
+                <select
+                  id="add-product-category"
+                  value={form.category}
+                  onChange={(e) => {
+                    const category = e.target.value as LineItemBudgetCategoryLabel
+                    setForm((f) => ({
+                      ...f,
+                      category,
+                      unit: nextUnitForCategory(category, f.unit),
+                    }))
+                  }}
+                  className="add-product-form-select"
+                  aria-label="Budget category"
+                >
+                  {LINE_ITEM_BUDGET_CATEGORY_LABELS.map((label) => (
+                    <option key={label} value={label}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="add-product-form-row">
                 <label htmlFor="add-product-unit" className="add-product-form-label">
                   Unit
                 </label>
@@ -235,12 +290,17 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
                   value={form.unit}
                   onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
                   className="add-product-form-select"
+                  aria-label="Unit"
                 >
-                  {UNIT_OPTIONS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
+                  {unitOptionsForCategory(form.category).map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
                     </option>
                   ))}
+                  {form.unit &&
+                  !unitOptionsForCategory(form.category).some((o) => o.value === form.unit.trim()) ? (
+                    <option value={form.unit}>{form.unit}</option>
+                  ) : null}
                 </select>
               </div>
               <div className="add-product-form-row">
@@ -276,7 +336,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
                   type="button"
                   className="btn btn-ghost"
                   style={{ color: 'var(--red-light)', marginRight: 'auto' }}
-                  onClick={() => deleteProduct(editing.id)}
+                  onClick={() => requestDeleteProduct(editing.id)}
                 >
                   Delete
                 </button>
@@ -288,6 +348,57 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
           </div>
         </div>
       )}
+      {deleteTarget &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="add-product-modal-overlay add-product-delete-modal"
+            onClick={() => {
+              if (!deleting) setDeleteTarget(null)
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-product-title"
+            aria-describedby="delete-product-desc delete-product-warning"
+          >
+            <div
+              className="add-product-modal-card"
+              style={{ maxWidth: 440, padding: '24px 28px' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="delete-product-title" className="add-product-modal-title">
+                Remove from catalog?
+              </h2>
+              <p id="delete-product-desc" className="add-product-delete-modal__lead">
+                You’re about to permanently remove <strong>{deleteTarget.name}</strong> from your Products &amp;
+                Services library. This cannot be undone.
+              </p>
+              <p id="delete-product-warning" className="add-product-delete-modal__warning" role="note">
+                Existing estimates are not changed automatically. You can add a new catalog item later, but you’ll
+                need to update line items by hand if you want them to match.
+              </p>
+              <div className="add-product-delete-modal__actions">
+                <button
+                  type="button"
+                  className="add-product-delete-modal__cancel"
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="add-product-delete-modal__confirm"
+                  onClick={() => void confirmDeleteProduct()}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Delete product'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   )
 }
