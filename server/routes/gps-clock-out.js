@@ -6,7 +6,7 @@ const router = express.Router()
 
 router.get('/', async (req, res, next) => {
   try {
-    const supabase = req.supabase || defaultSupabase
+    const supabase = req.actingAsEmployee ? (defaultSupabase || req.supabase) : (req.supabase || defaultSupabase)
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id, employee_id } = req.query
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
@@ -25,16 +25,17 @@ router.post('/', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const rw = req.actingAsEmployee ? (defaultSupabase || supabase) : supabase
     const { employee_id, time_entry_id, job_id, exited_at, lat, lng, geofence_id } = req.body || {}
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     if (!effectiveEmployeeId || !time_entry_id || !job_id)
       return res.status(400).json({ error: 'employee_id, time_entry_id, job_id required' })
     if (req.employee) {
-      const { data: entry } = await supabase.from('time_entries').select('employee_id').eq('id', time_entry_id).single()
+      const { data: entry } = await rw.from('time_entries').select('employee_id').eq('id', time_entry_id).single()
       if (!entry || entry.employee_id !== req.employee.id) return res.status(403).json({ error: 'Forbidden' })
     }
     const exitedAt = exited_at || new Date().toISOString()
-    const { data: log, error: insertErr } = await supabase
+    const { data: log, error: insertErr } = await rw
       .from('gps_clock_out_log')
       .insert({
         employee_id: effectiveEmployeeId,
@@ -49,11 +50,11 @@ router.post('/', async (req, res, next) => {
       .single()
     if (insertErr) throw insertErr
     const clockOut = exitedAt
-    const { data: entry } = await supabase.from('time_entries').select('clock_in').eq('id', time_entry_id).single()
+    const { data: entry } = await rw.from('time_entries').select('clock_in').eq('id', time_entry_id).single()
     const hours = entry
       ? Math.round(((new Date(clockOut) - new Date(entry.clock_in)) / (1000 * 60 * 60)) * 100) / 100
       : null
-    const { data: updatedEntry, error: updErr } = await supabase
+    const { data: updatedEntry, error: updErr } = await rw
       .from('time_entries')
       .update({
         clock_out: clockOut,
@@ -66,7 +67,7 @@ router.post('/', async (req, res, next) => {
       .single()
     if (updErr) throw updErr
     if (updatedEntry) {
-      await syncAttendanceFromTimeEntry(supabase, {
+      await syncAttendanceFromTimeEntry(rw, {
         ...updatedEntry,
         hours: updatedEntry.hours ?? hours,
       })

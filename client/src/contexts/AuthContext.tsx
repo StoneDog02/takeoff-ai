@@ -16,6 +16,7 @@ interface AuthState {
   type: MeResponse['type']
   role_label?: string
   employee?: MeResponse['employee']
+  acting_as_employee?: boolean
 }
 
 const defaultState: AuthState = {
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading: false,
         type: 'contractor',
         role_label: undefined,
+        acting_as_employee: undefined,
       })
       return
     }
@@ -58,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         type: me.type,
         role_label: me.role_label,
         employee: me.employee,
+        acting_as_employee: me.acting_as_employee,
       })
     } catch {
       setState({
@@ -66,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading: false,
         type: 'contractor',
         role_label: undefined,
+        acting_as_employee: undefined,
       })
     }
   }, [])

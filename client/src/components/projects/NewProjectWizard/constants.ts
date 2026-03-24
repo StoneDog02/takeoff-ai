@@ -118,7 +118,7 @@ export function pctDone(proj: {
   return Math.round((filled / total) * 100)
 }
 
-/** True when at least one work type has a name and a positive rate. */
+/** True when at least one work type has a name and either a positive GC rate or general labor (employee rate). */
 export function hasFilledWorkTypes(workTypes: unknown[] | undefined): boolean {
   if (!Array.isArray(workTypes)) return false
   return workTypes.some(
@@ -127,7 +127,7 @@ export function hasFilledWorkTypes(workTypes: unknown[] | undefined): boolean {
       w !== null &&
       typeof (w as { name?: string }).name === 'string' &&
       (w as { name: string }).name.trim() !== '' &&
-      (Number((w as { rate?: number }).rate) || 0) > 0
+      ((Number((w as { rate?: number }).rate) || 0) > 0 || (w as { type_key?: string }).type_key === 'labor')
   )
 }
 

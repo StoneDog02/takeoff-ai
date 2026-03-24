@@ -44,7 +44,7 @@ function computeHours(clockIn, clockOut) {
 
 router.get('/', async (req, res, next) => {
   try {
-    const supabase = req.supabase || defaultSupabase
+    const supabase = req.actingAsEmployee ? (defaultSupabase || req.supabase) : (req.supabase || defaultSupabase)
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, job_id, from, to } = req.query
     const { from: fromBound, to: toBound } = normalizeClockInQueryBounds(from, to)
@@ -70,6 +70,7 @@ router.post('/', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const rw = req.actingAsEmployee ? (defaultSupabase || supabase) : supabase
     const { employee_id, job_id, clock_in, clock_out, source, project_work_type_id } = req.body || {}
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     if (!effectiveEmployeeId || !job_id) return res.status(400).json({ error: 'employee_id and job_id required' })
@@ -81,10 +82,24 @@ router.post('/', async (req, res, next) => {
       if (e.statusCode === 400) return res.status(400).json({ error: e.message })
       throw e
     }
+    if (req.employee) {
+      const { data: assignment, error: asgErr } = await rw
+        .from('job_assignments')
+        .select('id')
+        .eq('employee_id', effectiveEmployeeId)
+        .eq('job_id', job_id)
+        .is('ended_at', null)
+        .maybeSingle()
+      if (asgErr) throw asgErr
+      if (!assignment) {
+        return res.status(403).json({ error: 'You are not assigned to this job.' })
+      }
+    }
+
     const clockIn = clock_in || new Date().toISOString()
     const clockOut = clock_out || null
     const hours = clockOut ? computeHours(clockIn, clockOut) : null
-    const { data, error } = await supabase
+    const { data, error } = await rw
       .from('time_entries')
       .insert({
         employee_id: effectiveEmployeeId,
@@ -100,7 +115,7 @@ router.post('/', async (req, res, next) => {
     if (error) throw error
     const row = { ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) }
     if (row.clock_out) {
-      await syncAttendanceFromTimeEntry(supabase, row)
+      await syncAttendanceFromTimeEntry(rw, row)
     }
     res.status(201).json(row)
   } catch (err) {
@@ -112,9 +127,10 @@ router.patch('/:id/clock-out', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const rw = req.actingAsEmployee ? (defaultSupabase || supabase) : supabase
     const { clock_out, source, gps_clock_out_log_id } = req.body || {}
     const clockOut = clock_out || new Date().toISOString()
-    const { data: entry, error: fetchErr } = await supabase
+    const { data: entry, error: fetchErr } = await rw
       .from('time_entries')
       .select('*')
       .eq('id', req.params.id)
@@ -130,7 +146,7 @@ router.patch('/:id/clock-out', async (req, res, next) => {
       source: source || entry.source,
       ...(gps_clock_out_log_id != null && { gps_clock_out_log_id }),
     }
-    const { data, error } = await supabase
+    const { data, error } = await rw
       .from('time_entries')
       .update(updates)
       .eq('id', req.params.id)
@@ -138,7 +154,7 @@ router.patch('/:id/clock-out', async (req, res, next) => {
       .single()
     if (error) throw error
     const row = { ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) }
-    await syncAttendanceFromTimeEntry(supabase, row)
+    await syncAttendanceFromTimeEntry(rw, row)
     res.json(row)
   } catch (err) {
     next(err)

@@ -4,7 +4,7 @@ import { usePreview } from '@/contexts/PreviewContext'
 
 export function PreviewBanner() {
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
+  const { isAdmin, acting_as_employee } = useAuth()
   const { previewRole, previewEmployee, isPreviewing, clearPreview } = usePreview()
 
   if (!isAdmin || !isPreviewing || !previewRole) return null
@@ -37,6 +37,11 @@ export function PreviewBanner() {
     >
       <span>
         Previewing as <strong>{label}</strong>
+        {acting_as_employee && previewRole === 'employee' ? (
+          <span className="text-muted" style={{ fontWeight: 400, marginLeft: 8 }}>
+            (same job access as their employee login)
+          </span>
+        ) : null}
       </span>
       <button
         type="button"

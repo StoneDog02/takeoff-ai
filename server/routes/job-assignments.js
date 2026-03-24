@@ -1,5 +1,6 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { normalizeWeeklySchedule } = require('../lib/jobAssignmentSchedule')
 
 const router = express.Router()
 
@@ -40,6 +41,85 @@ router.post('/', async (req, res, next) => {
       .single()
     if (error) throw error
     res.status(201).json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** GET expected weekly schedule for a job assignment (contractor or employee read). */
+router.get('/:id/schedule', async (req, res, next) => {
+  try {
+    const supabase = req.actingAsEmployee ? (defaultSupabase || req.supabase) : (req.supabase || defaultSupabase)
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { data: row, error } = await supabase
+      .from('job_assignment_schedules')
+      .select('weekly_schedule, timezone, updated_at')
+      .eq('job_assignment_id', req.params.id)
+      .maybeSingle()
+    if (error) throw error
+    if (!row) {
+      return res.json({ weekly_schedule: {}, timezone: 'America/Denver', updated_at: null })
+    }
+    res.json({
+      weekly_schedule: row.weekly_schedule || {},
+      timezone: row.timezone || 'America/Denver',
+      updated_at: row.updated_at,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** PUT upsert weekly schedule for a job assignment (contractor only — enforced by RLS). */
+router.put('/:id/schedule', async (req, res, next) => {
+  try {
+    if (req.employee) return res.status(403).json({ error: 'Employees cannot update schedules' })
+    const supabase = req.supabase || defaultSupabase
+    if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const { weekly_schedule, timezone } = req.body || {}
+    const tz =
+      typeof timezone === 'string' && timezone.trim()
+        ? timezone.trim()
+        : 'America/Denver'
+    const normalized = normalizeWeeklySchedule(weekly_schedule)
+    const { data: existing } = await supabase
+      .from('job_assignment_schedules')
+      .select('id')
+      .eq('job_assignment_id', req.params.id)
+      .maybeSingle()
+    const payload = {
+      weekly_schedule: normalized,
+      timezone: tz,
+      updated_at: new Date().toISOString(),
+    }
+    if (existing?.id) {
+      const { data, error } = await supabase
+        .from('job_assignment_schedules')
+        .update(payload)
+        .eq('id', existing.id)
+        .select()
+        .single()
+      if (error) throw error
+      return res.json({
+        weekly_schedule: data.weekly_schedule || {},
+        timezone: data.timezone || tz,
+        updated_at: data.updated_at,
+      })
+    }
+    const { data, error } = await supabase
+      .from('job_assignment_schedules')
+      .insert({
+        job_assignment_id: req.params.id,
+        ...payload,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    res.status(201).json({
+      weekly_schedule: data.weekly_schedule || {},
+      timezone: data.timezone || tz,
+      updated_at: data.updated_at,
+    })
   } catch (err) {
     next(err)
   }

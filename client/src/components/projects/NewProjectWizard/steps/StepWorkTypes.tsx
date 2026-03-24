@@ -1,6 +1,7 @@
 import { AddBtn } from '../primitives'
 import { uid } from '../constants'
 import type { WizardProjectState, WizardWorkType } from '../types'
+import { isGeneralLaborWorkTypeName, isLaborHourlyEmployeeRate } from '@/lib/workTypeDisplay'
 import { WorkTypeIcon } from '@/components/projects/WorkTypeIcon'
 import { WorkTypeSelect } from '@/components/projects/WorkTypeSelect'
 import { CustomWorkTypeColorPicker, getUsedWorkTypeColors, getWorkTypeStyle } from '@/components/projects/CustomWorkTypeColorPicker'
@@ -43,7 +44,7 @@ export function StepWorkTypes({ data, onChange }: { data: WizardProjectState; on
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <p style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
-        Add work types so crew can clock in under a rate (e.g. General Labor $85/hr).
+        General Labor uses each employee’s hourly rate from their profile. Add other types (e.g. equipment) with the rate you pay for that work.
       </p>
       {workTypes.map((w) => {
         const style = getWorkTypeStyle(w.type_key, w.custom_color)
@@ -77,21 +78,38 @@ export function StepWorkTypes({ data, onChange }: { data: WizardProjectState; on
               fontSize: 13,
             }}
           />
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            value={w.rate || ''}
-            onChange={(e) => updateWorkType(w.id, 'rate', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-            placeholder="85"
-            style={{
-              width: 80,
-              border: '1.5px solid #e2e8f0',
-              borderRadius: 7,
-              padding: '6px 10px',
-              fontSize: 13,
-            }}
-          />
+          {isLaborHourlyEmployeeRate(w) ? (
+            <div
+              style={{
+                width: 120,
+                border: '1.5px solid #e2e8f0',
+                borderRadius: 7,
+                padding: '6px 10px',
+                fontSize: 12,
+                color: '#475569',
+                background: 'rgba(255,255,255,0.6)',
+              }}
+              title="Paid at each employee’s hourly rate from their profile"
+            >
+              Employee rate
+            </div>
+          ) : (
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={w.rate || ''}
+              onChange={(e) => updateWorkType(w.id, 'rate', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+              placeholder="85"
+              style={{
+                width: 80,
+                border: '1.5px solid #e2e8f0',
+                borderRadius: 7,
+                padding: '6px 10px',
+                fontSize: 13,
+              }}
+            />
+          )}
           <select
             value={w.unit}
             onChange={(e) => updateWorkType(w.id, 'unit', e.target.value)}
@@ -135,15 +153,18 @@ export function StepWorkTypes({ data, onChange }: { data: WizardProjectState; on
           <button
             type="button"
             onClick={() => removeWorkType(w.id)}
+            disabled={isGeneralLaborWorkTypeName(w)}
             style={{
               width: 28,
               height: 28,
               borderRadius: 7,
               border: 'none',
               background: 'transparent',
-              cursor: 'pointer',
-              color: '#cbd5e1',
+              cursor: isGeneralLaborWorkTypeName(w) ? 'not-allowed' : 'pointer',
+              color: isGeneralLaborWorkTypeName(w) ? '#e2e8f0' : '#cbd5e1',
+              opacity: isGeneralLaborWorkTypeName(w) ? 0.4 : 1,
             }}
+            title={isGeneralLaborWorkTypeName(w) ? 'General Labor is required on every job' : undefined}
             aria-label="Remove"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

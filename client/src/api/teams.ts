@@ -1,26 +1,19 @@
 import type {
   Employee,
   JobAssignment,
+  JobAssignmentScheduleResponse,
+  JobWeeklySchedule,
   TimeEntry,
   AttendanceRecord,
   PayRaise,
   GpsClockOutLog,
   JobGeofence,
 } from '@/types/global'
-import { supabase } from '@/lib/supabaseClient'
 import { API_BASE } from '@/api/config'
+import { getSessionAuthHeaders } from '@/api/authHeaders'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
-  const headers: HeadersInit = {}
-  if (!supabase) return headers
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  if (session?.access_token) {
-    (headers as Record<string, string>)['Authorization'] =
-      `Bearer ${session.access_token}`
-  }
-  return headers
+  return getSessionAuthHeaders()
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -127,6 +120,23 @@ export const teamsApi = {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/job-assignments/${id}`, { method: 'DELETE', headers })
       return handleResponse<void>(res)
+    },
+    async getSchedule(assignmentId: string): Promise<JobAssignmentScheduleResponse> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/job-assignments/${assignmentId}/schedule`, { headers })
+      return handleResponse<JobAssignmentScheduleResponse>(res)
+    },
+    async saveSchedule(
+      assignmentId: string,
+      body: { weekly_schedule: JobWeeklySchedule; timezone?: string }
+    ): Promise<JobAssignmentScheduleResponse> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/job-assignments/${assignmentId}/schedule`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      return handleResponse<JobAssignmentScheduleResponse>(res)
     },
   },
 

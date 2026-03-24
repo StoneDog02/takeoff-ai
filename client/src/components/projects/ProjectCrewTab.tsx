@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/date'
 import { TeamsAvatar, getInitials } from '@/components/teams/TeamsAvatar'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { ROLE_OPTS, SUBCONTRACTOR_TRADE_OPTS } from '@/components/projects/NewProjectWizard/constants'
+import { JobAssignmentScheduleModal } from '@/components/projects/JobAssignmentScheduleModal'
 
 const ROLE_OPTIONS = [...ROLE_OPTS, 'Other'] as const
 
@@ -61,6 +62,7 @@ export function ProjectCrewTab({
   const [editSubEmail, setEditSubEmail] = useState('')
   const [editSubPhone, setEditSubPhone] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
+  const [scheduleModal, setScheduleModal] = useState<{ assignment: JobAssignment; employeeName: string } | null>(null)
 
   const propsProvided = jobAssignmentsProp != null && rosterEmployeesProp != null
   const [useProps, setUseProps] = useState(true)
@@ -100,11 +102,12 @@ export function ProjectCrewTab({
     if (!selectedEmployeeId || readOnly) return
     setAdding(true)
     try {
-      await teamsApi.jobAssignments.create({
+      const created = await teamsApi.jobAssignments.create({
         employee_id: selectedEmployeeId,
         job_id: projectId,
         role_on_job: roleOnJob.trim() || undefined,
       })
+      const addedName = employeesList.find((x) => x.id === selectedEmployeeId)?.name ?? 'Employee'
       const [a, e] = await Promise.all([
         teamsApi.jobAssignments.list({ job_id: projectId, active_only: true }),
         teamsApi.employees.list(),
@@ -115,7 +118,9 @@ export function ProjectCrewTab({
       else load()
       setSelectedEmployeeId('')
       setRoleOnJob('')
+      setAddEmployeeOpen(false)
       onCrewChange?.()
+      setScheduleModal({ assignment: created, employeeName: addedName })
     } finally {
       setAdding(false)
     }
@@ -176,6 +181,11 @@ export function ProjectCrewTab({
     } finally {
       setAddingSubcontractor(false)
     }
+  }
+
+  const openScheduleModal = (a: JobAssignment) => {
+    const emp = employeeMap.get(a.employee_id)
+    setScheduleModal({ assignment: a, employeeName: emp?.name ?? 'Employee' })
   }
 
   const openEditAssignment = (a: JobAssignment) => {
@@ -312,7 +322,7 @@ export function ProjectCrewTab({
                     />
                     <button
                       type="button"
-                      onClick={() => { handleAssign(); setAddEmployeeOpen(false) }}
+                      onClick={() => void handleAssign()}
                       disabled={adding || !selectedEmployeeId}
                       className="w-full rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gray-900 dark:bg-landing-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50"
                     >
@@ -420,10 +430,21 @@ export function ProjectCrewTab({
             >
               <button
                 type="button"
+                onClick={() => {
+                  openScheduleModal(menuAssignment)
+                  setRosterMenuAssignmentId(null)
+                  setRosterMenuRect(null)
+                }}
+                className="w-full px-3 py-2 text-left text-sm text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-dark-4 hover:text-gray-900 dark:hover:text-landing-white"
+              >
+                Work schedule
+              </button>
+              <button
+                type="button"
                 onClick={() => { openEditAssignment(menuAssignment); setRosterMenuAssignmentId(null); setRosterMenuRect(null) }}
                 className="w-full px-3 py-2 text-left text-sm text-[var(--text-secondary)] hover:bg-gray-100 dark:hover:bg-dark-4 hover:text-gray-900 dark:hover:text-landing-white"
               >
-                Edit
+                Edit role
               </button>
               <button
                 type="button"
@@ -676,6 +697,16 @@ export function ProjectCrewTab({
             </div>
           </div>
         </div>
+      )}
+
+      {scheduleModal && (
+        <JobAssignmentScheduleModal
+          assignment={scheduleModal.assignment}
+          employeeName={scheduleModal.employeeName}
+          projectName={_projectName}
+          onClose={() => setScheduleModal(null)}
+          onSaved={() => onCrewChange?.()}
+        />
       )}
     </section>
   )

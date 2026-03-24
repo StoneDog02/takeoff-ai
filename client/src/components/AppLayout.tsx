@@ -58,6 +58,7 @@ export function AppLayout() {
     if (loading) return
     if (!isAdmin || previewRole === 'project_manager') return
     if (location.pathname.startsWith('/admin')) return
+    if (location.pathname.startsWith('/employee')) return
     navigate('/admin', { replace: true })
   }, [isAdmin, previewRole, location.pathname, loading, navigate])
 

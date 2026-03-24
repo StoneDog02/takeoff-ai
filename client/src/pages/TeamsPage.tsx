@@ -3,18 +3,16 @@ import { EmployeeRoster } from '@/components/teams/EmployeeRoster'
 import { ManHoursTab } from '@/components/teams/ManHoursTab'
 import { AttendanceRecordList } from '@/components/teams/AttendanceRecordList'
 import { PayrollTab } from '@/components/teams/PayrollTab'
-import { GeofenceTab } from '@/components/teams/GeofenceTab'
 import { EmployeePanel } from '@/components/teams/EmployeePanel'
 import type { Employee } from '@/types/global'
 
-type TeamsTab = 'roster' | 'man-hours' | 'attendance' | 'payroll' | 'geofence'
+type TeamsTab = 'roster' | 'man-hours' | 'attendance' | 'payroll'
 
 const TABS: { id: TeamsTab; label: string }[] = [
   { id: 'roster', label: 'Roster' },
   { id: 'man-hours', label: 'Man Hours' },
   { id: 'attendance', label: 'Attendance' },
   { id: 'payroll', label: 'Payroll' },
-  { id: 'geofence', label: 'GPS / Geofence' },
 ]
 
 export function TeamsPage() {
@@ -57,9 +55,6 @@ export function TeamsPage() {
           )}
           {tab === 'payroll' && (
             <PayrollTab onSelectEmployee={setSelectedEmp} />
-          )}
-          {tab === 'geofence' && (
-            <GeofenceTab onSelectEmployee={setSelectedEmp} />
           )}
         </div>
       </div>

@@ -2,8 +2,10 @@ import { useEffect, useState, useMemo, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { Download, Send, FileText, Search, ChevronDown, ChevronUp, Calendar, AlertTriangle, UserCircle, ExternalLink } from 'lucide-react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
+import { api } from '@/api/client'
 import { quickbooksApi } from '@/api/quickbooks'
-import type { Employee, TimeEntry } from '@/types/global'
+import type { Employee, ProjectWorkType, TimeEntry } from '@/types/global'
+import { payrollLineWorkTypeLabel, resolveEffectiveHourlyPayRate } from '@/lib/effectivePayRate'
 import { dayjs } from '@/lib/date'
 import { TeamsAvatar, getInitials } from '@/components/teams/TeamsAvatar'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
@@ -72,7 +74,8 @@ interface EmployeePayrollRow {
 
 function buildPayrollData(
   employees: Employee[],
-  entries: TimeEntry[]
+  entries: TimeEntry[],
+  workTypeById: Map<string, ProjectWorkType>
 ): EmployeePayrollRow[] {
   const empMap = new Map(employees.map((e) => [e.id, e]))
   const byEmployee = new Map<string, { entries: TimeEntry[]; hours: number; pay: number }>()
@@ -81,7 +84,8 @@ function buildPayrollData(
     const emp = empMap.get(entry.employee_id)
     if (!emp) continue
     const hours = entry.hours ?? 0
-    const rate = emp.current_compensation ?? 0
+    const wt = entry.project_work_type_id ? workTypeById.get(entry.project_work_type_id) : undefined
+    const rate = resolveEffectiveHourlyPayRate(entry, emp.current_compensation ?? 0, wt, entry.job_id)
     const pay = hours * rate
     let rec = byEmployee.get(entry.employee_id)
     if (!rec) {
@@ -136,6 +140,7 @@ export function PayrollPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('summary')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [workTypeById, setWorkTypeById] = useState<Map<string, ProjectWorkType>>(() => new Map())
   const [jobs, setJobs] = useState<{ id: string; name: string; address?: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
@@ -169,10 +174,20 @@ export function PayrollPage() {
       getProjectsList().then((p) => p.map((x) => ({ id: x.id, name: x.name, address: x.address_line_1 }))),
       teamsApi.timeEntries.list({ from: range.from, to: range.to }),
     ])
-      .then(([e, j, ent]) => {
+      .then(async ([e, j, ent]) => {
         setEmployees(e)
         setJobs(j)
         setEntries(ent)
+        const jobIds = [...new Set(ent.map((x) => x.job_id))]
+        const merged = new Map<string, ProjectWorkType>()
+        await Promise.all(
+          jobIds.map((jid) =>
+            api.projects.getWorkTypes(jid).then((list) => {
+              for (const w of list) merged.set(w.id, w)
+            })
+          )
+        ).catch(() => {})
+        setWorkTypeById(merged)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -200,8 +215,8 @@ export function PayrollPage() {
   const jobMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.name])), [jobs])
   const jobAddressMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.address ?? j.name])), [jobs])
   const payrollRows = useMemo(
-    () => buildPayrollData(employees, entries),
-    [employees, entries]
+    () => buildPayrollData(employees, entries, workTypeById),
+    [employees, entries, workTypeById]
   )
 
   const totalHours = payrollRows.reduce((s, r) => s + r.totalHours, 0)
@@ -283,7 +298,9 @@ export function PayrollPage() {
         <div className="payroll-page-header">
           <div>
             <h1 className="dashboard-title">Payroll</h1>
-            <p className="teams-tab-header-desc">Review hours, work types & gross pay before running payroll.</p>
+            <p className="teams-tab-header-desc">
+              Gross pay uses each employee’s base rate for general labor work types, and the job’s rate for other hourly work types (for example equipment). Review hours and line-item rates before you run payroll.
+            </p>
           </div>
           <div className="payroll-header-actions">
             <button type="button" className="payroll-btn secondary" onClick={handleExportCSV} disabled={loading}>
@@ -427,7 +444,7 @@ export function PayrollPage() {
               ) : (
                 payrollRows.map((row) => {
                   const isExpanded = expandedSummaryIds.has(row.employee.id)
-                  const rate = row.employee.current_compensation ?? 0
+                  const baseRate = row.employee.current_compensation ?? 0
                   return (
                     <div key={row.employee.id} className="payroll-employee-card summary">
                       <TeamsAvatar initials={getInitials(row.employee.name)} size="lg" />
@@ -445,7 +462,7 @@ export function PayrollPage() {
                             <div className="payroll-employee-role">{row.employee.role}</div>
                           </div>
                           <div className="payroll-employee-metrics">
-                            <span><span className="payroll-metric-label">BASE RATE:</span> <span className="payroll-metric-value">${rate}/hr</span></span>
+                            <span><span className="payroll-metric-label">BASE RATE:</span> <span className="payroll-metric-value">${baseRate}/hr</span></span>
                             <span><span className="payroll-metric-label">TOTAL HOURS:</span> <span className="payroll-metric-value">{row.totalHours} hrs</span></span>
                             <span><span className="payroll-metric-label">GROSS PAY:</span> <span className="payroll-metric-value">${row.grossPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
                           </div>
@@ -483,19 +500,27 @@ export function PayrollPage() {
                               ) : (
                                 row.entries.map((entry) => {
                                   const h = entry.hours ?? 0
-                                  const sub = h * rate
+                                  const wt = entry.project_work_type_id ? workTypeById.get(entry.project_work_type_id) : undefined
+                                  const lineRate = resolveEffectiveHourlyPayRate(
+                                    entry,
+                                    row.employee.current_compensation ?? 0,
+                                    wt,
+                                    entry.job_id
+                                  )
+                                  const sub = h * lineRate
                                   const jobLabel = jobAddressMap.get(entry.job_id) ?? jobMap.get(entry.job_id) ?? entry.job_id
+                                  const typeLabel = payrollLineWorkTypeLabel(entry, wt)
                                   return (
                                     <tr key={entry.id}>
                                       <td>
                                         <div className="payroll-summary-detail-work">
-                                          <span className="payroll-summary-detail-type">Labor</span>
+                                          <span className="payroll-summary-detail-type">{typeLabel}</span>
                                           <span className="payroll-summary-detail-job">{jobLabel}</span>
                                         </div>
                                       </td>
                                       <td>{dayjs(entry.clock_in).format('MMM D, YYYY')}</td>
                                       <td className="payroll-summary-detail-num">{h.toFixed(2)}</td>
-                                      <td className="payroll-summary-detail-rate">${rate}/hr</td>
+                                      <td className="payroll-summary-detail-rate">${lineRate.toFixed(2)}/hr</td>
                                       <td className="payroll-summary-detail-num">${sub.toFixed(2)}</td>
                                     </tr>
                                   )
@@ -522,7 +547,7 @@ export function PayrollPage() {
                 <div className="payroll-empty">No hours logged for this period.</div>
               ) : (
                 payrollRows.map((row) => {
-                  const rate = row.employee.current_compensation ?? 0
+                  const baseRate = row.employee.current_compensation ?? 0
                   const byDay = new Map<string, TimeEntry[]>()
                   for (const e of row.entries) {
                     const day = dayjs(e.clock_in).format('YYYY-MM-DD')
@@ -536,7 +561,7 @@ export function PayrollPage() {
                         <TeamsAvatar initials={getInitials(row.employee.name)} size="lg" />
                         <div className="payroll-detailed-header-info">
                           <div className="payroll-employee-name">{row.employee.name}</div>
-                          <div className="payroll-employee-role">{row.employee.role} · Base ${rate}/hr</div>
+                          <div className="payroll-employee-role">{row.employee.role} · Base ${baseRate}/hr</div>
                         </div>
                         <div className="payroll-detailed-header-stats">
                           <span>
@@ -570,7 +595,15 @@ export function PayrollPage() {
                               <Fragment key={day}>
                                 {dayEntries.map((entry, i) => {
                                   const h = entry.hours ?? 0
-                                  const sub = h * rate
+                                  const wt = entry.project_work_type_id ? workTypeById.get(entry.project_work_type_id) : undefined
+                                  const lineRate = resolveEffectiveHourlyPayRate(
+                                    entry,
+                                    row.employee.current_compensation ?? 0,
+                                    wt,
+                                    entry.job_id
+                                  )
+                                  const sub = h * lineRate
+                                  const typeLabel = payrollLineWorkTypeLabel(entry, wt)
                                   return (
                                     <tr key={entry.id}>
                                       {i === 0 ? (
@@ -588,13 +621,13 @@ export function PayrollPage() {
                                       ) : null}
                                       <td>
                                         <div className="payroll-work-type">
-                                          <span>Labor</span>
-                                          <span className="payroll-billed-pill">billed @ ${rate}/hr</span>
+                                          <span>{typeLabel}</span>
+                                          <span className="payroll-billed-pill">paid @ ${lineRate.toFixed(2)}/hr</span>
                                         </div>
                                       </td>
                                       <td>{jobAddressMap.get(entry.job_id) ?? jobMap.get(entry.job_id) ?? entry.job_id}</td>
                                       <td>{h.toFixed(2)}</td>
-                                      <td>${rate}/hr</td>
+                                      <td>${lineRate.toFixed(2)}/hr</td>
                                       <td>${sub.toFixed(2)}</td>
                                     </tr>
                                   )
@@ -607,7 +640,7 @@ export function PayrollPage() {
                               </td>
                               <td className="payroll-week-total-hrs">{row.totalHours.toFixed(2)}</td>
                               <td className="payroll-week-total-rate">
-                                <span className="payroll-week-total-rate-muted">blended</span> ${(row.totalHours > 0 ? row.grossPay / row.totalHours : rate).toFixed(2)}/hr
+                                <span className="payroll-week-total-rate-muted">blended</span> ${(row.totalHours > 0 ? row.grossPay / row.totalHours : baseRate).toFixed(2)}/hr
                               </td>
                               <td className="payroll-week-total-gross payroll-value-green">${row.grossPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>

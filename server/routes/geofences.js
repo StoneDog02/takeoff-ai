@@ -8,6 +8,19 @@ router.get('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id } = req.query
+    if (req.actingAsEmployee && req.employee && job_id) {
+      const { data: asg } = await defaultSupabase
+        .from('job_assignments')
+        .select('id')
+        .eq('employee_id', req.employee.id)
+        .eq('job_id', job_id)
+        .is('ended_at', null)
+        .maybeSingle()
+      if (!asg) return res.json([])
+      const { data, error } = await defaultSupabase.from('job_geofences').select('*').eq('job_id', job_id)
+      if (error) throw error
+      return res.json(data || [])
+    }
     let q = supabase.from('job_geofences').select('*')
     if (!req.employee) q = q.eq('user_id', req.user?.id)
     if (job_id) q = q.eq('job_id', job_id)
@@ -23,7 +36,25 @@ router.get('/job/:jobId', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
-    let q = supabase.from('job_geofences').select('*').eq('job_id', req.params.jobId)
+    const jobId = req.params.jobId
+    if (req.actingAsEmployee && req.employee) {
+      const { data: asg } = await defaultSupabase
+        .from('job_assignments')
+        .select('id')
+        .eq('employee_id', req.employee.id)
+        .eq('job_id', jobId)
+        .is('ended_at', null)
+        .maybeSingle()
+      if (!asg) return res.json(null)
+      const { data, error } = await defaultSupabase
+        .from('job_geofences')
+        .select('*')
+        .eq('job_id', jobId)
+        .maybeSingle()
+      if (error) throw error
+      return res.json(data || null)
+    }
+    let q = supabase.from('job_geofences').select('*').eq('job_id', jobId)
     if (!req.employee) q = q.eq('user_id', req.user?.id)
     const { data, error } = await q.maybeSingle()
     if (error) throw error

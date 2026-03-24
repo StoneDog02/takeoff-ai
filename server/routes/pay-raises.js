@@ -5,7 +5,7 @@ const router = express.Router()
 
 router.get('/', async (req, res, next) => {
   try {
-    const supabase = req.supabase || defaultSupabase
+    const supabase = req.actingAsEmployee ? (defaultSupabase || req.supabase) : (req.supabase || defaultSupabase)
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id } = req.query
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id

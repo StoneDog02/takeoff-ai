@@ -11,18 +11,18 @@ export function useEffectiveEmployee(): EffectiveEmployee {
   const { type, employee } = useAuth()
   const { previewRole, previewEmployee } = usePreview()
 
-  if (previewRole === 'employee' && previewEmployee) {
-    return {
-      employeeId: previewEmployee.id,
-      employeeName: previewEmployee.name,
-      isPreview: true,
-    }
-  }
   if (type === 'employee' && employee) {
     return {
       employeeId: employee.id,
       employeeName: employee.name ?? null,
       isPreview: false,
+    }
+  }
+  if (previewRole === 'employee' && previewEmployee) {
+    return {
+      employeeId: previewEmployee.id,
+      employeeName: previewEmployee.name,
+      isPreview: true,
     }
   }
   return {

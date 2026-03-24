@@ -4,6 +4,7 @@ import { WorkTypeIcon } from '@/components/projects/WorkTypeIcon'
 import { WorkTypeSelect } from '@/components/projects/WorkTypeSelect'
 import { CustomWorkTypeColorPicker, getUsedWorkTypeColors, getWorkTypeStyle } from '@/components/projects/CustomWorkTypeColorPicker'
 import { WORK_TYPE_KEYS, CUSTOM_WORK_TYPE_PALETTE } from '@/components/projects/NewProjectWizard/constants'
+import { formatWorkTypePayRateDisplay, isGeneralLaborWorkTypeName } from '@/lib/workTypeDisplay'
 
 interface WorkTypesTabProps {
   projectId: string
@@ -41,8 +42,10 @@ export function WorkTypesTab({
 
   const addWorkType = () => {
     const name = newName.trim()
-    const rate = parseFloat(newRate)
-    if (!name || Number.isNaN(rate) || rate < 0) return
+    if (!name) return
+    const rate = newRate.trim() === '' ? 0 : parseFloat(newRate)
+    if (Number.isNaN(rate) || rate < 0) return
+    if (rate === 0 && newTypeKey !== 'labor') return
     if (newTypeKey === 'custom' && !newCustomColor) return
     const wt: ProjectWorkType = {
       id: `wt-${Date.now()}`,
@@ -76,13 +79,6 @@ export function WorkTypesTab({
     return `per ${unit}`
   }
 
-  const formatRate = (rate: number, unit: string) => {
-    if (unit === 'hr') return `$${rate}/hr`
-    if (unit === 'sf') return `$${rate}/sf`
-    if (unit === 'ea') return `$${rate}/ea`
-    if (unit === 'lf') return `$${rate}/lf`
-    return `$${rate}/${unit}`
-  }
 
   /** Work types sorted by category order (Labor, Demolition, Structure, Finish & Trades, Equipment, Custom). */
   const workTypesSorted = useMemo(() => {
@@ -184,7 +180,12 @@ export function WorkTypesTab({
                 </div>
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={addWorkType} disabled={!newName.trim() || !newRate || (newTypeKey === 'custom' && !newCustomColor)} className="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-accent hover:bg-accent-hover disabled:opacity-50">
+                <button
+                  type="button"
+                  onClick={addWorkType}
+                  disabled={!newName.trim() || (newTypeKey !== 'labor' && !newRate.trim()) || (newTypeKey === 'custom' && !newCustomColor)}
+                  className="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-accent hover:bg-accent-hover disabled:opacity-50"
+                >
                   Add work type
                 </button>
                 <button type="button" onClick={() => setAddOpen(false)} className="rounded-lg px-4 py-2 text-sm font-medium border border-border dark:border-border-dark text-gray-700 dark:text-landing-white">
@@ -214,11 +215,20 @@ export function WorkTypesTab({
                       {wt.description && <div className="text-sm text-muted dark:text-white-dim mt-0.5">{wt.description}</div>}
                     </div>
                     <div className="shrink-0 text-right">
-                      <span className="font-bold" style={{ color: style.rate }}>{formatRate(wt.rate, wt.unit)}</span>
+                      <span className="font-bold" style={{ color: style.rate }}>{formatWorkTypePayRateDisplay(wt)}</span>
                       <div className="text-xs opacity-80" style={{ color: style.rate }}>{unitLabel(wt.unit)}</div>
                     </div>
                     {!readOnly && (
-                      <button type="button" onClick={() => removeWorkType(wt.id)} className="shrink-0 text-muted hover:text-red-600 dark:hover:text-red-400 text-sm" aria-label="Remove">Remove</button>
+                      <button
+                        type="button"
+                        onClick={() => removeWorkType(wt.id)}
+                        disabled={isGeneralLaborWorkTypeName(wt)}
+                        className="shrink-0 text-sm disabled:opacity-40 disabled:cursor-not-allowed text-muted hover:text-red-600 dark:hover:text-red-400"
+                        title={isGeneralLaborWorkTypeName(wt) ? 'General Labor is required on every job' : undefined}
+                        aria-label="Remove"
+                      >
+                        Remove
+                      </button>
                     )}
                   </div>
                 )

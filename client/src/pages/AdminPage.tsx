@@ -108,7 +108,7 @@ export function AdminPage() {
       <Card style={{ marginBottom: 24 }}>
         <CardHeader
           title="Test portals"
-          desc="Try the project manager and employee experiences without another login."
+          desc="Preview the PM dashboard or the employee app while signed in as admin. Employee preview uses the selected worker’s job assignments and permissions (same as their real login)."
         />
         <CardBody>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>

@@ -12,8 +12,24 @@ const {
   recordEstimateSentPaperTrail,
   syncPaperTrailFromSubBid,
 } = require('../lib/paperTrailDocuments')
+const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
+const { isEmployeePortalRequest } = require('../middleware/auth')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
+
+/** Default work type on every new job: general labor paid at each employee’s profile hourly rate (type_key labor). */
+async function seedDefaultGeneralLaborWorkType(supabase, projectId) {
+  if (!supabase || !projectId) return
+  const { error } = await supabase.from('project_work_types').insert({
+    project_id: projectId,
+    name: 'General Labor',
+    description: 'Pay rate comes from each employee’s profile (hourly rate).',
+    rate: 0,
+    unit: 'hr',
+    type_key: 'labor',
+  })
+  if (error) console.warn('[projects] seedDefaultGeneralLaborWorkType', projectId, error.message)
+}
 
 /** Ensure storage bucket exists (create if not). Use service-role client. */
 async function ensureBuildPlansBucket() {
@@ -28,6 +44,24 @@ async function ensureBuildPlansBucket() {
 }
 
 const router = express.Router()
+
+/** Active job IDs for an employee. Uses service client when owner/admin is acting as that employee (JWT cannot satisfy employee RLS on job_assignments). */
+async function getAssignedJobIdsForEmployee(req, employeeId) {
+  if (!employeeId) return []
+  const userSb = req.supabase
+  const db = req.actingAsEmployee ? (defaultSupabase || userSb) : userSb
+  if (!db) return []
+  const { data: assignments, error } = await db
+    .from('job_assignments')
+    .select('job_id')
+    .eq('employee_id', employeeId)
+    .is('ended_at', null)
+  if (error) {
+    console.warn('[projects] getAssignedJobIdsForEmployee', error.message)
+    return []
+  }
+  return [...new Set((assignments || []).map((a) => a.job_id).filter(Boolean))]
+}
 
 /** ISO timestamptz or null; invalid dates become null. */
 function parseBidResponseDeadline(v) {
@@ -143,18 +177,40 @@ router.get('/', (req, res, next) => {
 }, async (req, res, next) => {
   try {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    const userSb = req.supabase
     const supabase = req.supabase || defaultSupabase
     if (!supabase) {
       console.warn('[projects GET /] no supabase client')
       return res.json([])
     }
-    // Contractors: only their projects. Employees: omit owner filter — RLS (projects_employee_select) limits to job assignments.
-    let projectsQuery = supabase
-      .from('projects')
-      .select('id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, client_email, client_phone, plan_type')
-      .order('updated_at', { ascending: false })
-    if (!req.employee) {
-      projectsQuery = projectsQuery.eq('user_id', req.user?.id)
+    const projectSelect =
+      'id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, client_email, client_phone, plan_type'
+    let projectsQuery
+    // Employee portal (real employee or act-as): assignment-based list only. Unlinked employee profile => [].
+    if (req.profile?.role === 'employee' && !req.employee) {
+      return res.json([])
+    }
+    if (isEmployeePortalRequest(req)) {
+      if (!userSb) {
+        console.warn('[projects GET /] employee list requires user-scoped supabase')
+        return res.json([])
+      }
+      const jobIds = await getAssignedJobIdsForEmployee(req, req.employee.id)
+      if (jobIds.length === 0) {
+        return res.json([])
+      }
+      const dbRead = defaultSupabase || userSb
+      projectsQuery = dbRead
+        .from('projects')
+        .select(projectSelect)
+        .in('id', jobIds)
+        .order('updated_at', { ascending: false })
+    } else {
+      projectsQuery = supabase
+        .from('projects')
+        .select(projectSelect)
+        .order('updated_at', { ascending: false })
+        .eq('user_id', req.user?.id)
     }
     const { data: projects, error: projErr } = await projectsQuery
     if (projErr) {
@@ -318,6 +374,7 @@ router.post('/', async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
+    await seedDefaultGeneralLaborWorkType(supabase, data.id)
     res.status(201).json(data)
   } catch (err) {
     next(err)
@@ -900,12 +957,12 @@ router.get('/:id/budget', loadProject, async (req, res, next) => {
     if (error) throw error
     let list = items || []
 
-    // Labor actual from time entries + pay rates
+    // Labor actual from time entries: base rate (pay raise if any, else current_compensation) + work-type premiums (e.g. equipment $/hr)
     let laborActualFromTimeEntries = 0
     if (db) {
       const { data: timeRows } = await db
         .from('time_entries')
-        .select('id, employee_id, hours')
+        .select('id, employee_id, hours, project_work_type_id, job_id')
         .eq('job_id', projectId)
       const entries = timeRows || []
       if (entries.length > 0) {
@@ -920,9 +977,18 @@ router.get('/:id/budget', loadProject, async (req, res, next) => {
         for (const r of raises || []) {
           if (rateByEmployee[r.employee_id] == null) rateByEmployee[r.employee_id] = Number(r.new_rate) || 0
         }
+        const { data: empRows } = await db.from('employees').select('id, current_compensation').in('id', employeeIds)
+        const compByEmployee = new Map((empRows || []).map((em) => [em.id, Number(em.current_compensation) || 0]))
+        const { data: wtRows } = await db
+          .from('project_work_types')
+          .select('id, project_id, rate, unit, type_key')
+          .eq('project_id', projectId)
+        const wtById = new Map((wtRows || []).map((w) => [w.id, w]))
         for (const e of entries) {
           const hours = Number(e.hours) || 0
-          const rate = rateByEmployee[e.employee_id] ?? 0
+          const base = rateByEmployee[e.employee_id] ?? compByEmployee.get(e.employee_id) ?? 0
+          const wt = e.project_work_type_id ? wtById.get(e.project_work_type_id) : null
+          const rate = resolveEffectiveHourlyPayRate(e, base, wt, projectId)
           laborActualFromTimeEntries += hours * rate
         }
       }
@@ -1666,7 +1732,7 @@ router.post('/:id/subcontractors/bulk-send', loadProject, async (req, res, next)
 // --- Project work types ---
 router.get('/:id/work-types', loadProjectForOwnerOrAssignedEmployee, async (req, res, next) => {
   try {
-    const supabase = req.supabase || defaultSupabase
+    const supabase = req.actingAsEmployee ? (defaultSupabase || req.supabase) : (req.supabase || defaultSupabase)
     const { data, error } = await supabase
       .from('project_work_types')
       .select('*')

@@ -1,15 +1,5 @@
-import { supabase } from '@/lib/supabaseClient'
 import { API_BASE } from '@/api/config'
-
-async function getAuthHeaders(): Promise<HeadersInit> {
-  const headers: HeadersInit = {}
-  if (!supabase) return headers
-  const { data: { session } } = await supabase.auth.getSession()
-  if (session?.access_token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${session.access_token}`
-  }
-  return headers
-}
+import { getSessionAuthHeaders } from '@/api/authHeaders'
 
 export interface MeResponse {
   user: {
@@ -33,10 +23,12 @@ export interface MeResponse {
     created_at: string
     updated_at: string
   }
+  /** True when owner/admin is viewing the app as a roster employee (X-Act-As-Employee-Id). */
+  acting_as_employee?: boolean
 }
 
 export async function getMe(): Promise<MeResponse> {
-  const headers = await getAuthHeaders()
+  const headers = await getSessionAuthHeaders()
   const res = await fetch(`${API_BASE}/me`, { headers })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))

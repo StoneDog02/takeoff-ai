@@ -36,6 +36,7 @@ import { ProjectDocumentsTab } from '@/components/projects/ProjectDocumentsTab'
 import { EstimatingWorkspace } from '@/components/projects/EstimatingWorkspace'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
 import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
+import { GeofenceTab } from '@/components/teams/GeofenceTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
 import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeleteProjectModal'
 import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
@@ -151,7 +152,7 @@ export interface NewProjectFormData {
   assigned_to_name?: string
 }
 
-const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet', 'documents'] as const
+const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'geofence', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet', 'documents'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
 
 const PIPELINE_COLUMNS = [
@@ -2050,6 +2051,7 @@ export function ProjectsPage() {
     { id: 'overview' as const, label: 'Overview', icon: 'grid' },
     { id: 'worktypes' as const, label: 'Work Types & Pay', icon: 'briefcase' },
     { id: 'crew' as const, label: 'Crew', icon: 'people' },
+    { id: 'geofence' as const, label: 'GPS / Geofence', icon: 'map' },
     { id: 'budget' as const, label: 'Change Orders', icon: 'dollar' },
     { id: 'schedule' as const, label: 'Schedule', icon: 'calendar' },
     { id: 'media' as const, label: 'Job Walk Media', icon: 'image' },
@@ -2071,6 +2073,9 @@ export function ProjectsPage() {
               ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' }
               : { bg: '#f8fafc', text: '#64748b', dot: '#94a3b8' }
   const addressDisplay = [project?.address_line_1, project?.city].filter(Boolean).join(', ') || '—'
+  const projectGeofenceAddressLine = project
+    ? [project.address_line_1, project.address_line_2, [project.city, project.state, project.postal_code].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+    : ''
   const BUDGET_ITEM_COLORS: Record<string, string> = { Labor: '#6366f1', Materials: '#0ea5e9', Subcontractors: '#8b5cf6' }
   const TAG_COLORS: Record<string, { bg: string; text: string }> = { Media: { bg: '#eff6ff', text: '#1d4ed8' }, Time: { bg: '#f0fdf4', text: '#15803d' }, Budget: { bg: '#fefce8', text: '#a16207' }, Bid: { bg: '#fdf4ff', text: '#7e22ce' }, Schedule: { bg: '#fff7ed', text: '#c2410c' }, Takeoff: { bg: '#eff6ff', text: '#1d4ed8' } }
 
@@ -2796,6 +2801,16 @@ export function ProjectsPage() {
             onSubcontractorAdded={refreshSubcontractors}
             onCrewChange={() => setDetailRefreshTrigger((t) => t + 1)}
             onOpenSetupWizard={() => setSetupWizardOpen(true)}
+          />
+        </section>
+      )}
+
+      {activeTab === 'geofence' && project && (
+        <section className="w-full min-w-0 px-8 py-6">
+          <GeofenceTab
+            projectId={project.id}
+            projectName={project.name}
+            projectAddress={projectGeofenceAddressLine}
           />
         </section>
       )}

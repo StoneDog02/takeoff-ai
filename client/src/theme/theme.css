@@ -2464,6 +2464,30 @@ body {
   transition: background 0.2s, border-color 0.2s;
 }
 
+/* Address autocomplete dropdown extends below the card; default overflow:hidden would clip it */
+.dashboard-app .projects-card.geofence-per-job-card {
+  overflow: visible;
+}
+
+.dashboard-app .geofence-config-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 960px) {
+  .dashboard-app .geofence-config-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-app .geofence-config-map-card .geofence-map-wrap {
+  margin-top: 0;
+}
+
 .dashboard-app .projects-top {
   display: flex;
   align-items: center;
@@ -5862,18 +5886,10 @@ body {
   margin-top: 0;
 }
 
-/* GPS / Geofence tab: two columns top row, full-width log below */
-.dashboard-app .teams-geo-layout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+/* Geofence tab: single full-width section (inner grid is form + map) */
+.dashboard-app .teams-geo-section--full {
+  width: 100%;
   margin-bottom: 24px;
-}
-
-@media (max-width: 900px) {
-  .dashboard-app .teams-geo-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 .dashboard-app .teams-geo-section {

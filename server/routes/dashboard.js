@@ -4,6 +4,7 @@
  */
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
 
 const router = express.Router()
 
@@ -426,8 +427,11 @@ router.get('/projects', async (req, res, next) => {
       if (key !== 'labor' && key !== 'subs') budgetByProject[r.project_id].actual += Number(r.actual || 0)
     })
 
-    // Labor actual from time entries + pay rates (per project)
-    const { data: timeRows } = await admin.from('time_entries').select('job_id, employee_id, hours').in('job_id', projectIds)
+    // Labor actual from time entries (base rate + work-type hourly premiums; per project)
+    const { data: timeRows } = await admin
+      .from('time_entries')
+      .select('job_id, employee_id, hours, project_work_type_id')
+      .in('job_id', projectIds)
     const entries = timeRows || []
     if (entries.length > 0) {
       const employeeIds = [...new Set(entries.map((e) => e.employee_id))]
@@ -441,12 +445,21 @@ router.get('/projects', async (req, res, next) => {
       ;(raises || []).forEach((r) => {
         if (rateByEmployee[r.employee_id] == null) rateByEmployee[r.employee_id] = Number(r.new_rate) || 0
       })
+      const { data: empRows } = await admin.from('employees').select('id, current_compensation').in('id', employeeIds)
+      const compByEmployee = new Map((empRows || []).map((em) => [em.id, Number(em.current_compensation) || 0]))
+      const { data: wtRows } = await admin
+        .from('project_work_types')
+        .select('id, project_id, rate, unit, type_key')
+        .in('project_id', projectIds)
+      const wtById = new Map((wtRows || []).map((w) => [w.id, w]))
       entries.forEach((e) => {
-        const id = e.job_id
-        if (!budgetByProject[id]) return
+        const jid = e.job_id
+        if (!budgetByProject[jid]) return
         const hours = Number(e.hours) || 0
-        const rate = rateByEmployee[e.employee_id] ?? 0
-        budgetByProject[id].actual += hours * rate
+        const base = rateByEmployee[e.employee_id] ?? compByEmployee.get(e.employee_id) ?? 0
+        const wt = e.project_work_type_id ? wtById.get(e.project_work_type_id) : null
+        const rate = resolveEffectiveHourlyPayRate(e, base, wt, e.job_id)
+        budgetByProject[jid].actual += hours * rate
       })
     }
 

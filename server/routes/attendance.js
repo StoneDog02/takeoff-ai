@@ -5,7 +5,7 @@ const router = express.Router()
 
 router.get('/', async (req, res, next) => {
   try {
-    const supabase = req.supabase || defaultSupabase
+    const supabase = req.actingAsEmployee ? (defaultSupabase || req.supabase) : (req.supabase || defaultSupabase)
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { employee_id, from, to } = req.query
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
@@ -25,6 +25,7 @@ router.post('/', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const rw = req.actingAsEmployee ? (defaultSupabase || supabase) : supabase
     const {
       employee_id,
       date,
@@ -36,7 +37,7 @@ router.post('/', async (req, res, next) => {
     } = req.body || {}
     const effectiveEmployeeId = req.employee ? req.employee.id : employee_id
     if (!effectiveEmployeeId || !date || !clock_in) return res.status(400).json({ error: 'employee_id, date, clock_in required' })
-    const { data, error } = await supabase
+    const { data, error } = await rw
       .from('attendance_records')
       .insert({
         employee_id: effectiveEmployeeId,
@@ -60,6 +61,7 @@ router.put('/:id', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+    const rw = req.actingAsEmployee ? (defaultSupabase || supabase) : supabase
     const {
       date,
       clock_in,
@@ -75,7 +77,7 @@ router.put('/:id', async (req, res, next) => {
     if (late_arrival_minutes !== undefined) updates.late_arrival_minutes = late_arrival_minutes
     if (early_departure_minutes !== undefined) updates.early_departure_minutes = early_departure_minutes
     if (notes !== undefined) updates.notes = notes
-    const { data, error } = await supabase
+    const { data, error } = await rw
       .from('attendance_records')
       .update(updates)
       .eq('id', req.params.id)
@@ -93,7 +95,8 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
-    const { error } = await supabase.from('attendance_records').delete().eq('id', req.params.id)
+    const rw = req.actingAsEmployee ? (defaultSupabase || supabase) : supabase
+    const { error } = await rw.from('attendance_records').delete().eq('id', req.params.id)
     if (error) throw error
     res.status(204).send()
   } catch (err) {

@@ -28,20 +28,22 @@ interface DisplayEntry {
   job: string
   clockIn: string
   clockOut: string
-  hours: number
+  hours: number | null
   source: 'GPS' | 'Manual'
+  /** Still clocked in — not counted in period totals until they clock out */
+  inProgress: boolean
 }
 
 function WeekBar({ entries, jobColorFn }: { entries: DisplayEntry[]; jobColorFn: (job: string) => string }) {
-  const max = Math.max(...entries.map((e) => e.hours), 10)
+  const max = Math.max(...entries.map((e) => e.hours ?? 0), 10)
   return (
     <div className="flex items-end gap-2 h-[72px] px-1">
       {entries.map((e) => {
-        const pct = (e.hours / max) * 100
+        const pct = ((e.hours ?? 0) / max) * 100
         const color = jobColorFn(e.job)
         return (
           <div key={e.id} className="flex-1 flex flex-col items-center gap-1">
-            <div className="text-[10px] font-bold text-muted">{e.hours}h</div>
+            <div className="text-[10px] font-bold text-muted">{e.hours ?? 0}h</div>
             <div className="w-full h-12 flex items-end">
               <div
                 className="w-full min-h-[4px] rounded-t rounded-b-sm transition-[height] duration-300"
@@ -99,9 +101,9 @@ function EntryRow({
       </div>
       <div className="w-[52px] text-right flex-shrink-0">
         <div className="text-[17px] font-extrabold tracking-tight text-gray-900 dark:text-landing-white">
-          {entry.hours}
+          {entry.inProgress ? '—' : entry.hours}
         </div>
-        <div className="text-[10px] text-muted mt-0.5">hrs</div>
+        <div className="text-[10px] text-muted mt-0.5">{entry.inProgress ? 'open' : 'hrs'}</div>
       </div>
     </div>
   )
@@ -133,17 +135,17 @@ export function EmployeeHoursPage() {
       return
     }
     setLoading(true)
-    const start = period === 'week'
-      ? dayjs().startOf('week').toISOString()
-      : dayjs().startOf('month').toISOString()
-    const end = period === 'week'
-      ? dayjs().endOf('week').toISOString()
-      : dayjs().endOf('month').toISOString()
+    // Load all entries for this employee (API is scoped by employee_id + RLS). Filtering by week/month here
+    // avoids PostgREST from/to quirks with ISO strings in query params and timezone edges.
     teamsApi.timeEntries
-      .list({ employee_id: employeeId, from: start, to: end })
+      .list({ employee_id: employeeId })
       .then((list) => {
-        const completed = list.filter((e) => e.clock_out != null && e.hours != null)
-        setEntries(completed)
+        const periodStart = period === 'week' ? dayjs().startOf('week') : dayjs().startOf('month')
+        const periodEnd = period === 'week' ? dayjs().endOf('week') : dayjs().endOf('month')
+        const inPeriod = (list || []).filter((e) =>
+          dayjs(e.clock_in).isBetween(periodStart, periodEnd, null, '[]')
+        )
+        setEntries(inPeriod)
       })
       .catch(() => setEntries([]))
       .finally(() => setLoading(false))
@@ -151,24 +153,37 @@ export function EmployeeHoursPage() {
 
   const displayEntries: DisplayEntry[] = useMemo(() => {
     const sorted = [...entries].sort((a, b) => b.clock_in.localeCompare(a.clock_in))
-    return sorted.map((e) => ({
-      id: e.id,
-      date: period === 'week' ? formatDateWeek(new Date(e.clock_in)) : formatDateMonth(new Date(e.clock_in)),
-      dayShort: period === 'week' ? formatDayShortWeek(new Date(e.clock_in)) : formatDayShortMonth(new Date(e.clock_in)),
-      job: jobNames[e.job_id] ?? e.job_id,
-      clockIn: formatTime(new Date(e.clock_in)),
-      clockOut: formatTime(new Date(e.clock_out!)),
-      hours: e.hours!,
-      source: e.source === 'gps_auto' ? 'GPS' as const : 'Manual' as const,
-    }))
+    return sorted.map((e) => {
+      const inProgress = e.clock_out == null
+      const hrs: number | null = inProgress ? null : (e.hours ?? 0)
+      return {
+        id: e.id,
+        date: period === 'week' ? formatDateWeek(new Date(e.clock_in)) : formatDateMonth(new Date(e.clock_in)),
+        dayShort: period === 'week' ? formatDayShortWeek(new Date(e.clock_in)) : formatDayShortMonth(new Date(e.clock_in)),
+        job: jobNames[e.job_id] ?? e.job_id,
+        clockIn: formatTime(new Date(e.clock_in)),
+        clockOut: inProgress ? 'In progress' : formatTime(new Date(e.clock_out!)),
+        hours: hrs,
+        source: e.source === 'gps_auto' ? ('GPS' as const) : ('Manual' as const),
+        inProgress,
+      }
+    })
   }, [entries, jobNames, period])
 
-  const totalHours = displayEntries.reduce((s, e) => s + e.hours, 0)
-  const avgHours = displayEntries.length > 0 ? totalHours / displayEntries.length : 0
+  const completedForStats = useMemo(
+    () => displayEntries.filter((e) => !e.inProgress && e.hours != null),
+    [displayEntries]
+  )
+  const totalHours = completedForStats.reduce((s, e) => s + (e.hours ?? 0), 0)
+  const avgHours =
+    completedForStats.length > 0 ? totalHours / completedForStats.length : 0
 
   const jobBreakdown = useMemo(() => {
     const map: Record<string, number> = {}
-    displayEntries.forEach((e) => { map[e.job] = (map[e.job] ?? 0) + e.hours })
+    displayEntries.forEach((e) => {
+      if (e.inProgress || e.hours == null) return
+      map[e.job] = (map[e.job] ?? 0) + e.hours
+    })
     return Object.entries(map).sort((a, b) => b[1] - a[1])
   }, [displayEntries])
 
@@ -185,6 +200,7 @@ export function EmployeeHoursPage() {
     return days.map((day) => {
       const dayEntries = byDay[day]
       const first = dayEntries[0]
+      const hoursSum = dayEntries.reduce((s, x) => s + (x.inProgress || x.hours == null ? 0 : x.hours), 0)
       return {
         id: day,
         date: first.date,
@@ -192,8 +208,9 @@ export function EmployeeHoursPage() {
         job: first.job,
         clockIn: first.clockIn,
         clockOut: first.clockOut,
-        hours: dayEntries.reduce((s, x) => s + x.hours, 0),
+        hours: hoursSum,
         source: first.source,
+        inProgress: dayEntries.some((x) => x.inProgress),
       }
     }).reverse()
   }, [displayEntries, entries, period])

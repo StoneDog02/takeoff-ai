@@ -1,0 +1,31 @@
+/* Draggable Leaflet divIcon pin */
+.geofence-map__pin {
+  background: transparent !important;
+  border: none !important;
+}
+.geofence-map__pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+}
+.leaflet-drag-target .geofence-map__pin-dot,
+.leaflet-marker-draggable .geofence-map__pin-dot {
+  cursor: grabbing;
+}
+
+/* Only while explicitly moving the pin */
+.geofence-map-wrap--placement .leaflet-container {
+  cursor: crosshair;
+}
+.geofence-map-wrap--placement .leaflet-marker-icon {
+  cursor: grab;
+}
+
+/* Pan/zoom mode: pin is not draggable — default cursor on marker */
+.geofence-map-wrap:not(.geofence-map-wrap--placement) .leaflet-marker-icon {
+  cursor: default;
+}

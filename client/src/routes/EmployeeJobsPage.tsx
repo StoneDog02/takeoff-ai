@@ -377,7 +377,13 @@ export function EmployeeJobsPage() {
         ) : filtered.length === 0 ? (
           <div className="jobs-fade-up flex flex-col items-center justify-center py-16 text-muted" style={{ animationDelay: '0.08s' }}>
             <Briefcase size={32} className="mb-3 opacity-40" />
-            <div className="text-sm">No {filter} jobs</div>
+            <div className="text-sm">
+              {filter === 'all'
+                ? 'No job assignments yet'
+                : filter === 'active'
+                  ? 'No Active Jobs'
+                  : 'No completed jobs'}
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-3.5">

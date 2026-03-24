@@ -99,6 +99,17 @@ export interface WizardProjectState {
   budgetCategories: WizardBudgetCategory[]
 }
 
+export function createDefaultGeneralLaborWizardRow(): WizardWorkType {
+  return {
+    id: `wl-gl-${Date.now()}`,
+    name: 'General Labor',
+    rate: 0,
+    unit: 'hr',
+    type_key: 'labor',
+    description: 'Pay uses each employee’s hourly rate from their profile.',
+  }
+}
+
 export const EMPTY_WIZARD_PROJECT: WizardProjectState = {
   name: '',
   address: '',
@@ -112,6 +123,6 @@ export const EMPTY_WIZARD_PROJECT: WizardProjectState = {
   tasks: [],
   milestones: [],
   team: [],
-  workTypes: [],
+  workTypes: [createDefaultGeneralLaborWizardRow()],
   budgetCategories: [],
 }

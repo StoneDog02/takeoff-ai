@@ -268,8 +268,14 @@ export function SetupWizard({ project, onClose, onComplete, existingProjectId }:
           await api.projects.uploadBuildPlan(newId, file).catch(() => {})
         }
         setPendingBuildPlanFiles([])
-        const workTypesForProject: ProjectWorkType[] = []
+        const seeded = await api.projects.getWorkTypes(newId)
+        const workTypesForProject: ProjectWorkType[] = [...seeded]
+        const hasGeneralLabor = (list: ProjectWorkType[]) =>
+          list.some((x) => (x.type_key || '') === 'labor' && (x.name || '').trim().toLowerCase() === 'general labor')
         for (const w of (data.workTypes ?? []).filter((x) => x.name?.trim())) {
+          const isGeneralLabor =
+            w.type_key === 'labor' && w.name!.trim().toLowerCase() === 'general labor'
+          if (isGeneralLabor && hasGeneralLabor(workTypesForProject)) continue
           const created = await api.projects.createWorkType(newId, {
             name: w.name!.trim(),
             description: w.description?.trim() || undefined,

@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabaseClient'
 import type {
   Project,
   ProjectPlanType,
@@ -21,15 +20,10 @@ import type {
   ScheduleItem,
 } from '@/types/global'
 import { API_BASE } from '@/api/config'
+import { getSessionAuthHeaders } from '@/api/authHeaders'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
-  const headers: HeadersInit = {}
-  if (!supabase) return headers
-  const { data: { session } } = await supabase.auth.getSession()
-  if (session?.access_token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${session.access_token}`
-  }
-  return headers
+  return getSessionAuthHeaders()
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {

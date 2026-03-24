@@ -46,6 +46,27 @@ router.get('/', async (req, res, next) => {
       : null
     const profile = req.profile
     const isAdmin = profile?.role === 'admin'
+    if (req.actingAsEmployee && req.employee) {
+      const { id, name, email, role, phone, status, current_compensation, created_at, updated_at } = req.employee
+      return res.json({
+        user,
+        isAdmin,
+        type: 'employee',
+        employee_id: id,
+        employee: {
+          id,
+          name,
+          email,
+          role,
+          phone: phone || '',
+          status,
+          current_compensation: current_compensation ?? null,
+          created_at,
+          updated_at,
+        },
+        acting_as_employee: true,
+      })
+    }
     if (profile?.role === 'employee') {
       if (req.employee) {
         const { id, name, email, role, phone, status, current_compensation, created_at, updated_at } = req.employee

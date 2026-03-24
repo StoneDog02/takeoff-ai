@@ -6,7 +6,7 @@ import type { ProjectWorkType } from '@/types/global'
 import type { BudgetLineItem } from '@/types/global'
 import type { JobAssignment, Employee } from '@/types/global'
 import { PHASE_COLORS, uid } from './constants'
-import type { WizardProjectState, WizardTeamMember } from './types'
+import { createDefaultGeneralLaborWizardRow, type WizardProjectState, type WizardTeamMember } from './types'
 
 /**
  * Build wizard state from API project, phases, budget items, milestones, tasks, subcontractors, work types,
@@ -81,15 +81,18 @@ export function wizardStateFromProject(
       type: 'custom' as const,
     })),
     team,
-    workTypes: projectWorkTypes.map((w) => ({
-      id: w.id,
-      name: w.name ?? '',
-      rate: w.rate ?? 0,
-      unit: w.unit ?? 'hr',
-      type_key: w.type_key,
-      description: w.description,
-      custom_color: w.custom_color,
-    })),
+    workTypes:
+      projectWorkTypes.length > 0
+        ? projectWorkTypes.map((w) => ({
+            id: w.id,
+            name: w.name ?? '',
+            rate: w.rate ?? 0,
+            unit: w.unit ?? 'hr',
+            type_key: w.type_key,
+            description: w.description,
+            custom_color: w.custom_color,
+          }))
+        : [createDefaultGeneralLaborWizardRow()],
     budgetCategories: budgetItems.map((b) => ({
       id: b.id,
       name: b.label ?? '',

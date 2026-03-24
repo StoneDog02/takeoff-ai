@@ -1,5 +1,6 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
 
 const router = express.Router()
 
@@ -92,11 +93,21 @@ router.get('/ytd', async (req, res, next) => {
     const to = `${year}-12-31T23:59:59.999Z`
     const { data: entries, error: entriesErr } = await supabase
       .from('time_entries')
-      .select('id, employee_id, job_id, clock_in, clock_out, hours')
+      .select('id, employee_id, job_id, clock_in, clock_out, hours, project_work_type_id')
       .gte('clock_in', from)
       .lte('clock_in', to)
       .not('clock_out', 'is', null)
     if (entriesErr) throw entriesErr
+    const wtIds = [...new Set((entries || []).map((e) => e.project_work_type_id).filter(Boolean))]
+    let workTypeById = new Map()
+    if (wtIds.length > 0 && defaultSupabase) {
+      const { data: wts, error: wtErr } = await defaultSupabase
+        .from('project_work_types')
+        .select('id, project_id, rate, unit, type_key')
+        .in('id', wtIds)
+      if (wtErr) throw wtErr
+      workTypeById = new Map((wts || []).map((w) => [w.id, w]))
+    }
     let employees
     if (req.employee) {
       employees = [req.employee]
@@ -112,7 +123,9 @@ router.get('/ytd', async (req, res, next) => {
     const byEmployee = new Map()
     for (const e of entries || []) {
       if (!empMap.has(e.employee_id)) continue
-      const rate = empMap.get(e.employee_id).current_compensation || 0
+      const baseRate = empMap.get(e.employee_id).current_compensation || 0
+      const wt = e.project_work_type_id ? workTypeById.get(e.project_work_type_id) : null
+      const rate = resolveEffectiveHourlyPayRate(e, baseRate, wt, e.job_id)
       const h = e.hours ?? (e.clock_in && e.clock_out
         ? Math.round(((new Date(e.clock_out) - new Date(e.clock_in)) / (1000 * 60 * 60)) * 100) / 100
         : 0)

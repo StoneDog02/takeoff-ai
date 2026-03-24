@@ -565,6 +565,23 @@ export interface JobAssignment {
   ended_at?: string
 }
 
+/** Keys match server `weekly_schedule` (Sunday–Saturday). */
+export type WeekdayScheduleKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
+
+export interface DayScheduleSegment {
+  enabled: boolean
+  start: string
+  end: string
+}
+
+export type JobWeeklySchedule = Partial<Record<WeekdayScheduleKey, DayScheduleSegment>>
+
+export interface JobAssignmentScheduleResponse {
+  weekly_schedule: JobWeeklySchedule
+  timezone: string
+  updated_at: string | null
+}
+
 export type TimeEntrySource = 'manual' | 'gps_auto'
 
 export interface TimeEntry {
