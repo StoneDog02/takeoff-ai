@@ -12270,6 +12270,31 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
 .estimate-doc__th-rate { text-align: right; }
 .estimate-doc__th-amount { text-align: right; }
 
+/* Budget “By Item”–style estimate lines (Description | Category | Unit | Budgeted) */
+.estimate-doc__table--by-item .estimate-doc__th-category { text-align: left; }
+.estimate-doc__table--by-item .estimate-doc__th-budgeted { text-align: right; }
+
+.estimate-doc__td-category {
+  vertical-align: middle;
+}
+
+.estimate-doc__category-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 6px;
+  max-width: min(100%, 28ch);
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.estimate-doc__line-row--by-item .estimate-doc__td-budgeted {
+  font-weight: 700;
+  text-align: right;
+}
+
 .estimate-doc__table td {
   padding: 12px 16px;
   font-size: 14px;
@@ -12353,6 +12378,36 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
   text-transform: none;
   letter-spacing: 0;
   margin-top: 2px;
+}
+
+/* Full line-item view: light category divider — no Scope Summary callout box */
+.estimate-doc__section-header--compact {
+  padding: 10px 0 6px;
+  background: transparent;
+  border-radius: 0;
+  border-left: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.estimate-doc__section-row--compact td {
+  padding-top: 18px;
+}
+
+.estimate-doc__section-header-inner--compact {
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.estimate-doc__section-header-inner--compact .estimate-doc__section-kind-badge {
+  margin-top: 0;
+}
+
+.estimate-doc__section-header-inner--compact .estimate-doc__section-header-title {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .estimate-doc__num {

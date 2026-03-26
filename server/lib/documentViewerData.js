@@ -188,6 +188,7 @@ function estimatePayloadFromRows(est, project, lineItems) {
     viewed_at: est.viewed_at || null,
     actioned_at: est.actioned_at || null,
     source_change_order_id: est.source_change_order_id || null,
+    estimate_groups_meta: Array.isArray(est.estimate_groups_meta) ? est.estimate_groups_meta : null,
   }
 }
 

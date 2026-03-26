@@ -1257,6 +1257,8 @@ export interface EstimatePortalResponse {
   actioned_at?: string | null
   /** In-app viewer only: linked CO row when estimate was sent from change-order flow */
   source_change_order_id?: string | null
+  /** When present, client table rolls up takeoff to scope lines and bids to trade/sub + total. */
+  estimate_groups_meta?: unknown[] | null
 }
 
 export interface ChangeOrderViewerPayload {

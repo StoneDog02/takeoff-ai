@@ -1,5 +1,12 @@
 import React from 'react'
 import { dayjs } from '@/lib/date'
+import { budgetCategoryKeyFromEstimateSection } from '@/lib/budgetCategoryFromEstimateSection'
+import {
+  buildClientFacingLineItemsFromEstimateGroupsMeta,
+  type ClientFacingLineItem,
+} from '@/lib/estimateClientFacingLines'
+
+export type { ClientFacingLineItem } from '@/lib/estimateClientFacingLines'
 
 export function formatPortalCurrency(n: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -14,16 +21,6 @@ export function formatPortalDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = dayjs(iso)
   return d.isValid() ? d.format('MMM D, YYYY') : '—'
-}
-
-export type ClientFacingLineItem = {
-  id: string
-  description: string
-  quantity: number
-  unit: string
-  unit_price: number
-  total: number
-  section?: string | null
 }
 
 function roundMoney(n: number): number {
@@ -106,14 +103,22 @@ function applyClientScopeSummary(
   return out
 }
 
+/** Group key: trade/scope name when present (meta takeoff/bid), else budget category. */
+function lineGroupKey(item: ClientFacingLineItem): string | null {
+  const nk = item.noteSectionKey?.trim()
+  if (nk) return nk
+  const s = item.section?.trim()
+  return s || null
+}
+
 function groupBySection(
   items: ClientFacingLineItem[]
 ): { section: string | null; items: ClientFacingLineItem[] }[] {
   const bySection = new Map<string | null, ClientFacingLineItem[]>()
   for (const item of items) {
-    const section = (item.section && item.section.trim()) || null
-    if (!bySection.has(section)) bySection.set(section, [])
-    bySection.get(section)!.push(item)
+    const key = lineGroupKey(item)
+    if (!bySection.has(key)) bySection.set(key, [])
+    bySection.get(key)!.push(item)
   }
   const order = Array.from(bySection.keys()).sort((a, b) => {
     if (a == null) return 1
@@ -121,6 +126,49 @@ function groupBySection(
     return a.localeCompare(b)
   })
   return order.map((section) => ({ section, items: bySection.get(section)! }))
+}
+
+/** Same category order as Budget tab “By Item” (Line Items). */
+const BY_ITEM_CATEGORY_ORDER = [
+  'labor',
+  'materials',
+  'subs',
+  'equipment',
+  'permits',
+  'overhead',
+  'other',
+] as const
+
+const ESTIMATE_CATEGORY_PILL_COLORS: Record<string, string> = {
+  Labor: '#6366f1',
+  Materials: '#0ea5e9',
+  Subcontractors: '#8b5cf6',
+  Equipment: '#94a3b8',
+  'Permits & Fees': '#94a3b8',
+  Overhead: '#94a3b8',
+  Other: '#94a3b8',
+}
+
+function sortLineItemsByBudgetByItemOrder(items: ClientFacingLineItem[]): ClientFacingLineItem[] {
+  const withIdx = items.map((item, index) => ({ item, index }))
+  withIdx.sort((a, b) => {
+    const ka = budgetCategoryKeyFromEstimateSection(a.item.section)
+    const kb = budgetCategoryKeyFromEstimateSection(b.item.section)
+    const ia = BY_ITEM_CATEGORY_ORDER.indexOf(ka as (typeof BY_ITEM_CATEGORY_ORDER)[number])
+    const ib = BY_ITEM_CATEGORY_ORDER.indexOf(kb as (typeof BY_ITEM_CATEGORY_ORDER)[number])
+    const sa = ia === -1 ? 999 : ia
+    const sb = ib === -1 ? 999 : ib
+    if (sa !== sb) return sa - sb
+    return a.index - b.index
+  })
+  return withIdx.map((x) => x.item)
+}
+
+function estimateCategoryPill(section: string | null | undefined): { label: string; color: string } {
+  const label = (section && section.trim()) || '—'
+  if (label === '—') return { label, color: '#94a3b8' }
+  const color = ESTIMATE_CATEGORY_PILL_COLORS[label] ?? '#64748b'
+  return { label, color }
 }
 
 export type ClientSectionNote = {
@@ -150,10 +198,20 @@ export type EstimateClientFacingDocumentProps = {
   /** When set from portal API for change orders sent from the CO flow */
   portalDocumentKind?: 'estimate' | 'change_order'
   /**
-   * `summary` (default): one lump-sum row per takeoff/GC category for homeowners.
-   * `full`: show every stored line (internal / power-user).
+   * `full` (default): every stored line with full descriptions (what clients see on the portal).
+   * `summary`: one lump-sum row per category — hides line-level descriptions.
    */
   clientScopeLineDetail?: 'summary' | 'full'
+  /**
+   * `by_item` (default): same columns as Budget → Line Items → By Item (Description, Category, Unit, Budgeted).
+   * `classic`: qty / unit price / amount columns (traditional estimate line layout).
+   */
+  lineTableLayout?: 'by_item' | 'classic'
+  /**
+   * When present (saved estimates), drives client-facing rows: takeoff → one scope line per group;
+   * bid → trade/sub + awarded total; custom lines unchanged. Falls back to `lineItems` if missing.
+   */
+  estimateGroupsMeta?: unknown
 }
 
 export type SectionWorkKind = 'subcontractor' | 'gc_self_perform' | 'scope_detail'
@@ -228,17 +286,28 @@ export function EstimateClientFacingDocument({
   sectionNotes = null,
   sectionWorkTypes = null,
   portalDocumentKind = 'estimate',
-  clientScopeLineDetail = 'summary',
+  clientScopeLineDetail = 'full',
+  lineTableLayout = 'by_item',
+  estimateGroupsMeta,
 }: EstimateClientFacingDocumentProps) {
+  const effectiveLineItems = buildClientFacingLineItemsFromEstimateGroupsMeta(
+    estimateGroupsMeta ?? null,
+    lineItems
+  )
   const displayLineItems =
-    clientScopeLineDetail === 'full' ? lineItems : applyClientScopeSummary(lineItems, sectionWorkTypes)
+    clientScopeLineDetail === 'full'
+      ? effectiveLineItems
+      : applyClientScopeSummary(effectiveLineItems, sectionWorkTypes)
   const subtotal =
     Math.round(displayLineItems.reduce((sum, i) => sum + Number(i.total), 0) * 100) / 100
   const totalRounded = Math.round(Number(total) * 100) / 100
   let generalFees = Math.round((totalRounded - subtotal) * 100) / 100
   if (generalFees < 0.005) generalFees = 0
   const grouped = groupBySection(displayLineItems)
+  const byItemSorted =
+    lineTableLayout === 'by_item' ? sortLineItemsByBudgetByItemOrder(displayLineItems) : displayLineItems
   const presentationMode: 'summary' | 'detail' = clientScopeLineDetail === 'full' ? 'detail' : 'summary'
+  const tableColSpan = lineTableLayout === 'by_item' ? 4 : 5
   const hasMilestones = milestones && milestones.length > 0
 
   const notesBySection = new Map<string, ClientSectionNote>()
@@ -263,7 +332,7 @@ export function EstimateClientFacingDocument({
     if (!hasGc && subs.length === 0) return null
     return (
       <tr className="estimate-doc__section-notes-row">
-        <td colSpan={5} className="estimate-doc__section-notes-cell">
+        <td colSpan={tableColSpan} className="estimate-doc__section-notes-cell">
           <details className="estimate-doc__section-notes-details">
             <summary className="estimate-doc__section-notes-summary">View scope notes</summary>
             <div className="estimate-doc__section-notes-body">
@@ -334,53 +403,132 @@ export function EstimateClientFacingDocument({
         </div>
       </div>
       <div className="estimate-doc__table-wrap">
-        <table className="estimate-doc__table">
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th className="estimate-doc__th-qty">Qty</th>
-              <th className="estimate-doc__th-unit">Unit</th>
-              <th className="estimate-doc__th-rate">Unit price</th>
-              <th className="estimate-doc__th-amount">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {grouped.map(({ section, items }) => (
-              <React.Fragment key={section ?? '__none'}>
-                {section != null && (() => {
-                  const kind = inferSectionWorkKind(section, sectionWorkTypes)
-                  const pres = sectionHeaderPresentation(section, kind, presentationMode)
+        <table
+          className={`estimate-doc__table${lineTableLayout === 'by_item' ? ' estimate-doc__table--by-item' : ''}`}
+        >
+          {lineTableLayout === 'by_item' ? (
+            <>
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th className="estimate-doc__th-category">Category</th>
+                  <th className="estimate-doc__th-unit">Unit</th>
+                  <th className="estimate-doc__th-budgeted">Budgeted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byItemSorted.map((item, idx) => {
+                  const notesKey =
+                    item.noteSectionKey?.trim() || item.section?.trim() || null
+                  const prevNotesKey =
+                    idx === 0
+                      ? '__sentinel__'
+                      : byItemSorted[idx - 1].noteSectionKey?.trim() ||
+                        byItemSorted[idx - 1].section?.trim() ||
+                        '__none__'
+                  const nk = notesKey || '__none__'
+                  const showScopeNotes =
+                    nk !== prevNotesKey && notesKey != null && notesBySection.has(notesKey)
+                  const pill = estimateCategoryPill(item.section)
                   return (
-                    <tr className={`estimate-doc__section-row estimate-doc__section-row--${kind}`}>
-                      <td colSpan={5} className="estimate-doc__section-header">
-                        <div className="estimate-doc__section-header-inner">
-                          <span className="estimate-doc__section-kind-badge">{pres.badge}</span>
-                          <p className="estimate-doc__section-kind-hint">{pres.hint}</p>
-                          <div className="estimate-doc__section-header-title">{pres.title}</div>
-                        </div>
-                      </td>
-                    </tr>
+                    <React.Fragment key={item.id}>
+                      {showScopeNotes ? sectionNoteBlock(notesKey) : null}
+                      <tr className="estimate-doc__line-row estimate-doc__line-row--by-item">
+                        <td>{item.description || '—'}</td>
+                        <td className="estimate-doc__td-category">
+                          <span
+                            className="estimate-doc__category-pill"
+                            style={{
+                              background: `${pill.color}18`,
+                              color: pill.color,
+                            }}
+                          >
+                            {pill.label}
+                          </span>
+                        </td>
+                        <td className="estimate-doc__td-unit">{item.unit || '—'}</td>
+                        <td className="estimate-doc__td-budgeted estimate-doc__num estimate-doc__amount">
+                          {formatPortalCurrency(item.total)}
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   )
-                })()}
-                {section != null && sectionNoteBlock(section)}
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.description || '—'}</td>
-                    <td className="estimate-doc__td-qty estimate-doc__num">{item.quantity}</td>
-                    <td className="estimate-doc__td-unit">{item.unit}</td>
-                    <td className="estimate-doc__td-rate estimate-doc__num">
-                      {item.unit === 'pct'
-                        ? `${Math.min(100, Math.max(0, Number(item.unit_price) || 0))}%`
-                        : formatPortalCurrency(item.unit_price)}
-                    </td>
-                    <td className="estimate-doc__amount estimate-doc__num">
-                      {formatPortalCurrency(item.total)}
-                    </td>
-                  </tr>
+                })}
+              </tbody>
+            </>
+          ) : (
+            <>
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th className="estimate-doc__th-qty">Qty</th>
+                  <th className="estimate-doc__th-unit">Unit</th>
+                  <th className="estimate-doc__th-rate">Unit price</th>
+                  <th className="estimate-doc__th-amount">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped.map(({ section, items }) => (
+                  <React.Fragment key={section ?? '__none'}>
+                    {section != null && (() => {
+                      const kind = inferSectionWorkKind(section, sectionWorkTypes)
+                      const pres = sectionHeaderPresentation(section, kind, presentationMode)
+                      if (presentationMode === 'detail') {
+                        return (
+                          <tr
+                            className={`estimate-doc__section-row estimate-doc__section-row--${kind} estimate-doc__section-row--compact`}
+                          >
+                            <td
+                              colSpan={tableColSpan}
+                              className="estimate-doc__section-header estimate-doc__section-header--compact"
+                            >
+                              <div className="estimate-doc__section-header-inner estimate-doc__section-header-inner--compact">
+                                {kind === 'subcontractor' ? (
+                                  <>
+                                    <span className="estimate-doc__section-kind-badge">{pres.badge}</span>
+                                    <div className="estimate-doc__section-header-title">{pres.title}</div>
+                                  </>
+                                ) : (
+                                  <div className="estimate-doc__section-header-title">{pres.title}</div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
+                      return (
+                        <tr className={`estimate-doc__section-row estimate-doc__section-row--${kind}`}>
+                          <td colSpan={tableColSpan} className="estimate-doc__section-header">
+                            <div className="estimate-doc__section-header-inner">
+                              <span className="estimate-doc__section-kind-badge">{pres.badge}</span>
+                              <p className="estimate-doc__section-kind-hint">{pres.hint}</p>
+                              <div className="estimate-doc__section-header-title">{pres.title}</div>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                    {section != null && sectionNoteBlock(section)}
+                    {items.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.description || '—'}</td>
+                        <td className="estimate-doc__td-qty estimate-doc__num">{item.quantity}</td>
+                        <td className="estimate-doc__td-unit">{item.unit}</td>
+                        <td className="estimate-doc__td-rate estimate-doc__num">
+                          {item.unit === 'pct'
+                            ? `${Math.min(100, Math.max(0, Number(item.unit_price) || 0))}%`
+                            : formatPortalCurrency(item.unit_price)}
+                        </td>
+                        <td className="estimate-doc__amount estimate-doc__num">
+                          {formatPortalCurrency(item.total)}
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
                 ))}
-              </React.Fragment>
-            ))}
-          </tbody>
+              </tbody>
+            </>
+          )}
         </table>
       </div>
       <div className="estimate-doc__summary">

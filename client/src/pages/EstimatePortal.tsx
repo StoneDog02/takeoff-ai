@@ -191,6 +191,7 @@ function ActiveReviewView({
         terms={data.terms}
         sectionNotes={data.section_notes ?? null}
         sectionWorkTypes={data.section_work_types ?? null}
+        estimateGroupsMeta={data.estimate_groups_meta ?? null}
       />
 
       {/* Request changes inline */}

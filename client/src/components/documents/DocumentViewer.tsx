@@ -574,6 +574,7 @@ export function DocumentViewer({
                   terms={viewer.data.terms}
                   sectionNotes={viewer.data.section_notes ?? null}
                   sectionWorkTypes={viewer.data.section_work_types ?? null}
+                  estimateGroupsMeta={viewer.data.estimate_groups_meta ?? null}
                 />
               </div>
             </div>

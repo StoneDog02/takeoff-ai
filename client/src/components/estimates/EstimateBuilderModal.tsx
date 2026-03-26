@@ -330,31 +330,39 @@ function lineItemGroupsToClientCostLineItems(groups: LineItemGroup[]): ClientFac
           unit_price: i.unitCost,
           total,
           section: g.budgetCategory,
+          noteSectionKey: null,
         })
       }
     } else if (g.source === 'takeoff') {
-      for (const i of g.items) {
-        const t = Math.round(i.qty * i.unitCost * 100) / 100
-        out.push({
-          id: `pv-${n++}`,
-          description: i.description || '—',
-          quantity: i.qty,
-          unit: i.unit,
-          unit_price: i.unitCost,
-          total: t,
-          section: g.categoryName,
-        })
-      }
-    } else if (g.source === 'bid') {
       const t = Math.round(g.costSubtotal * 100) / 100
+      const scope = g.categoryName?.trim() || 'Scope of work'
       out.push({
         id: `pv-${n++}`,
-        description: g.categoryName,
+        description: scope,
+        quantity: 1,
+        unit: 'ls',
+        unit_price: t,
+        total: t,
+        section: g.budgetCategory,
+        noteSectionKey: scope,
+      })
+    } else if (g.source === 'bid') {
+      const t = Math.round(g.costSubtotal * 100) / 100
+      const primary = g.categoryName?.trim() || 'Subcontractor work'
+      const subName = g.subNotes?.[0]?.subcontractor?.trim()
+      const desc =
+        subName && !primary.toLowerCase().includes(subName.toLowerCase())
+          ? `${primary} — ${subName}`
+          : primary
+      out.push({
+        id: `pv-${n++}`,
+        description: desc,
         quantity: 1,
         unit: 'job',
         unit_price: t,
         total: t,
-        section: g.categoryName,
+        section: g.budgetCategory,
+        noteSectionKey: g.categoryName?.trim() || null,
       })
     }
   }
@@ -1475,6 +1483,7 @@ export function EstimateBuilderModal({
                     projectName={data.projectName.trim() || '—'}
                     projectAddress={data.projectAddress.trim() || undefined}
                     lineItems={lineItemGroupsToClientCostLineItems(lineItemGroups)}
+                    estimateGroupsMeta={serializeGroupsMeta(lineItemGroups)}
                     sectionNotes={sectionNotesFromGroups(lineItemGroups)}
                     sectionWorkTypes={sectionWorkTypesFromGroups(lineItemGroups)}
                     total={clientTotal}
@@ -2095,35 +2104,49 @@ function Step2LineItems({
   }
 
   const addFromTakeoff = (row: TakeoffPickItem) => {
-    const id = `custom-${Date.now()}`
     const qty = Number(row.qty) || 1
     const unitCost = Number(row.price) || 0
     const unit = nextUnitForCategory('Materials', row.unit || '')
     const m = Math.min(500, Math.max(0, Number(defaultMarkupBaseline) || DEFAULT_MARKUP_PCT))
-    const cost = qty * unitCost
-    setLineItemGroups((prev) =>
-      recomputeLineItemGroupTotals([
-        ...prev,
-        {
-          id,
-          categoryName: row.description,
-          source: 'custom',
-          items: [
-            {
-              id: Date.now(),
-              description: row.description,
-              qty,
-              unit,
-              unitCost,
-            },
-          ],
-          costSubtotal: cost,
-          markupPct: m,
-          clientTotal: cost * (1 + m / 100),
-          budgetCategory: 'Materials',
-        },
-      ])
-    )
+    const newItem: LineItemGroupItem = {
+      id: Date.now(),
+      description: row.description,
+      qty,
+      unit,
+      unitCost,
+    }
+    /** Trade / scope label for the group — not each material line (client preview rolls up by group). */
+    const scopeLabel = (row.category?.trim() || 'Takeoff materials').replace(/\s+/g, ' ')
+    const scopeKeyNorm = scopeLabel.toLowerCase()
+
+    setLineItemGroups((prev) => {
+      const mergeIdx = prev.findIndex(
+        (g) =>
+          g.source === 'takeoff' &&
+          (g.categoryName || '').trim().toLowerCase() === scopeKeyNorm
+      )
+      if (mergeIdx === -1) {
+        const id = `takeoff-${scopeLabel.replace(/\s+/g, '-')}-${Date.now()}`
+        const cost = qty * unitCost
+        return recomputeLineItemGroupTotals([
+          ...prev,
+          {
+            id,
+            categoryName: scopeLabel,
+            source: 'takeoff',
+            items: [newItem],
+            costSubtotal: cost,
+            markupPct: m,
+            clientTotal: cost * (1 + m / 100),
+            budgetCategory: 'Materials',
+          },
+        ])
+      }
+      const next = [...prev]
+      const g = next[mergeIdx]
+      next[mergeIdx] = { ...g, items: [...g.items, newItem] }
+      return recomputeLineItemGroupTotals(next)
+    })
     closeAddPanels()
   }
 
