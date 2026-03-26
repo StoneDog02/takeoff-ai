@@ -1588,12 +1588,31 @@ body {
   }
 }
 
+/*
+ * Mobile menu: keep the trigger below the notch and inset from the left edge so it does not sit
+ * under Safari’s top-left chrome (reader dismiss, tab UI, etc.). Requires viewport-fit=cover in index.html.
+ */
+@media (max-width: 768px) {
+  .dashboard-app .mobile-app-nav-shell {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    padding-bottom: 6px;
+    margin: 0;
+    background: var(--bg-page);
+  }
+}
+
 /* Global mobile menu: icon only (no bordered box — see MobileNavBar) */
 .dashboard-app .hamburger.mobile-app-nav-trigger {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  margin: 0 0 6px;
+  margin: 0;
   border: none;
   background: transparent;
   box-shadow: none;
