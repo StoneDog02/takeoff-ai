@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { UserRole, InvitedMember } from '@/types/global'
 import { teamsApi } from '@/api/teamsClient'
 import {
@@ -94,18 +95,28 @@ export function UserRoleManagementSection() {
       <Card>
         <CardHeader title="Invite team member" />
         <CardBody>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'flex-end' }}>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end md:gap-3">
             <Field label="Email address">
               <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="colleague@company.com" />
             </Field>
             <Field label="Role">
-              <Select value={role} onChange={(e) => setRole(e.target.value as UserRole)} style={{ width: 'auto', minWidth: 160 }}>
-                {ROLES_DATA.map((r) => (
-                  <option key={r.role} value={r.role}>{r.label}</option>
-                ))}
-              </Select>
+              <div className="w-full md:w-auto md:min-w-[160px]">
+                <Select value={role} onChange={(e) => setRole(e.target.value as UserRole)} style={{ width: '100%' }}>
+                  {ROLES_DATA.map((r) => (
+                    <option key={r.role} value={r.role}>{r.label}</option>
+                  ))}
+                </Select>
+              </div>
             </Field>
-            <Btn type="button" style={{ whiteSpace: 'nowrap' }} onClick={handleInvite} disabled={inviting}>{inviting ? 'Sending…' : 'Send invite →'}</Btn>
+            <Btn
+              type="button"
+              className="inline-flex w-full items-center justify-center md:w-auto"
+              style={{ whiteSpace: 'nowrap' }}
+              onClick={handleInvite}
+              disabled={inviting}
+            >
+              {inviting ? 'Sending…' : 'Send invite →'}
+            </Btn>
           </div>
         </CardBody>
       </Card>
@@ -162,26 +173,30 @@ export function UserRoleManagementSection() {
       <Card style={{ marginBottom: 0 }}>
         <CardHeader title="Team members" />
         <CardBody style={{ padding: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px 80px', gap: 12, padding: '14px 24px', borderBottom: '1px solid #f1f0ed', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#c4bfb8' }}>
-            <span>Email</span><span>Role</span><span>Status</span><span></span>
+          <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_44px] gap-2 border-b border-[#f1f0ed] px-3 py-3 text-[10.5px] font-bold uppercase tracking-wide text-[#c4bfb8] sm:gap-3 sm:px-6 md:grid-cols-[1fr_1fr_100px_44px]">
+            <span className="min-w-0">Email</span>
+            <span className="min-w-0">Role</span>
+            <span>Status</span>
+            <span className="sr-only">Remove</span>
           </div>
           {members.map((m) => (
             <div
               key={m.id}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 100px 80px',
-                gap: 12,
-                alignItems: 'center',
-                padding: '14px 24px',
-                borderBottom: '1px solid #f9f8f6',
-                fontSize: 14,
-              }}
+              className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_44px] items-center gap-2 border-b border-[#f9f8f6] px-3 py-3 text-sm sm:gap-3 sm:px-6 md:grid-cols-[1fr_1fr_100px_44px] md:text-[14px]"
             >
-              <span style={{ color: '#111' }}>{m.email}</span>
-              <span style={{ color: '#6b7280' }}>{ROLES_DATA.find((r) => r.role === m.role)?.label ?? m.role}</span>
+              <span className="min-w-0 break-all text-[#111]">{m.email}</span>
+              <span className="min-w-0 text-[#6b7280]">{ROLES_DATA.find((r) => r.role === m.role)?.label ?? m.role}</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: m.status === 'accepted' ? '#15803d' : '#9ca3af' }}>{m.status}</span>
-              <Btn variant="ghost" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => removeMember(m.id)}>Remove</Btn>
+              <Btn
+                variant="ghost"
+                type="button"
+                aria-label={`Remove ${m.email}`}
+                onClick={() => removeMember(m.id)}
+                className="inline-flex !shrink-0 items-center justify-center !p-2 !min-w-0"
+                style={{ fontSize: 12 }}
+              >
+                <Trash2 size={16} strokeWidth={2} className="text-[var(--red,#b91c1c)]" aria-hidden />
+              </Btn>
             </div>
           ))}
         </CardBody>

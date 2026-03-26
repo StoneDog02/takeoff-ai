@@ -6,7 +6,6 @@ import type { PaperDocumentType, PaperTrailDocument } from '@/types/global'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { DocumentViewer } from '@/components/documents/DocumentViewer'
 import {
-  DocTypeIcon,
   displayDate,
   documentTypeLabel,
   downloadDocumentPdf,
@@ -69,6 +68,7 @@ export function DocumentsPage() {
   const [dateTo, setDateTo] = useState('')
   const [projectFilter, setProjectFilter] = useState('all')
   const [showArchived, setShowArchived] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
 
   const [viewerDocId, setViewerDocId] = useState<string | null>(null)
   const [pdfWorkingId, setPdfWorkingId] = useState<string | null>(null)
@@ -249,124 +249,130 @@ export function DocumentsPage() {
   return (
     <div className="dashboard-app estimates-page documents-tab flex flex-col min-h-0 flex-1">
       <div className="documents-page">
-        <div className="estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0">
-        <header className="mb-6">
-          <h1 className="dashboard-title m-0">Documents</h1>
-          <p className="text-[var(--text-muted)] text-sm mt-2 m-0">
-            {loading ? (
-              'Loading…'
-            ) : (
-              <>
-                <span className="font-semibold text-[var(--text-primary)] tabular-nums">{totalCount}</span> documents
-                <span className="mx-2 opacity-40">·</span>
-                <span className="tabular-nums">{formatBytes(storageBytes)}</span> estimated storage
-                {error ? <span className="text-red-600 ml-3">{error}</span> : null}
-              </>
-            )}
-          </p>
-        </header>
+        <div className="documents-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6">
+          <header className="documents-top">
+            <div>
+              <h1 className="dashboard-title m-0">Documents</h1>
+              <p className="documents-top__meta m-0">
+                {loading ? (
+                  'Loading…'
+                ) : (
+                  <>
+                    <span className="tabular-nums">{totalCount}</span> documents
+                    <span className="mx-2 opacity-40">·</span>
+                    <span className="tabular-nums">{formatBytes(storageBytes)}</span>
+                    {error ? <span className="text-red-600 ml-3">{error}</span> : null}
+                  </>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="documents-filters-btn"
+              onClick={() => setShowFilters((s) => !s)}
+            >
+              ⚙ Filters
+            </button>
+          </header>
 
-        <div className="documents-toolbar">
-          <label className="documents-toolbar__search flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Search</span>
+          <div className="documents-search-wrap">
             <input
               type="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Title, client, or sub name"
-              className={toolbarSelectClass}
+              className="documents-search-input"
             />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Type</span>
-            <select className={toolbarSelectClass} value={docType} onChange={(e) => setDocType(e.target.value)}>
-              {TYPE_FILTER.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Status</span>
-            <select className={toolbarSelectClass} value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUS_FILTER.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">From</span>
-            <input
-              type="date"
-              className={toolbarSelectClass}
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">To</span>
-            <input type="date" className={toolbarSelectClass} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          </label>
-          <label className="flex flex-col gap-1 min-w-[200px]">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Project</span>
-            <select className={toolbarSelectClass} value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-              <option value="all">All projects</option>
-              <option value="unlinked">Unlinked</option>
-              {sortedProjects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || p.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer select-none pb-1">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-              className="rounded border-[var(--border)]"
-            />
-            <span className="text-[13px] text-[var(--text-secondary)]">Show archived</span>
-          </label>
-        </div>
+          </div>
 
-        {loading && rows.length === 0 ? (
-          <LoadingSkeleton variant="page" className="min-h-[40vh]" />
-        ) : (
-          <div className="documents-table">
-            <div className="documents-table-scroll">
-              <div className="documents-table-header" role="row">
-                <span aria-hidden />
-                <span>Type</span>
-                <span>Title</span>
-                <span>Project</span>
-                <span>Recipient</span>
-                <span>Amount</span>
-                <span>Status</span>
-                <span>Date</span>
-                <span className="documents-table-cell--actions">Actions</span>
-              </div>
+          <div className="documents-chip-row">
+            <button
+              type="button"
+              className={`documents-chip ${docType === 'all' ? 'active' : ''}`}
+              onClick={() => setDocType('all')}
+            >
+              All types
+            </button>
+            <button
+              type="button"
+              className={`documents-chip ${docType === 'estimate' ? 'active' : ''}`}
+              onClick={() => setDocType('estimate')}
+            >
+              Estimates
+            </button>
+            <button
+              type="button"
+              className={`documents-chip ${docType === 'bid_package' ? 'active' : ''}`}
+              onClick={() => setDocType('bid_package')}
+            >
+              Bid Packages
+            </button>
+          </div>
+
+          {showFilters ? (
+            <div className="documents-advanced-filters">
+              <label className="flex flex-col gap-1 min-w-[160px]">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Status</span>
+                <select className={toolbarSelectClass} value={status} onChange={(e) => setStatus(e.target.value)}>
+                  {STATUS_FILTER.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 min-w-[180px]">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Project</span>
+                <select className={toolbarSelectClass} value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+                  <option value="all">All projects</option>
+                  <option value="unlinked">Unlinked</option>
+                  {sortedProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || p.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">From</span>
+                <input type="date" className={toolbarSelectClass} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">To</span>
+                <input type="date" className={toolbarSelectClass} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none pt-5">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                  className="rounded border-[var(--border)]"
+                />
+                <span className="text-[13px] text-[var(--text-secondary)]">Show archived</span>
+              </label>
+            </div>
+          ) : null}
+
+          {loading && rows.length === 0 ? (
+            <LoadingSkeleton variant="page" className="min-h-[40vh]" />
+          ) : (
+            <div className="documents-list-shell">
               {rows.length === 0 ? (
-                <div className="documents-table-row documents-table-row--noninteractive" role="row">
-                  <div className="documents-table-empty">
-                    <p className="m-0 mb-3">No documents match these filters.</p>
-                    <p className="m-0 mb-3 text-[12px] text-[var(--text-muted)] max-w-md">
-                      Import rows from sent estimates, invoices, and dispatched bid packages. If you have no history yet,
-                      we can add a sample receipt so you can preview the table and viewer.
-                    </p>
-                    <button
-                      type="button"
-                      className="documents-btn documents-btn-primary text-[13px]"
-                      disabled={backfillWorking}
-                      onClick={() => void runBackfill()}
-                    >
-                      {backfillWorking ? 'Importing…' : 'Import paper trail / demo sample'}
-                    </button>
-                    {backfillMsg ? <p className="m-0 mt-3 text-[13px] text-[var(--text-secondary)]">{backfillMsg}</p> : null}
-                  </div>
+                <div className="documents-table-empty">
+                  <p className="m-0 mb-3">No documents match these filters.</p>
+                  <p className="m-0 mb-3 text-[12px] text-[var(--text-muted)] max-w-md">
+                    Import rows from sent estimates, invoices, and dispatched bid packages. If you have no history yet,
+                    we can add a sample receipt so you can preview the table and viewer.
+                  </p>
+                  <button
+                    type="button"
+                    className="documents-btn documents-btn-primary text-[13px]"
+                    disabled={backfillWorking}
+                    onClick={() => void runBackfill()}
+                  >
+                    {backfillWorking ? 'Importing…' : 'Import paper trail / demo sample'}
+                  </button>
+                  {backfillMsg ? <p className="m-0 mt-3 text-[13px] text-[var(--text-secondary)]">{backfillMsg}</p> : null}
                 </div>
               ) : (
                 rows.map((doc) => {
@@ -383,7 +389,7 @@ export function DocumentsPage() {
                       key={doc.id}
                       role="button"
                       tabIndex={0}
-                      className={`documents-table-row ${archived ? 'archived' : ''} ${projectDeleted ? 'unlinked' : ''}`}
+                      className={`documents-list-row ${archived ? 'archived' : ''} ${projectDeleted ? 'unlinked' : ''}`}
                       onClick={() => onView(doc)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -392,115 +398,114 @@ export function DocumentsPage() {
                         }
                       }}
                     >
-                      <div className="flex items-center justify-center" aria-hidden>
-                        <DocTypeIcon type={doc.document_type as PaperDocumentType} />
-                      </div>
-                      <div className="text-[var(--text-secondary)]">{documentTypeLabel(doc.document_type as PaperDocumentType)}</div>
-                      <div className="min-w-0">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-medium text-[var(--text-primary)] truncate">{doc.title || '—'}</span>
-                          {projectDeleted ? (
-                            <span
-                              className="documents-unlinked-badge"
-                              title="Original project was deleted; document retained with reference in metadata"
+                      <div className="documents-list-row__main">
+                        <div className="documents-list-row__line1">
+                          <div className="documents-list-row__title">{doc.title || '—'}</div>
+                          <div className="documents-list-row__amount">{formatMoney(doc.total_amount)}</div>
+                          <div className="relative inline-block documents-list-row__menu-wrap" data-documents-row-menu={doc.id}>
+                            <button
+                              type="button"
+                              className="documents-row-menu-trigger"
+                              aria-label="More actions"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMenuOpenId((id) => (id === doc.id ? null : doc.id))
+                              }}
                             >
+                              •••
+                            </button>
+                            {menuOpenId === doc.id ? (
+                              <div
+                                className="absolute right-0 top-full mt-1 z-50 min-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] shadow-lg py-1 text-left"
+                                role="menu"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <p
+                                  className="px-3 py-2 text-[11px] text-[var(--text-muted)] m-0 border-b border-[var(--border)] leading-snug"
+                                  title={PAPER_TRAIL_RETENTION_HINT}
+                                >
+                                  No delete — archive to hide. Records kept for legal and tax purposes.
+                                </p>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
+                                  onClick={() => {
+                                    onView(doc)
+                                    setMenuOpenId(null)
+                                  }}
+                                >
+                                  View
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
+                                  onClick={() => {
+                                    void onPdf(doc)
+                                    setMenuOpenId(null)
+                                  }}
+                                  disabled={pdfWorkingId === doc.id}
+                                >
+                                  {pdfWorkingId === doc.id ? 'Preparing PDF…' : 'Download PDF'}
+                                </button>
+                                {!archived ? (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
+                                    title={PAPER_TRAIL_RETENTION_HINT}
+                                    onClick={() => void onArchive(doc)}
+                                  >
+                                    Archive
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
+                                    onClick={() => void onUnarchive(doc)}
+                                  >
+                                    Restore
+                                  </button>
+                                )}
+                                {!doc.project_id ? (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
+                                    onClick={() => openLinkModal(doc)}
+                                  >
+                                    Link to project
+                                  </button>
+                                ) : (
+                                  <Link
+                                    to={`/projects/${doc.project_id}?tab=documents`}
+                                    className="w-full block text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] text-[var(--text-primary)] no-underline"
+                                    onClick={() => setMenuOpenId(null)}
+                                  >
+                                    Open project
+                                  </Link>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="documents-list-row__meta">
+                          <span>{documentTypeLabel(doc.document_type as PaperDocumentType)}</span>
+                          <span>·</span>
+                          <span className="truncate">{recipientLabel(doc)}</span>
+                          <span>·</span>
+                          <span>{displayDate(doc)}</span>
+                        </div>
+                        <div className="documents-list-row__actions" onClick={(e) => e.stopPropagation()}>
+                          <span className={`${statusBadgeClass(doc.status)} documents-status-pill-compact`}>{statusDisplayLabel(doc.status)}</span>
+                          {projectDeleted ? (
+                            <span className="documents-unlinked-badge documents-unlinked-badge--compact" title={origId ? `Former project id: ${origId}` : undefined}>
                               Project deleted
                             </span>
                           ) : pl.unlinked ? (
-                            <span className="documents-unlinked-badge documents-unlinked-badge--muted" title="Not linked to a project">
-                              Unlinked
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="documents-table-cell--project">
-                        {projectDeleted ? (
-                          <span title={origId ? `Former project id: ${origId}` : undefined}>Project deleted</span>
-                        ) : pl.unlinked ? (
-                          <span className="text-[var(--text-secondary)] truncate block">{pl.text}</span>
-                        ) : (
-                          <Link
-                            to={`/projects/${doc.project_id}?tab=documents`}
-                            className="text-[var(--accent)] hover:underline font-medium truncate block"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {pl.text}
-                          </Link>
-                        )}
-                      </div>
-                      <div className="text-[var(--text-secondary)] truncate">{recipientLabel(doc)}</div>
-                      <div className="font-mono tabular-nums">{formatMoney(doc.total_amount)}</div>
-                      <div>
-                        <span className={statusBadgeClass(doc.status)}>{statusDisplayLabel(doc.status)}</span>
-                      </div>
-                      <div className="text-[var(--text-muted)] whitespace-nowrap">{displayDate(doc)}</div>
-                      <div className="documents-table-cell--actions flex flex-wrap items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          className="documents-btn documents-btn-primary text-[12px] py-1 px-2.5"
-                          onClick={() => onView(doc)}
-                        >
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          className="documents-btn text-[12px] py-1 px-2.5"
-                          onClick={() => void onPdf(doc)}
-                          disabled={pdfWorkingId === doc.id}
-                        >
-                          {pdfWorkingId === doc.id ? '…' : 'Download PDF'}
-                        </button>
-                        <div className="relative inline-block" data-documents-row-menu={doc.id}>
-                          <button
-                            type="button"
-                            className="documents-btn text-[12px] py-1 px-2 min-w-[36px]"
-                            aria-label="More actions"
-                            onClick={() => setMenuOpenId((id) => (id === doc.id ? null : doc.id))}
-                          >
-                            •••
-                          </button>
-                          {menuOpenId === doc.id ? (
-                            <div
-                              className="absolute right-0 top-full mt-1 z-50 min-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] shadow-lg py-1 text-left"
-                              role="menu"
-                            >
-                              <p
-                                className="px-3 py-2 text-[11px] text-[var(--text-muted)] m-0 border-b border-[var(--border)] leading-snug"
-                                title={PAPER_TRAIL_RETENTION_HINT}
-                              >
-                                No delete — archive to hide. Records kept for legal and tax purposes.
-                              </p>
-                              {!archived ? (
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
-                                  title={PAPER_TRAIL_RETENTION_HINT}
-                                  onClick={() => void onArchive(doc)}
-                                >
-                                  Archive
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
-                                  onClick={() => void onUnarchive(doc)}
-                                >
-                                  Restore
-                                </button>
-                              )}
-                              {!doc.project_id ? (
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--bg-base)] bg-transparent border-none cursor-pointer"
-                                  onClick={() => openLinkModal(doc)}
-                                >
-                                  Link to project
-                                </button>
-                              ) : null}
-                            </div>
+                            <span className="documents-unlinked-badge documents-unlinked-badge--muted documents-unlinked-badge--compact">Unlinked</span>
                           ) : null}
                         </div>
                       </div>
@@ -509,8 +514,7 @@ export function DocumentsPage() {
                 })
               )}
             </div>
-          </div>
-        )}
+          )}
         </div>
       </div>
 

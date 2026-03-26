@@ -73,7 +73,7 @@ export function IntegrationsSection() {
     <>
       {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader title="Integrations" desc="Connect accounting, payments, e-sign, and maps." />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-4">
         {INTEGRATIONS.map((item) => (
           <Card key={item.id} style={{ marginBottom: 0 }}>
             <CardBody>
@@ -89,12 +89,13 @@ export function IntegrationsSection() {
                 </div>
                 <span
                   style={{
-                    fontSize: 11,
+                    fontSize: 9.5,
                     fontWeight: 700,
-                    letterSpacing: '0.06em',
+                    letterSpacing: '0.08em',
                     textTransform: 'uppercase',
-                    padding: '4px 10px',
-                    borderRadius: 20,
+                    padding: '3px 8px',
+                    borderRadius: 999,
+                    whiteSpace: 'nowrap',
                     background: states[item.id] ? '#dcfce7' : '#f1f0ed',
                     color: states[item.id] ? '#15803d' : '#9ca3af',
                   }}
@@ -113,11 +114,17 @@ export function IntegrationsSection() {
                 </div>
               )}
               {states[item.id] ? (
-                <Btn variant="ghost" onClick={() => setConnected(item.id, false)} disabled={!!updating}>
+                <Btn
+                  variant="ghost"
+                  onClick={() => setConnected(item.id, false)}
+                  disabled={!!updating}
+                  className="w-full md:w-auto"
+                >
                   {updating === item.id ? 'Updating…' : 'Disconnect'}
                 </Btn>
               ) : item.id === 'quickbooks' ? (
                 <Btn
+                  className="w-full md:w-auto"
                   onClick={async () => {
                     setUpdating('quickbooks')
                     setError(null)
@@ -135,6 +142,7 @@ export function IntegrationsSection() {
                 </Btn>
               ) : (
                 <Btn
+                  className="w-full md:w-auto"
                   onClick={() => setConnected(item.id, true, item.apiKey && keys[item.id] ? { apiKey: keys[item.id] } : undefined)}
                   disabled={!!updating}
                 >

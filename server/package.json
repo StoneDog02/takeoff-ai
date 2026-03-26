@@ -3,7 +3,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "test:qb-parser": "node scripts/test-parse-qb-products.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

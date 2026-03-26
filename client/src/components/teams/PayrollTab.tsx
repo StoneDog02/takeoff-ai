@@ -126,7 +126,7 @@ export function PayrollTab({ onSelectEmployee }: PayrollTabProps) {
         </div>
       </div>
 
-      <div className="teams-two-col" style={{ gridTemplateColumns: '240px 1fr' }}>
+      <div className="teams-two-col teams-payroll-two-col">
         <div className="teams-sidebar-list">
           <div className="teams-sidebar-list-title">Employees</div>
           {employees.map((e) => (
@@ -175,13 +175,13 @@ export function PayrollTab({ onSelectEmployee }: PayrollTabProps) {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid var(--border)' }}>
+            <div className="teams-payroll-detail-stats-grid" style={{ borderBottom: '1px solid var(--border)' }}>
               {[
                 { label: 'YTD Earnings', val: fmt(ytdEarnings), color: 'var(--green)' },
                 { label: 'YTD Hours', val: '—', color: 'var(--blue)' },
                 { label: 'Avg/Week', val: '—', color: 'var(--text-muted)' },
               ].map((s) => (
-                <div key={s.label} style={{ padding: '16px 20px', borderRight: '1px solid var(--border)', textAlign: 'center' }}>
+                <div key={s.label} className="teams-payroll-detail-stat-cell" style={{ padding: '16px 20px', borderRight: '1px solid var(--border)', textAlign: 'center' }}>
                   <div className="teams-metric-value" style={{ fontSize: 20, color: s.color, marginBottom: 3 }}>{s.val}</div>
                   <div className="teams-metric-label">{s.label}</div>
                 </div>
@@ -218,7 +218,7 @@ export function PayrollTab({ onSelectEmployee }: PayrollTabProps) {
 
               <form onSubmit={handleAdd} style={{ marginTop: 20 }}>
                 <div className="teams-metric-label" style={{ marginBottom: 12 }}>Add Raise</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div className="teams-payroll-raise-form-grid" style={{ gap: 10, marginBottom: 10 }}>
                   <div className="teams-form-row">
                     <label className="teams-label">Effective Date</label>
                     <input

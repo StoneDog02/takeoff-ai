@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppLayout } from '@/contexts/AppLayoutContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { dayjs, formatDate } from '@/lib/date'
@@ -309,7 +308,6 @@ export function DashboardPage() {
   const [scheduleDaysDates, setScheduleDaysDates] = useState<string[]>([])
   const [scheduleDaysMonth, setScheduleDaysMonth] = useState<string>('')
 
-  const appLayout = useAppLayout()
   const navigate = useNavigate()
 
   const visibleAlerts = alerts.filter((a) => !dismissedAlerts.includes(a.id))
@@ -494,26 +492,28 @@ export function DashboardPage() {
   return (
     <div className="layout">
       <main className="main">
-        {/* Page heading: hamburger + date & greeting + New Project */}
+        {/* Page heading: date + greeting (mobile menu is global — MobileNavBar); New Project */}
         <div className="dashboard-page-header flex-wrap gap-3">
-          <button type="button" className="hamburger shrink-0" onClick={() => appLayout?.openMobileNav()} aria-label="Open menu">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M2 4h12M2 8h12M2 12h12" /></svg>
-          </button>
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 flex-1 min-w-0">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-white-dim mb-0.5">
-                {dayjs().format('dddd, MMMM D, YYYY').toUpperCase()}
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 flex-1 min-w-0 w-full">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <time
+                    className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-white-dim shrink-0 leading-tight"
+                    dateTime={dayjs().format('YYYY-MM-DD')}
+                  >
+                    {dayjs().format('dddd, MMMM D, YYYY').toUpperCase()}
+                  </time>
+                  <h1 className="dashboard-title text-2xl font-normal tracking-tight m-0 min-w-0">
+                    {greeting}, {userName}.
+                  </h1>
+                </div>
               </div>
-              <h1 className="dashboard-title text-2xl font-normal tracking-tight m-0">
-                {greeting}, {userName}.
-              </h1>
-            </div>
             <button
               type="button"
-              className="btn btn-primary shrink-0 py-2 px-4 text-sm font-semibold flex items-center gap-1.5"
+              className="btn btn-primary self-end sm:self-auto shrink-0 py-1.5 px-3 text-xs font-semibold sm:py-2 sm:px-4 sm:text-sm inline-flex items-center gap-1.5"
               onClick={() => navigate('/projects?new=1')}
             >
-              <IconPlus className="w-4 h-4" />
+              <IconPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden />
               New Project
             </button>
           </div>
@@ -527,8 +527,8 @@ export function DashboardPage() {
               const icon = alert.type === 'invoice' ? '🧾' : alert.type === 'estimate' ? '📋' : '⚠️'
               const onAction = () => {
                 if (alert.type === 'budget_overrun') navigate(`/projects/${alert.entityId}`)
-                else if (alert.type === 'estimate') navigate('/financials?tab=invoicing')
-                else navigate('/financials')
+                else if (alert.type === 'estimate') navigate('/financials/invoicing')
+                else navigate('/financials/overview')
               }
               return (
                 <div
@@ -565,8 +565,8 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* KPI cards: 4 columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {/* KPI cards: 2×2 on mobile/tablet, 4 across on lg+ */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
           {kpisLoading ? (
             <div className="col-span-full">
               <LoadingSkeleton variant="cards" className="mb-6" />
@@ -590,18 +590,39 @@ export function DashboardPage() {
             return kpiRows.map((k, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-4 pt-[18px] pb-3 relative overflow-hidden"
+                className="rounded-xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-2.5 pt-3 pb-2 sm:p-4 sm:pt-[18px] sm:pb-3 lg:rounded-2xl relative overflow-hidden min-w-0"
               >
-                <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-2xl" style={{ background: k.color }} />
-                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-white-dim mb-2">{k.label}</div>
-                <div className="text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1.5">{k.val}</div>
+                <div
+                  className="absolute top-0 left-0 right-0 h-[2px] sm:h-[3px] rounded-t-xl lg:rounded-t-2xl"
+                  style={{ background: k.color }}
+                />
+                <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-white-dim mb-1 sm:mb-2 leading-tight">
+                  {k.label}
+                </div>
+                <div className="text-base sm:text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1 sm:mb-1.5 tabular-nums leading-tight">
+                  {k.val}
+                </div>
                 {k.spark && k.spark.length >= 2 ? (
-                  <div className="flex items-end justify-between gap-2">
-                    <span className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</span>
-                    <Sparkline data={k.spark} color={k.sparkColor!} height={28} width={72} />
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-2 min-h-0">
+                    <span
+                      className="text-[10px] sm:text-[11px] font-semibold leading-snug line-clamp-2 sm:line-clamp-none min-w-0"
+                      style={{ color: k.color }}
+                    >
+                      {k.sub}
+                    </span>
+                    <span className="shrink-0 self-end sm:self-auto">
+                      <span className="sm:hidden">
+                        <Sparkline data={k.spark} color={k.sparkColor!} height={20} width={44} />
+                      </span>
+                      <span className="hidden sm:inline">
+                        <Sparkline data={k.spark} color={k.sparkColor!} height={28} width={72} />
+                      </span>
+                    </span>
                   </div>
                 ) : k.isActiveJobs ? null : (
-                  <div className="text-[11px] font-semibold" style={{ color: k.color }}>{k.sub}</div>
+                  <div className="text-[10px] sm:text-[11px] font-semibold leading-snug line-clamp-2 sm:line-clamp-none" style={{ color: k.color }}>
+                    {k.sub}
+                  </div>
                 )}
               </div>
             ))

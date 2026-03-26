@@ -40,6 +40,34 @@ export interface EstimateWithLines extends Estimate {
   estimate_groups_meta?: unknown
 }
 
+/** Parsed QuickBooks-style spreadsheet (preview before import). */
+export interface CustomProductsImportPreview {
+  totalParsed: number
+  wouldInsert: number
+  skippedDuplicates: number
+  previewRows: Array<{
+    name: string
+    description: string | null
+    unit: string
+    default_unit_price: number
+    sub_cost: number | null
+    item_type: string
+    taxable: boolean
+    sourceRow: number
+  }>
+  warnings: string[]
+  parseErrors: Array<{ row: number; message: string }>
+}
+
+/** Result after POST /custom-products/import */
+export interface CustomProductsImportResult {
+  inserted: number
+  skippedDuplicates: number
+  totalParsed: number
+  warnings: string[]
+  parseErrors: Array<{ row: number; message: string }>
+}
+
 export const estimatesApi = {
   // Jobs (projects as jobs)
   async getJobs(): Promise<Job[]> {
@@ -285,6 +313,30 @@ export const estimatesApi = {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/custom-products`, { headers })
     return handleResponse<CustomProduct[]>(res)
+  },
+
+  async previewCustomProductsImport(file: File): Promise<CustomProductsImportPreview> {
+    const headers = await getAuthHeaders()
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${API_BASE}/custom-products/import/preview`, {
+      method: 'POST',
+      headers,
+      body: form,
+    })
+    return handleResponse<CustomProductsImportPreview>(res)
+  },
+
+  async importCustomProducts(file: File): Promise<CustomProductsImportResult> {
+    const headers = await getAuthHeaders()
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${API_BASE}/custom-products/import`, {
+      method: 'POST',
+      headers,
+      body: form,
+    })
+    return handleResponse<CustomProductsImportResult>(res)
   },
 
   async createCustomProduct(params: {

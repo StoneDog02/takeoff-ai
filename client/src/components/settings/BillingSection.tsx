@@ -7,15 +7,22 @@ export function BillingSection() {
   return (
     <>
       <SectionHeader title="Billing & Subscription" desc="Manage your plan and view usage." />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-4">
         <Card style={{ marginBottom: 0 }}>
           <CardHeader title="Current plan" />
           <CardBody>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 30, fontWeight: 800, color: '#111', letterSpacing: '-0.02em' }}>Professional</span>
+            <div className="mb-1 flex min-w-0 items-baseline gap-1.5">
+              <span
+                className="min-w-0 break-words text-[22px] font-extrabold tracking-tight text-[#111] dark:text-[var(--text-primary)] md:text-[30px]"
+                style={{ letterSpacing: '-0.02em' }}
+              >
+                Professional
+              </span>
             </div>
             <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 20 }}>$99 / month · Billed monthly</div>
-            <Btn variant="ghost">Change plan</Btn>
+            <Btn variant="ghost" className="w-full md:w-auto">
+              Change plan
+            </Btn>
           </CardBody>
         </Card>
         <Card style={{ marginBottom: 0 }}>
@@ -40,12 +47,16 @@ export function BillingSection() {
         </Card>
       </div>
       <Card>
-        <CardBody style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: '#111', marginBottom: 3 }}>Upgrade to Enterprise</div>
-            <div style={{ fontSize: 13, color: '#9ca3af' }}>Unlimited projects, seats, and priority support. Contact sales for custom pricing.</div>
+        <CardBody className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 text-[15px] font-bold text-[#111] dark:text-[var(--text-primary)]">
+              Upgrade to Enterprise
+            </div>
+            <div className="mb-2 text-[13px] leading-snug text-[#9ca3af]">
+              Unlimited projects, seats, and priority support. Contact sales for custom pricing.
+            </div>
           </div>
-          <Btn style={{ whiteSpace: 'nowrap' }}>Upgrade plan →</Btn>
+          <Btn className="w-full shrink-0 whitespace-nowrap md:w-auto">Upgrade plan →</Btn>
         </CardBody>
       </Card>
     </>

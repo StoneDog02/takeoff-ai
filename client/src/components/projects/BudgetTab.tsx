@@ -283,6 +283,20 @@ export function BudgetTab({
     [postApprovalLinesSum, approvedCOs]
   )
   const pendingCOs = useMemo(() => changeOrders.filter((c) => c.status === 'Pending').reduce((s, c) => s + c.amount, 0), [changeOrders])
+
+  /** Budgeted $ per category (line items + approved COs) — matches category rollup; used for spend breakdown “of $X”. */
+  const categoryBudgetedByKey = useMemo(() => {
+    const byCat = new Map<string, number>()
+    for (const i of rollupList) {
+      const key = normalizeCategoryKey(i)
+      byCat.set(key, (byCat.get(key) ?? 0) + Number(i.predicted || 0))
+    }
+    for (const co of changeOrders.filter((c) => c.status === 'Approved')) {
+      const key = co.category && CATEGORY_ORDER.includes(co.category) ? co.category : 'other'
+      byCat.set(key, (byCat.get(key) ?? 0) + co.amount)
+    }
+    return byCat
+  }, [rollupList, changeOrders])
   const originalBudget = originalEstimateBaseline > 0 ? originalEstimateBaseline : baselineBudget
   const adjustedBudget = baselineBudget + approvedCOs
   const totalBudget = baselineBudget + approvedCOs
@@ -490,16 +504,20 @@ export function BudgetTab({
       byCategory.set(key, (byCategory.get(key) ?? 0) + (Number(item.actual) || 0))
     }
     return CATEGORY_ORDER
-      .filter((key) => byCategory.has(key))
+      .filter((key) => {
+        const actual = byCategory.get(key) ?? 0
+        const budgeted = categoryBudgetedByKey.get(key) ?? 0
+        return actual > 0 || budgeted > 0
+      })
       .map((key) => ({
         id: `spend-${key}`,
         project_id: projectId,
         label: CATEGORY_LABELS[key] ?? key,
-        predicted: 0,
+        predicted: categoryBudgetedByKey.get(key) ?? 0,
         actual: byCategory.get(key) ?? 0,
         category: key,
       }))
-  }, [rollupList, projectId])
+  }, [rollupList, projectId, categoryBudgetedByKey])
 
   function polarToXY(pct: number, r: number) {
     const angle = pct * 2 * Math.PI - Math.PI / 2
@@ -512,6 +530,84 @@ export function BudgetTab({
     const e = polarToXY(endPct, r)
     const large = endPct - startPct > 0.5 ? 1 : 0
     return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`
+  }
+
+  function renderBudgetVizSidebar() {
+    return (
+      <>
+        <div className="budget-donut-right">
+          <div className="budget-donut-title">Spend breakdown</div>
+          <div className="budget-donut-svg-wrap" style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+            <svg width={120} height={120} viewBox="0 0 120 120">
+              {segments.filter((s) => s.pct > 0).map((seg) => (
+                <path key={seg.id} d={arcPath(seg.start, seg.start + seg.pct, 44)} fill="none" stroke={seg.color} strokeWidth={12} strokeLinecap="butt" />
+              ))}
+              <circle cx={60} cy={60} r={32} fill="var(--bg-surface)" />
+              <text x={60} y={56} textAnchor="middle" fontSize={11} fontWeight={700} fill="var(--text-primary)">ACTUAL</text>
+              <text x={60} y={72} textAnchor="middle" fontSize={14} fontWeight={700} fill="var(--text-primary)" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalActual >= 1000 ? `$${Math.round(totalActual / 1000)}k` : fmt(totalActual)}</text>
+            </svg>
+          </div>
+          {spendBreakdownRows.map((item) => {
+            const budgeted = Number(item.predicted || 0)
+            const actual = Number(item.actual || 0)
+            const barPct = budgeted > 0 ? Math.min(100, Math.round((actual / budgeted) * 100)) : 0
+            const c = getItemColor(item)
+            return (
+              <div key={item.id} className="budget-spend-row">
+                <div className="budget-spend-row-desktop">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{item.label}</span>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(actual)}</span>
+                </div>
+                <div className="budget-spend-row-mobile">
+                  <div className="budget-spend-row-mobile-top">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{item.label}</span>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                      {fmt(actual)} of {fmt(budgeted)}
+                    </span>
+                  </div>
+                  <div className="budget-spend-row-bar-track" aria-hidden>
+                    <div className="budget-spend-row-bar-fill" style={{ width: `${barPct}%`, background: c }} />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="budget-alerts-card">
+          <div className="budget-alerts-title">Alerts</div>
+          {rollupList.map((item) => {
+            const budgetedRow = Number(item.predicted || 0)
+            const actualRow = Number(item.actual || 0)
+            const pctRow = budgetedRow ? Math.round((actualRow / budgetedRow) * 100) : 0
+            if (pctRow < 80) return null
+            const over = pctRow > 100
+            return (
+              <div key={item.id} className="budget-alert-item" style={{ background: over ? '#fef2f2' : '#fffbeb', borderColor: over ? '#fecaca' : '#fde68a' }}>
+                <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={over ? 'var(--red)' : '#f59e0b'} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: over ? '#991b1b' : '#92400e' }}>{over ? `${item.label} over budget` : `${item.label} at ${pctRow}% of budget`}</div>
+                  <div style={{ fontSize: 11, color: over ? 'var(--red)' : '#f59e0b', marginTop: 1 }}>{fmt(actualRow)} of {fmt(budgetedRow)} budgeted</div>
+                </div>
+              </div>
+            )
+          })}
+          {rollupList.every((i) => (Number(i.actual || 0) / (Number(i.predicted) || 1)) < 0.8) && (
+            <div className="budget-alerts-all-clear">
+              <span className="budget-alerts-all-clear-icon" aria-hidden>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M20 6L9 17l-5-5" /></svg>
+              </span>
+              <span>All categories on track</span>
+            </div>
+          )}
+        </div>
+      </>
+    )
   }
 
   function renderBudgetRow(
@@ -841,19 +937,36 @@ export function BudgetTab({
           </div>
 
           {activeSection === 'budget' && (
+            <div className="budget-mobile-unified">
             <div className="budget-table-card">
               <div className="budget-table-header">
                 <div>
-                  <div className="budget-table-title">Budget vs Actual</div>
+                  <div className="budget-table-title">Budget vs actual</div>
                   <div className="budget-table-sub">
-                    {rollupList.length} line items
-                    {!provisionalMode ? ' · click a row to see transactions' : ' · pending approval'}
+                    <span className="hidden lg:inline">
+                      {rollupList.length} line items
+                      {!provisionalMode ? ' · click a row to see transactions' : ' · pending approval'}
+                    </span>
+                    <span className="lg:hidden">
+                      {rollupList.length} line item{rollupList.length !== 1 ? 's' : ''}
+                      {!provisionalMode ? ' · tap row for transactions' : ' · pending approval'}
+                    </span>
                   </div>
                 </div>
                 <div className="budget-view-toggle">
                   {(['category', 'item'] as const).map((v) => (
                     <button key={v} type="button" onClick={() => setViewMode(v)} className={`budget-view-toggle-btn ${viewMode === v ? 'active' : ''}`}>
-                      {v === 'category' ? 'By Category' : 'By Item'}
+                      {v === 'category' ? (
+                        <>
+                          <span className="hidden lg:inline">By Category</span>
+                          <span className="lg:hidden">Category</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="hidden lg:inline">By Item</span>
+                          <span className="lg:hidden">Item</span>
+                        </>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1045,6 +1158,8 @@ export function BudgetTab({
                   : 'EST = seeded from approved estimate · CO = change order or line added after approval.'}
               </div>
             </div>
+            <div className="budget-mobile-viz lg:hidden">{renderBudgetVizSidebar()}</div>
+            </div>
           )}
 
           {activeSection === 'changeorders' && (
@@ -1180,52 +1295,12 @@ export function BudgetTab({
           )}
         </div>
 
-        {/* Right: Donut + Alerts */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="budget-donut-right">
-            <div className="budget-donut-title">Spend Breakdown</div>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-              <svg width={120} height={120} viewBox="0 0 120 120">
-                {segments.filter((s) => s.pct > 0).map((seg) => (
-                  <path key={seg.id} d={arcPath(seg.start, seg.start + seg.pct, 44)} fill="none" stroke={seg.color} strokeWidth={12} strokeLinecap="butt" />
-                ))}
-                <circle cx={60} cy={60} r={32} fill="var(--bg-surface)" />
-                <text x={60} y={56} textAnchor="middle" fontSize={11} fontWeight={700} fill="var(--text-primary)">ACTUAL</text>
-                <text x={60} y={72} textAnchor="middle" fontSize={14} fontWeight={700} fill="var(--text-primary)" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalActual >= 1000 ? `$${Math.round(totalActual / 1000)}k` : fmt(totalActual)}</text>
-              </svg>
-            </div>
-            {spendBreakdownRows.map((item) => (
-              <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: getItemColor(item) }} />
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{item.label}</span>
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmt(Number(item.actual || 0))}</span>
-              </div>
-            ))}
-          </div>
-          <div className="budget-alerts-card">
-            <div className="budget-alerts-title">Alerts</div>
-            {rollupList.map((item) => {
-              const budgeted = Number(item.predicted || 0)
-              const actual = Number(item.actual || 0)
-              const pct = budgeted ? Math.round((actual / budgeted) * 100) : 0
-              if (pct < 80) return null
-              const over = pct > 100
-              return (
-                <div key={item.id} className="budget-alert-item" style={{ background: over ? '#fef2f2' : '#fffbeb', borderColor: over ? '#fecaca' : '#fde68a' }}>
-                  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={over ? 'var(--red)' : '#f59e0b'} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: over ? '#991b1b' : '#92400e' }}>{over ? `${item.label} over budget` : `${item.label} at ${pct}% of budget`}</div>
-                    <div style={{ fontSize: 11, color: over ? 'var(--red)' : '#f59e0b', marginTop: 1 }}>{fmt(actual)} of {fmt(budgeted)} budgeted</div>
-                  </div>
-                </div>
-              )
-            })}
-            {rollupList.every((i) => (Number(i.actual || 0) / (Number(i.predicted) || 1)) < 0.8) && (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No alerts – all categories on track</div>
-            )}
-          </div>
+        {/* Right: Donut + Alerts (hidden on mobile when Line Items — those render inside budget-mobile-unified) */}
+        <div
+          className={activeSection === 'budget' ? 'hidden lg:flex flex-col' : 'flex flex-col'}
+          style={{ gap: 16 }}
+        >
+          {renderBudgetVizSidebar()}
         </div>
       </div>
 

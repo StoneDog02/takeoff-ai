@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, Mail, MessageSquare, Send } from 'lucide-react'
+import { Search, Mail, MessageSquare, Send, ChevronLeft } from 'lucide-react'
 import { teamsApi } from '@/api/teams'
 import { api } from '@/api/client'
 import type { Employee } from '@/types/global'
@@ -23,6 +23,8 @@ const COLORS = ['#15803d', '#374151', '#9a3412', '#7c3aed', '#0891b2', '#b45309'
 
 export function EmployeesTabView() {
   const { user: authUser } = useAuth()
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(false)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -33,6 +35,14 @@ export function EmployeesTabView() {
   const [sending, setSending] = useState(false)
   const [employeeWeAreMessaging, setEmployeeWeAreMessaging] = useState<Employee | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const sync = () => setIsMobile(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -92,15 +102,28 @@ export function EmployeesTabView() {
 
   const withPortalAccess = employees.filter((e) => e.auth_user_id)
 
+  const showList = !isMobile || !mobileThreadOpen
+  const showChat = !isMobile || mobileThreadOpen
+
   const openConversation = async (emp: Employee) => {
     if (!emp.auth_user_id) return
     try {
       const conv = await api.conversations.findOrCreate(emp.auth_user_id)
       setSelectedConversationId(conv.id)
       setEmployeeWeAreMessaging(emp)
+      if (window.matchMedia('(max-width: 767px)').matches) {
+        setMobileThreadOpen(true)
+      }
     } catch {
       // could toast error
     }
+  }
+
+  const backToEmployeeList = () => {
+    setMobileThreadOpen(false)
+    setSelectedConversationId(null)
+    setEmployeeWeAreMessaging(null)
+    setMessages([])
   }
 
   const sendMessage = async () => {
@@ -137,7 +160,11 @@ export function EmployeesTabView() {
 
       <div className="flex flex-1 min-h-0 gap-4 rounded-2xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-hidden">
         {/* Left: employee list */}
-        <div className="w-[300px] shrink-0 flex flex-col border-r border-border dark:border-border-dark">
+        <div
+          className={`w-full shrink-0 flex flex-col border-r border-border dark:border-border-dark md:w-[300px] ${
+            showList ? 'flex' : 'hidden md:flex'
+          }`}
+        >
           <div className="p-2.5 border-b border-border dark:border-border-dark">
             <div className="relative">
               <Search
@@ -205,10 +232,22 @@ export function EmployeesTabView() {
         </div>
 
         {/* Right: chat or empty state */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div
+          className={`flex-1 flex flex-col min-w-0 ${showChat ? 'flex' : 'hidden md:flex'}`}
+        >
           {selectedConversationId && employeeWeAreMessaging ? (
             <>
               <div className="px-4 py-3 border-b border-border dark:border-border-dark flex items-center gap-3 shrink-0">
+                {isMobile && mobileThreadOpen && (
+                  <button
+                    type="button"
+                    onClick={backToEmployeeList}
+                    className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border dark:border-border-dark bg-[var(--bg-page)] dark:bg-dark-4 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                    aria-label="Back to employees"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                )}
                 <Avatar
                   initials={getInitials(employeeWeAreMessaging.name)}
                   color={COLORS[employees.indexOf(employeeWeAreMessaging) % COLORS.length]}

@@ -159,7 +159,7 @@ function JobCard({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5 mb-4">
           {[
             { Icon: Calendar, label: 'Assigned', value: job.assignedDate },
             { Icon: Clock, label: 'Hrs logged', value: `${job.hoursLogged} hrs` },

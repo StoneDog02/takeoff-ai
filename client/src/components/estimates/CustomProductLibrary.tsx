@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { estimatesApi } from '@/api/estimates'
+import { estimatesApi, type CustomProductsImportPreview } from '@/api/estimates'
 import type { CustomProduct } from '@/types/global'
 import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import AddProductModal, { type AddProductModalPayload } from '@/components/estimates/AddProductModal'
@@ -61,6 +61,16 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
     default_unit_price: 0,
     category: 'Other',
   })
+
+  const importFileRef = useRef<HTMLInputElement>(null)
+  const importTableRef = useRef<HTMLDivElement | null>(null)
+  const [importPreviewLoading, setImportPreviewLoading] = useState(false)
+  const [importRunLoading, setImportRunLoading] = useState(false)
+  const [importPreview, setImportPreview] = useState<CustomProductsImportPreview | null>(null)
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null)
+  const [importBanner, setImportBanner] = useState<string | null>(null)
+  const [importPreviewPage, setImportPreviewPage] = useState(0)
+  const IMPORT_PREVIEW_PAGE_SIZE = 25
 
   const load = () => {
     if (USE_MOCK_ESTIMATES) {
@@ -181,6 +191,64 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
   const resolveProduct = (dp: ProductsDrawerProduct) =>
     products.find((x) => String(x.id) === String(dp.id))
 
+  const openImportPicker = () => {
+    importFileRef.current?.click()
+  }
+
+  const onImportFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setImportPreviewLoading(true)
+    setImportPreview(null)
+    setPendingImportFile(null)
+    setImportPreviewPage(0)
+    try {
+      const preview = await estimatesApi.previewCustomProductsImport(file)
+      setImportPreview(preview)
+      setPendingImportFile(file)
+      setImportPreviewPage(0)
+    } catch (err) {
+      console.error(err)
+      window.alert(err instanceof Error ? err.message : 'Could not read that file.')
+    } finally {
+      setImportPreviewLoading(false)
+    }
+  }
+
+  const closeImportModal = () => {
+    if (importRunLoading) return
+    setImportPreview(null)
+    setPendingImportFile(null)
+    setImportPreviewPage(0)
+  }
+
+  const confirmImport = async () => {
+    if (!pendingImportFile || !importPreview) return
+    if (importPreview.wouldInsert === 0) {
+      window.alert('Nothing new to import — all rows match items already in your library (same name and unit).')
+      return
+    }
+    setImportRunLoading(true)
+    try {
+      const r = await estimatesApi.importCustomProducts(pendingImportFile)
+      setImportPreview(null)
+      setPendingImportFile(null)
+      load()
+      const parts = [`Imported ${r.inserted} item${r.inserted === 1 ? '' : 's'}`]
+      if (r.skippedDuplicates > 0) {
+        parts.push(`${r.skippedDuplicates} duplicate${r.skippedDuplicates === 1 ? '' : 's'} skipped`)
+      }
+      setImportBanner(parts.join(' · '))
+      window.setTimeout(() => setImportBanner(null), 10000)
+    } catch (err) {
+      console.error(err)
+      window.alert(err instanceof Error ? err.message : 'Import failed.')
+    } finally {
+      setImportRunLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="pdr-root" style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted, #888)' }}>
@@ -191,10 +259,36 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
 
   return (
     <>
+      <input
+        ref={importFileRef}
+        type="file"
+        className="sr-only"
+        tabIndex={-1}
+        accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+        aria-hidden
+        onChange={onImportFileChange}
+      />
+      {importBanner ? (
+        <div
+          style={{
+            padding: '10px 16px',
+            marginBottom: 8,
+            borderRadius: 10,
+            background: 'var(--pdr-accent-bg, rgba(192,57,43,0.09))',
+            color: 'var(--pdr-text-primary, inherit)',
+            fontSize: 13,
+            border: '0.5px solid var(--pdr-border, rgba(0,0,0,0.1))',
+          }}
+          role="status"
+        >
+          {importBanner}
+        </div>
+      ) : null}
       <ProductsDrawer
         products={drawerProducts}
         onClose={onClose ?? (() => {})}
         onAdd={openCreate}
+        onImport={USE_MOCK_ESTIMATES ? undefined : openImportPicker}
         onEdit={(dp) => {
           const full = resolveProduct(dp)
           if (full) openEdit(full)
@@ -348,6 +442,245 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
           </div>
         </div>
       )}
+      {importPreviewLoading &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 12000,
+              background: 'rgba(0,0,0,0.28)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            role="status"
+            aria-live="polite"
+          >
+            <span style={{ color: '#fff', fontSize: 15, fontWeight: 600 }}>Reading spreadsheet…</span>
+          </div>,
+          document.body
+        )}
+      {importPreview &&
+        pendingImportFile &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="add-product-modal-overlay"
+            onClick={closeImportModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-products-title"
+          >
+            <div
+              className="add-product-modal-card"
+              style={{
+                maxWidth: 720,
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                padding: '24px 28px',
+                boxShadow: '0 18px 45px rgba(15,23,42,0.25)',
+                background: 'var(--surface, #ffffff)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="import-products-title" className="add-product-modal-title">
+                Import products
+              </h2>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, marginBottom: 16 }}>
+                <strong>{pendingImportFile.name}</strong>
+                {' · '}
+                QuickBooks-style Excel or CSV (header row with item name and price columns).
+              </p>
+              {importPreview.totalParsed === 0 ? (
+                <p style={{ fontSize: 14, marginBottom: 16 }}>
+                  No product rows were found. Check that the first sheet has a header row (e.g. Item name, Sales price)
+                  and data below it.
+                </p>
+              ) : null}
+              <div style={{ fontSize: 14, marginBottom: 20, lineHeight: 1.6, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                <div>
+                  <strong>{importPreview.totalParsed}</strong> row{importPreview.totalParsed === 1 ? '' : 's'} in file
+                </div>
+                <div style={{ color: importPreview.wouldInsert > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                  <strong>{importPreview.wouldInsert}</strong> new item{importPreview.wouldInsert === 1 ? '' : 's'} will be added
+                </div>
+                {importPreview.skippedDuplicates > 0 ? (
+                  <div style={{ color: 'var(--text-muted)' }}>
+                    <strong>{importPreview.skippedDuplicates}</strong> skipped (already in your library — same name and unit)
+                  </div>
+                ) : null}
+              </div>
+              {importPreview.warnings.length > 0 ? (
+                <div style={{ marginBottom: 12 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Notes</p>
+                  <ul style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, paddingLeft: '1.1rem' }}>
+                    {importPreview.warnings.slice(0, 5).map((w, i) => (
+                      <li key={i} style={{ marginBottom: 2 }}>
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {importPreview.parseErrors.length > 0 ? (
+                <ul style={{ fontSize: 12, color: 'var(--red-light, #c0392b)', margin: '0 0 12px 1rem' }}>
+                  {importPreview.parseErrors.map((pe, i) => (
+                    <li key={i}>
+                      Row {pe.row}: {pe.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {importPreview.previewRows.length > 0 ? (
+                <>
+                  <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+                    Preview · Showing{' '}
+                    {Math.min(
+                      importPreview.totalParsed,
+                      importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE + 1
+                    )}
+                    –
+                    {Math.min(
+                      importPreview.totalParsed,
+                      (importPreviewPage + 1) * IMPORT_PREVIEW_PAGE_SIZE
+                    )}{' '}
+                    of {importPreview.totalParsed} item
+                    {importPreview.totalParsed === 1 ? '' : 's'}
+                  </p>
+                  <div
+                    ref={importTableRef}
+                    style={{
+                      overflowX: 'auto',
+                      maxHeight: 260,
+                      border: '0.5px solid var(--border)',
+                      borderRadius: 8,
+                    }}
+                  >
+                    <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-secondary, rgba(148,163,184,0.1))' }}>
+                          <th style={{ textAlign: 'left', padding: 8 }}>Name</th>
+                          <th style={{ textAlign: 'left', padding: 8 }}>Unit</th>
+                          <th style={{ textAlign: 'right', padding: 8 }}>Price</th>
+                          <th style={{ textAlign: 'right', padding: 8 }}>Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.previewRows
+                          .slice(
+                            importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE,
+                            (importPreviewPage + 1) * IMPORT_PREVIEW_PAGE_SIZE
+                          )
+                          .map((row, i) => {
+                            const globalIndex = importPreviewPage * IMPORT_PREVIEW_PAGE_SIZE + i
+                            return (
+                          <tr
+                            key={globalIndex}
+                            style={{
+                              borderTop: '0.5px solid var(--border)',
+                              background:
+                                globalIndex % 2 === 0
+                                  ? 'transparent'
+                                  : 'var(--bg-secondary, rgba(148,163,184,0.06))',
+                            }}
+                          >
+                            <td style={{ padding: 8, maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {row.name}
+                            </td>
+                            <td style={{ padding: 8, width: 60 }}>{row.unit}</td>
+                            <td style={{ padding: 8, textAlign: 'right', width: 110 }}>
+                              ${Number(row.default_unit_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: 8, textAlign: 'right', width: 110 }}>
+                              {row.sub_cost != null ? `$${Number(row.sub_cost).toFixed(2)}` : '—'}
+                            </td>
+                          </tr>
+                            )
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {importPreview.totalParsed > IMPORT_PREVIEW_PAGE_SIZE ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginTop: 10,
+                        fontSize: 12,
+                      }}
+                    >
+                      <div>
+                        Page {importPreviewPage + 1} of{' '}
+                        {Math.max(1, Math.ceil(importPreview.totalParsed / IMPORT_PREVIEW_PAGE_SIZE))}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ paddingInline: 10, fontSize: 12 }}
+                          onClick={() => {
+                            setImportPreviewPage((p) => {
+                              const next = Math.max(0, p - 1)
+                              if (next !== p && importTableRef.current) {
+                                importTableRef.current.scrollTop = 0
+                              }
+                              return next
+                            })
+                          }}
+                          disabled={importPreviewPage === 0}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ paddingInline: 10, fontSize: 12 }}
+                          onClick={() =>
+                            setImportPreviewPage((p) => {
+                              const lastPage = Math.max(
+                                0,
+                                Math.ceil(importPreview.totalParsed / IMPORT_PREVIEW_PAGE_SIZE) - 1
+                              )
+                              const next = Math.min(lastPage, p + 1)
+                              if (next !== p && importTableRef.current) {
+                                importTableRef.current.scrollTop = 0
+                              }
+                              return next
+                            })
+                          }
+                          disabled={
+                            importPreviewPage >=
+                            Math.max(0, Math.ceil(importPreview.totalParsed / IMPORT_PREVIEW_PAGE_SIZE) - 1)
+                          }
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+              <div className="add-product-form-actions" style={{ marginTop: 20 }}>
+                <button type="button" className="btn btn-ghost" onClick={closeImportModal} disabled={importRunLoading}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void confirmImport()}
+                  disabled={importRunLoading || importPreview.wouldInsert === 0}
+                >
+                  {importRunLoading ? 'Importing…' : 'Import'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       {deleteTarget &&
         typeof document !== 'undefined' &&
         createPortal(

@@ -75,62 +75,65 @@ export function BrandingSection() {
       <Card>
         <CardHeader title="Visual identity" />
         <CardBody>
-          <FieldRow cols="auto 1fr">
-            <Field label="Logo">
-              <div
-                style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 14,
-                  border: '2px dashed #e8e6e1',
-                  background: logo ? 'transparent' : '#fafaf9',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  overflow: 'hidden',
-                }}
-                onClick={() => fileRef.current?.click()}
-              >
-                {logo ? (
-                  <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="" />
-                ) : (
-                  <span style={{ fontSize: 10, color: '#c4bfb8', textAlign: 'center' }}>Click to upload</span>
-                )}
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleLogoChange}
-              />
-            </Field>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
+            {/* Logo uploader */}
             <div>
-              <FieldRow cols="1fr 1fr">
-                <Field label="Primary Brand Color">
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 9, background: color, border: '2px solid #e8e6e1', flexShrink: 0, overflow: 'hidden', position: 'relative', cursor: 'pointer' }}>
-                      <input
-                        type="color"
-                        value={color}
-                        onChange={(e) => setColor(e.target.value)}
-                        style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer', position: 'absolute', inset: 0 }}
-                      />
-                    </div>
-                    <Input value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 120 }} />
-                  </div>
-                </Field>
-                <Field label="Invoice Template">
-                  <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
-                    {TEMPLATE_OPTIONS.map((t) => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </Select>
-                </Field>
-              </FieldRow>
+              <Field label="Logo">
+                <div
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 14,
+                    border: '2px dashed #e8e6e1',
+                    background: logo ? 'transparent' : '#fafaf9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    overflow: 'hidden',
+                  }}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  {logo ? (
+                    <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="" />
+                  ) : (
+                    <span style={{ fontSize: 10, color: '#c4bfb8', textAlign: 'center' }}>Click to upload</span>
+                  )}
+                </div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleLogoChange}
+                />
+              </Field>
             </div>
-          </FieldRow>
+
+            {/* Color + template (stack on mobile, side by side on wider screens) */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Primary Brand Color">
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 9, background: color, border: '2px solid #e8e6e1', flexShrink: 0, overflow: 'hidden', position: 'relative', cursor: 'pointer' }}>
+                    <input
+                      type="color"
+                      value={color}
+                      onChange={(e) => setColor(e.target.value)}
+                      style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer', position: 'absolute', inset: 0 }}
+                    />
+                  </div>
+                  <Input value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 120 }} />
+                </div>
+              </Field>
+              <Field label="Invoice Template">
+                <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
+                  {TEMPLATE_OPTIONS.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+          </div>
         </CardBody>
       </Card>
 
@@ -163,13 +166,11 @@ export function BrandingSection() {
               </div>
             </div>
           </div>
-        </CardBody>
-      </Card>
-      <Card style={{ marginBottom: 0 }}>
-        <CardBody>
-          <SaveRow>
-            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save branding'}</Btn>
-          </SaveRow>
+          <div style={{ marginTop: 16 }}>
+            <SaveRow>
+              <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save branding'}</Btn>
+            </SaveRow>
+          </div>
         </CardBody>
       </Card>
     </>

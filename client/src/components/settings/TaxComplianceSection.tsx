@@ -126,13 +126,11 @@ export function TaxComplianceSection() {
               Insurance expiring within 30 days — please renew
             </div>
           )}
-        </CardBody>
-      </Card>
-      <Card style={{ marginBottom: 0 }}>
-        <CardBody>
-          <SaveRow>
-            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save compliance info'}</Btn>
-          </SaveRow>
+          <div style={{ marginTop: 16 }}>
+            <SaveRow>
+              <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save compliance info'}</Btn>
+            </SaveRow>
+          </div>
         </CardBody>
       </Card>
     </>

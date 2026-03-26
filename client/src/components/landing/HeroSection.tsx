@@ -1,5 +1,92 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HeroDashboardMock } from '@/components/landing/HeroDashboardMock'
+
+const HERO_FEATURE_BADGES_ROW1 = [
+  'Material Takeoffs',
+  'Bid Sheets',
+  'Job Tracking',
+  'Invoicing',
+  'Crew Management',
+  'Timeclock',
+] as const
+
+const HERO_FEATURE_BADGES_ROW2 = ['Client Messaging', 'Sub Bids', 'Scheduling'] as const
+
+const HERO_FEATURE_BADGES_MOBILE_ALL = [...HERO_FEATURE_BADGES_ROW1, ...HERO_FEATURE_BADGES_ROW2]
+const HERO_FEATURE_BADGES_MOBILE_LAST = HERO_FEATURE_BADGES_MOBILE_ALL[HERO_FEATURE_BADGES_MOBILE_ALL.length - 1]
+const HERO_FEATURE_BADGES_MOBILE_PAIRS = HERO_FEATURE_BADGES_MOBILE_ALL.slice(0, -1)
+const HERO_FEATURE_BADGES_MOBILE_LEFT = HERO_FEATURE_BADGES_MOBILE_PAIRS.filter((_, i) => i % 2 === 0)
+const HERO_FEATURE_BADGES_MOBILE_RIGHT = HERO_FEATURE_BADGES_MOBILE_PAIRS.filter((_, i) => i % 2 === 1)
+
+const HERO_FEATURE_BADGES_ROW2_DESKTOP_COL_START = ['col-start-4', 'col-start-6', 'col-start-8'] as const
+
+const heroFeatureBadgeClass =
+  'inline-flex items-center justify-center w-max max-w-full min-w-0 justify-self-center py-2.5 px-2.5 sm:px-3 rounded-full text-xs sm:text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white whitespace-nowrap'
+
+function HeroFeatureBadgesMobile() {
+  const measureRef = useRef<HTMLDivElement>(null)
+  const [uniformPx, setUniformPx] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const root = measureRef.current
+      if (!root) return
+      let max = 0
+      for (const el of Array.from(root.children)) {
+        if (el instanceof HTMLElement) {
+          max = Math.max(max, Math.ceil(el.getBoundingClientRect().width))
+        }
+      }
+      setUniformPx(max > 0 ? max : null)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  const pillStyle =
+    uniformPx != null ? ({ width: uniformPx, minWidth: uniformPx } as const) : undefined
+
+  return (
+    <>
+      <div
+        ref={measureRef}
+        className="pointer-events-none absolute -left-[10000px] top-0 flex w-max flex-col gap-2 opacity-0"
+        aria-hidden
+      >
+        {HERO_FEATURE_BADGES_MOBILE_ALL.map((label) => (
+          <span key={label} className={heroFeatureBadgeClass}>
+            {label}
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex justify-center gap-2 sm:gap-3">
+          <div className="flex flex-col items-end gap-2 sm:gap-3">
+            {HERO_FEATURE_BADGES_MOBILE_LEFT.map((label) => (
+              <span key={label} className={heroFeatureBadgeClass} style={pillStyle}>
+                {label}
+              </span>
+            ))}
+          </div>
+          <div className="flex flex-col items-start gap-2 sm:gap-3">
+            {HERO_FEATURE_BADGES_MOBILE_RIGHT.map((label) => (
+              <span key={label} className={heroFeatureBadgeClass} style={pillStyle}>
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-center">
+          <span className={heroFeatureBadgeClass} style={pillStyle}>
+            {HERO_FEATURE_BADGES_MOBILE_LAST}
+          </span>
+        </div>
+      </div>
+    </>
+  )
+}
 
 export function HeroSection() {
   return (
@@ -88,34 +175,25 @@ export function HeroSection() {
         </div>
       </div>
 
-      {/* Feature badges — 12-col grid: top 6 badges (2 cols each), bottom 3 same-size in gaps */}
-      <div className="relative z-10 w-full max-w-[1000px] mt-10 animate-[fadeUp_0.8s_0.5s_ease_both] px-2">
-        <div className="grid grid-cols-12 gap-x-3 gap-y-3">
-          {[
-            'Material Takeoffs',
-            'Bid Sheets',
-            'Job Tracking',
-            'Invoicing',
-            'Crew Management',
-            'Timeclock',
-          ].map((label) => (
-            <span
-              key={label}
-              className="col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white"
-            >
-              <span className="truncate">{label}</span>
+      {/* Feature badges: below lg, two columns hug the center gutter; desktop keeps staggered 12-col layout */}
+      <div className="relative z-10 w-full max-w-[1000px] mt-8 sm:mt-10 animate-[fadeUp_0.8s_0.5s_ease_both] px-1 sm:px-2">
+        <div className="relative lg:hidden">
+          <HeroFeatureBadgesMobile />
+        </div>
+        <div className="hidden lg:grid grid-cols-12 justify-items-center gap-x-3 gap-y-3">
+          {HERO_FEATURE_BADGES_ROW1.map((label) => (
+            <span key={label} className={`col-span-2 ${heroFeatureBadgeClass}`}>
+              {label}
             </span>
           ))}
-          {/* Bottom row: same-size badges in the three middle gaps (between top badges) */}
-          <span className="col-start-4 col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white">
-            <span className="truncate">Client Messaging</span>
-          </span>
-          <span className="col-start-6 col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white">
-            <span className="truncate">Sub Bids</span>
-          </span>
-          <span className="col-start-8 col-span-2 inline-flex items-center justify-center py-2.5 px-2 rounded-full text-sm font-medium text-white-dim border border-white-faint/30 bg-dark-4/80 backdrop-blur-sm transition-all duration-200 hover:bg-accent/25 hover:border-accent-hover hover:text-landing-white">
-            <span className="truncate">Scheduling</span>
-          </span>
+          {HERO_FEATURE_BADGES_ROW2.map((label, i) => (
+            <span
+              key={label}
+              className={`${HERO_FEATURE_BADGES_ROW2_DESKTOP_COL_START[i]} col-span-2 ${heroFeatureBadgeClass}`}
+            >
+              {label}
+            </span>
+          ))}
         </div>
       </div>
     </section>

@@ -267,8 +267,11 @@ export function EmployeeHoursPage() {
           </div>
         </div>
 
-        {/* Metric cards */}
-        <div className="hours-fade-up grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6" style={{ animationDelay: '0.05s' }}>
+        {/* Metric strip — one row, vertical dividers (Directory-style) */}
+        <div
+          className="hours-fade-up grid grid-cols-3 gap-0 rounded-xl border border-border dark:border-border-dark bg-white/60 dark:bg-white/5 overflow-hidden mb-6"
+          style={{ animationDelay: '0.05s' }}
+        >
           {[
             {
               label: period === 'week' ? 'This week' : 'This month',
@@ -291,18 +294,22 @@ export function EmployeeHoursPage() {
               Icon: Calendar,
               borderClass: 'border-t-emerald-500',
             },
-          ].map(({ label, value, unit, Icon, borderClass }) => (
+          ].map(({ label, value, unit, Icon, borderClass }, i) => (
             <div
-              key={label}
-              className={`rounded-2xl border border-border dark:border-border-dark bg-white/60 dark:bg-white/5 p-5 sm:p-6 border-t-[3px] ${borderClass}`}
+              key={`${label}-${i}`}
+              className={`min-w-0 px-1.5 py-3 sm:px-3 flex flex-col items-center justify-center text-center border-r border-border dark:border-border-dark last:border-r-0 border-t-[3px] ${borderClass}`}
             >
-              <div className="flex items-center gap-1.5 mb-2.5">
-                <Icon size={13} className="text-muted" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted">{label}</span>
+              <div className="flex flex-col items-center gap-1 mb-1.5 w-full">
+                <Icon size={12} className="text-muted shrink-0" aria-hidden />
+                <span className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wide text-muted leading-snug text-balance px-0.5">
+                  {label}
+                </span>
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-extrabold tracking-tight text-gray-900 dark:text-landing-white">{value}</span>
-                <span className="text-sm text-muted font-medium">{unit}</span>
+              <div className="flex items-baseline justify-center gap-0.5 flex-wrap">
+                <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-gray-900 dark:text-landing-white">
+                  {value}
+                </span>
+                <span className="text-[10px] sm:text-xs text-muted font-medium">{unit}</span>
               </div>
             </div>
           ))}

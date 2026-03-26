@@ -518,23 +518,6 @@ export function DocumentViewer({
               <span className={statusBadgeClass(doc.status)}>{statusDisplayLabel(doc.status)}</span>
             ) : null}
           </div>
-          <div className="documents-viewer-toolbar__actions">
-            {resendNote ? <span className="documents-viewer-toolbar__note">{resendNote}</span> : null}
-            <button type="button" className="documents-btn text-[13px]" onClick={() => void onDownloadPdf()} disabled={!doc || pdfWorking}>
-              {pdfWorking ? '…' : 'Download PDF'}
-            </button>
-            <button
-              type="button"
-              className="documents-btn documents-btn-primary text-[13px]"
-              onClick={() => void onResend()}
-              disabled={!doc || !canResend || resendWorking}
-            >
-              {resendWorking ? 'Sending…' : 'Send again'}
-            </button>
-            <button type="button" className="documents-viewer-toolbar__close" onClick={onClose} aria-label="Close">
-              ×
-            </button>
-          </div>
         </header>
 
         <div className="documents-viewer-scroll">
@@ -548,6 +531,23 @@ export function DocumentViewer({
                   {b.text}
                 </div>
               ))}
+              <div className="documents-viewer-inline-actions">
+                <button type="button" className="documents-btn text-[13px]" onClick={() => void onDownloadPdf()} disabled={!doc || pdfWorking}>
+                  {pdfWorking ? '…' : 'Download PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="documents-btn documents-btn-primary text-[13px]"
+                  onClick={() => void onResend()}
+                  disabled={!doc || !canResend || resendWorking}
+                >
+                  {resendWorking ? 'Sending…' : 'Send again'}
+                </button>
+                <button type="button" className="documents-btn documents-viewer-inline-close" onClick={onClose} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              {resendNote ? <p className="documents-viewer-inline-note">{resendNote}</p> : null}
               {viewer.change_order_reference?.description ? (
                 <p className="document-viewer-co-ref mx-auto max-w-[920px] px-4 text-sm text-[var(--text-secondary)] m-0 mb-2">
                   Linked change order: {viewer.change_order_reference.description}
@@ -586,6 +586,23 @@ export function DocumentViewer({
                   {b.text}
                 </div>
               ))}
+              <div className="documents-viewer-inline-actions">
+                <button type="button" className="documents-btn text-[13px]" onClick={() => void onDownloadPdf()} disabled={!doc || pdfWorking}>
+                  {pdfWorking ? '…' : 'Download PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="documents-btn documents-btn-primary text-[13px]"
+                  onClick={() => void onResend()}
+                  disabled={!doc || !canResend || resendWorking}
+                >
+                  {resendWorking ? 'Sending…' : 'Send again'}
+                </button>
+                <button type="button" className="documents-btn documents-viewer-inline-close" onClick={onClose} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              {resendNote ? <p className="documents-viewer-inline-note">{resendNote}</p> : null}
               <div className="estimate-portal__inner">
                 <header className="invoice-portal-header">
                   <p className="invoice-portal-header__eyebrow">Invoice</p>
@@ -605,6 +622,23 @@ export function DocumentViewer({
                   {b.text}
                 </div>
               ))}
+              <div className="documents-viewer-inline-actions">
+                <button type="button" className="documents-btn text-[13px]" onClick={() => void onDownloadPdf()} disabled={!doc || pdfWorking}>
+                  {pdfWorking ? '…' : 'Download PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="documents-btn documents-btn-primary text-[13px]"
+                  onClick={() => void onResend()}
+                  disabled={!doc || !canResend || resendWorking}
+                >
+                  {resendWorking ? 'Sending…' : 'Send again'}
+                </button>
+                <button type="button" className="documents-btn documents-viewer-inline-close" onClick={onClose} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              {resendNote ? <p className="documents-viewer-inline-note">{resendNote}</p> : null}
               <div className="bid-portal__inner document-viewer-bid-inner">
                 <DocumentViewerBidReadOnly data={viewer.data} />
               </div>

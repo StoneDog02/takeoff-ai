@@ -62,10 +62,10 @@ export function EstimatesPage({ embedded = false }: { embedded?: boolean }) {
   }
 
   const rootClass = embedded
-    ? 'estimates-page estimates-page--embedded flex flex-col min-h-0 flex-1 w-full'
+    ? 'estimates-page estimates-page--embedded w-full'
     : 'dashboard-app estimates-page flex flex-col min-h-0 flex-1'
   const wrapClass = embedded
-    ? 'estimates-page__wrap estimates-page__wrap--embedded w-full max-w-none mx-0 px-0 sm:px-0 lg:px-0 py-0 flex flex-col flex-1 min-h-0'
+    ? 'financials-invoicing-embedded-wrap w-full max-w-none mx-0 px-0 sm:px-0 lg:px-0 py-0'
     : 'estimates-page__wrap w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 flex flex-col flex-1 min-h-0'
 
   if (loading) {

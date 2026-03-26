@@ -198,7 +198,9 @@ export function JobWalkGallery({
         <div className="media-tab-header-left">
           <div className="media-tab-title">Job Walk Media</div>
           <div className="media-tab-sub">
-            {projectName ? `${projectName} · ` : ''}
+            {projectName ? (
+              <span className="media-tab-sub-project hidden md:inline">{`${projectName} · `}</span>
+            ) : null}
             {media.length} item{media.length !== 1 ? 's' : ''} across {walkGroups.length || 1} walk{walkGroups.length !== 1 ? 's' : ''}
           </div>
         </div>
@@ -233,12 +235,13 @@ export function JobWalkGallery({
               </svg>
             </button>
           </div>
-          <button type="button" className="btn btn-primary flex items-center gap-1.5" onClick={() => setUploadModalOpen(true)}>
-            <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5}>
+          <button type="button" className="btn btn-primary media-tab-add-btn flex items-center gap-1.5" onClick={() => setUploadModalOpen(true)}>
+            <svg className="media-tab-add-icon" width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5}>
               <line x1={12} y1={5} x2={12} y2={19} />
               <line x1={5} y1={12} x2={19} y2={12} />
             </svg>
-            Add media
+            <span className="media-tab-add-label-full">Add media</span>
+            <span className="media-tab-add-label-short">+ Add</span>
           </button>
         </div>
       </div>
@@ -269,12 +272,14 @@ export function JobWalkGallery({
             {videoCount ? formatShortDate(media.find((m) => m.type === 'video')?.uploaded_at) : '—'}
           </div>
         </div>
-        <div className="media-stat">
+        <div className="media-stat media-stat--last-updated">
           <div className="media-stat-label">Last Updated</div>
-          <div className="media-stat-val" style={{ fontSize: 15, marginTop: 2 }}>
+          <div className="media-stat-val media-stat-val--date">
             {lastUpdated ? formatShortDate(dayjs(lastUpdated).toISOString()) : '—'}
           </div>
-          <div className="media-stat-sub">{lastUpdatedBy || '—'}</div>
+          <div className="media-stat-sub">
+            {lastUpdated ? lastUpdatedBy || 'by date' : 'No activity'}
+          </div>
         </div>
       </div>
 
@@ -291,17 +296,19 @@ export function JobWalkGallery({
           <div className="media-chip-dot" style={{ background: 'var(--red, #c23b2a)' }} />
           Videos
         </button>
-        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
-        {walkGroups.map((g) => (
-          <button
-            key={g.walkId}
-            type="button"
-            className={`media-chip ${filter === g.walkId ? 'active' : ''}`}
-            onClick={() => setFilter(g.walkId)}
-          >
-            Walk {walkGroups.indexOf(g) + 1} — {formatShortDate(g.dateSort)}
-          </button>
-        ))}
+        <div className="filter-chips-sep hidden md:block" style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        <div className="filter-chips-walks max-md:hidden md:contents">
+          {walkGroups.map((g) => (
+            <button
+              key={g.walkId}
+              type="button"
+              className={`media-chip ${filter === g.walkId ? 'active' : ''}`}
+              onClick={() => setFilter(g.walkId)}
+            >
+              Walk {walkGroups.indexOf(g) + 1} — {formatShortDate(g.dateSort)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Upload zone */}
@@ -324,9 +331,14 @@ export function JobWalkGallery({
         </div>
         <div className="upload-text">
           <div className="upload-text-primary">
-            <span>Click to upload</span> or drag & drop files here
+            <span className="upload-text-tap md:hidden">Tap to upload</span>
+            <span className="upload-text-click hidden md:inline">Click to upload</span>{' '}
+            <span className="upload-text-or">or drag & drop</span>
+            <span className="upload-text-suffix-desktop hidden md:inline"> files here</span>
           </div>
-          <div className="upload-text-secondary">Add photos or videos from today's job walk — they'll be grouped by date automatically</div>
+          <div className="upload-text-secondary">
+            Photos/videos grouped by date automatically
+          </div>
         </div>
         <div className="upload-types">
           <span className="upload-type-badge">JPG</span>
@@ -339,15 +351,26 @@ export function JobWalkGallery({
       {/* Walk groups */}
       {filteredMedia.length === 0 ? (
         <div className="media-empty">
-          <div className="media-empty-icon">
-            <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={1.5}>
+          <div className="media-empty-icon" aria-hidden>
+            <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={1.5}>
               <rect x={3} y={3} width={18} height={18} rx={2} />
               <circle cx={8.5} cy={8.5} r={1.5} />
               <polyline points="21 15 16 10 5 21" />
             </svg>
           </div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">No media found</div>
-          <div className="text-sm text-[var(--text-muted)]">Try a different filter or add new media above.</div>
+          {media.length === 0 ? (
+            <>
+              <div className="media-empty-title">No media yet</div>
+              <div className="media-empty-sub">
+                Add photos or videos from a job walk — they&apos;ll be grouped by date.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="media-empty-title">No media found</div>
+              <div className="media-empty-sub">Try a different filter or add new media above.</div>
+            </>
+          )}
         </div>
       ) : (
         filteredWalkGroups.map((group) => {

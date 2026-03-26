@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, Send, Plus } from 'lucide-react'
+import { Search, Send, Plus, ChevronLeft } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
@@ -10,6 +10,27 @@ import type { ConversationListItem, Message } from '@/api/client'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
 const CHAT_COLORS = ['#15803d', '#374151', '#9a3412', '#7c3aed', '#0891b2', '#b45309']
+
+/** Matches Directory GC messaging / Tailwind `md` breakpoint (single-column thread on small viewports). */
+const EMPLOYEE_MESSAGES_MOBILE_MQ = '(max-width: 767px)'
+
+function subscribeEmployeeMessagesMobile(onChange: () => void) {
+  const mq = window.matchMedia(EMPLOYEE_MESSAGES_MOBILE_MQ)
+  mq.addEventListener('change', onChange)
+  return () => mq.removeEventListener('change', onChange)
+}
+
+function getEmployeeMessagesMobileSnapshot() {
+  return window.matchMedia(EMPLOYEE_MESSAGES_MOBILE_MQ).matches
+}
+
+function getEmployeeMessagesMobileServerSnapshot() {
+  return false
+}
+
+function isEmployeeMessagesMobileViewport() {
+  return typeof window !== 'undefined' && window.matchMedia(EMPLOYEE_MESSAGES_MOBILE_MQ).matches
+}
 
 function Avatar({ initials, color, size = 40 }: { initials: string; color: string; size?: number }) {
   return (
@@ -47,6 +68,13 @@ export function MessagesPage({ employeePortal = false }: { employeePortal?: bool
   const [search, setSearch] = useState('')
   const [messagesTab, setMessagesTab] = useState<'contacts' | 'jobs'>('contacts')
   const [jobConversationsLoading, setJobConversationsLoading] = useState(false)
+  /** Employee portal mobile: list-first; tap contact opens full-width thread (matches Directory GC messaging). */
+  const isMobile = useSyncExternalStore(
+    subscribeEmployeeMessagesMobile,
+    getEmployeeMessagesMobileSnapshot,
+    getEmployeeMessagesMobileServerSnapshot
+  )
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { employeeId: effectiveEmployeeId } = useEffectiveEmployee()
@@ -56,6 +84,22 @@ export function MessagesPage({ employeePortal = false }: { employeePortal?: bool
   useEffect(() => {
     setSelectedId(conversationIdFromUrl)
   }, [conversationIdFromUrl])
+
+  /** Deep link or refresh with ?conversation= — open thread on employee mobile. */
+  useEffect(() => {
+    if (!employeePortal || !conversationIdFromUrl) return
+    if (!getEmployeeMessagesMobileSnapshot()) return
+    setMobileThreadOpen(true)
+  }, [employeePortal, conversationIdFromUrl])
+
+  const prevMessagesTabRef = useRef(messagesTab)
+  /** Switching Contacts / Jobs returns to the list view on mobile (not on initial mount). */
+  useEffect(() => {
+    if (!employeePortal) return
+    if (prevMessagesTabRef.current === messagesTab) return
+    prevMessagesTabRef.current = messagesTab
+    setMobileThreadOpen(false)
+  }, [employeePortal, messagesTab])
 
   useEffect(() => {
     if (!employeePortal || !isPreview || !previewEmployeeId) {
@@ -171,6 +215,13 @@ export function MessagesPage({ employeePortal = false }: { employeePortal?: bool
 
   const selectedConversation = selectedId ? conversations.find((c) => c.id === selectedId) : null
 
+  const showList = !employeePortal || !isMobile || !mobileThreadOpen
+  const showChat = !employeePortal || !isMobile || mobileThreadOpen
+
+  const backToConversationList = () => {
+    setMobileThreadOpen(false)
+  }
+
   const sendMessage = async () => {
     const text = input.trim()
     if (!text || !selectedId || sending) return
@@ -200,14 +251,23 @@ export function MessagesPage({ employeePortal = false }: { employeePortal?: bool
   const selectConversation = (id: string) => {
     setSelectedId(id)
     setSearchParams({ conversation: id })
+    // Sync viewport read — state `isMobile` can lag first paint; opening thread must not depend on it.
+    if (employeePortal && isEmployeeMessagesMobileViewport()) setMobileThreadOpen(true)
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unread_count: 0 } : c))
     )
     api.conversations.markRead(id).catch(() => {})
   }
 
+  const employeeMobileLayoutClass =
+    employeePortal && isMobile
+      ? mobileThreadOpen
+        ? 'messages-page--employee-mobile-thread'
+        : 'messages-page--employee-mobile-list'
+      : ''
+
   return (
-    <div className="dashboard-app messages-page min-h-full">
+    <div className={`dashboard-app messages-page min-h-full ${employeeMobileLayoutClass}`.trim()}>
       <style>{`
         .messages-page * { box-sizing: border-box; }
         .messages-page .messages-scroll::-webkit-scrollbar { width: 4px; }
@@ -246,7 +306,11 @@ export function MessagesPage({ employeePortal = false }: { employeePortal?: bool
           </div>
         )}
         <div className="messages-body">
-          <div className="messages-left-panel">
+          <div
+            className={`messages-left-panel ${
+              employeePortal && isMobile && !showList ? 'max-md:!hidden' : ''
+            }`}
+          >
             {!employeePortal && (
               <div className="messages-new-row">
                 <button
@@ -341,11 +405,25 @@ export function MessagesPage({ employeePortal = false }: { employeePortal?: bool
               )}
             </div>
           </div>
-          <div className="messages-right-wrap">
+          <div
+            className={`messages-right-wrap ${
+              employeePortal && isMobile && !showChat ? 'max-md:!hidden' : ''
+            }`}
+          >
             <div className="messages-chat-panel">
               {selectedId && selectedConversation && (
                 <>
                   <div className="messages-chat-header">
+                    {employeePortal && isMobile && mobileThreadOpen && (
+                      <button
+                        type="button"
+                        onClick={backToConversationList}
+                        className="messages-icon-btn shrink-0 mr-0"
+                        aria-label="Back to conversations"
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                    )}
                     <Avatar
                       initials={
                         selectedConversation.job_id

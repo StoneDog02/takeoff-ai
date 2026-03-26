@@ -18,6 +18,7 @@ interface PayrollContact {
 
 type DateRangeKey = 'this-week' | 'last-week' | 'this-month' | 'last-month' | 'custom'
 type ViewMode = 'summary' | 'detailed'
+type PayrollRunMode = 'bookkeeper' | 'linked_account'
 
 interface DateRange {
   from: string
@@ -150,8 +151,8 @@ export function PayrollPage() {
   const [contactLoading, setContactLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [runMode, setRunMode] = useState<PayrollRunMode>('bookkeeper')
   const [expandedSummaryIds, setExpandedSummaryIds] = useState<Set<string>>(new Set())
-  const [quickbooksConnected, setQuickbooksConnected] = useState<boolean | null>(null)
 
   const toggleSummaryExpand = (employeeId: string) => {
     setExpandedSummaryIds((prev) => {
@@ -205,13 +206,6 @@ export function PayrollPage() {
       .finally(() => setContactLoading(false))
   }, [])
 
-  useEffect(() => {
-    quickbooksApi
-      .getPayrollStatus()
-      .then(() => setQuickbooksConnected(true))
-      .catch(() => setQuickbooksConnected(false))
-  }, [])
-
   const jobMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.name])), [jobs])
   const jobAddressMap = useMemo(() => new Map(jobs.map((j) => [j.id, j.address ?? j.name])), [jobs])
   const payrollRows = useMemo(
@@ -235,22 +229,29 @@ export function PayrollPage() {
   }
 
   const handleApproveAndRun = () => {
-    if (!payrollContact?.email) {
-      setContactModalOpen(true)
-      return
-    }
+    // Let users choose delivery path in the modal (bookkeeper email vs processor).
     setApproveModalOpen(true)
   }
 
   const confirmSend = async () => {
-    if (!payrollContact?.email) return
+    if (runMode === 'bookkeeper' && !payrollContact?.email) {
+      setApproveModalOpen(false)
+      setContactModalOpen(true)
+      return
+    }
     setSending(true)
     try {
       await teamsApi.payroll.recordRun({
         period_from: range.from,
         period_to: range.to,
-        recipient_email: payrollContact.email,
-        recipient_name: payrollContact.name || undefined,
+        recipient_email:
+          runMode === 'bookkeeper'
+            ? payrollContact!.email
+            : payrollContact?.email || 'linked-account-payroll@local',
+        recipient_name:
+          runMode === 'bookkeeper'
+            ? payrollContact?.name || undefined
+            : payrollContact?.name || 'Linked Payroll Account',
         employee_count: payrollRows.length,
         total_hours: totalHours,
         gross_pay: totalGross,
@@ -258,13 +259,15 @@ export function PayrollPage() {
     } catch {
       // still open mailto if record fails
     }
-    const subject = encodeURIComponent(`Payroll report ${dayjs(range.from).format('MMM D')}–${dayjs(range.to).format('MMM D, YYYY')}`)
-    const body = encodeURIComponent(
-      `Please find the attached payroll summary for ${range.label}.\n\n` +
-        `Employees: ${payrollRows.length}\nTotal Hours: ${totalHours.toFixed(2)}\nGross Payroll: $${totalGross.toFixed(2)}\n\n` +
-        `(Export the CSV from the app and attach to this email, or use the numbers above.)`
-    )
-    window.open(`mailto:${payrollContact.email}?subject=${subject}&body=${body}`, '_blank')
+    if (runMode === 'bookkeeper') {
+      const subject = encodeURIComponent(`Payroll report ${dayjs(range.from).format('MMM D')}–${dayjs(range.to).format('MMM D, YYYY')}`)
+      const body = encodeURIComponent(
+        `Please find the attached payroll summary for ${range.label}.\n\n` +
+          `Employees: ${payrollRows.length}\nTotal Hours: ${totalHours.toFixed(2)}\nGross Payroll: $${totalGross.toFixed(2)}\n\n` +
+          `(Export the CSV from the app and attach to this email, or use the numbers above.)`
+      )
+      window.open(`mailto:${payrollContact!.email}?subject=${subject}&body=${body}`, '_blank')
+    }
     setSending(false)
     setSent(true)
     setTimeout(() => {
@@ -391,39 +394,22 @@ export function PayrollPage() {
           </div>
         </div>
 
-        {quickbooksConnected !== null && (
-          <div className="payroll-qb-corrections" style={{ marginTop: 24, marginBottom: 24 }}>
-            <div className="payroll-summary-card" style={{ maxWidth: '100%', padding: '20px 24px', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                <div>
-                  <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700 }}>QuickBooks payroll corrections</h3>
-                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted, #6b7280)', lineHeight: 1.4 }}>
-                    {quickbooksConnected
-                      ? 'Need to fix a paycheck or submit a payroll amendment? Open QuickBooks to correct payroll. In-app correction submission will be available after Intuit enables the Payroll API for this app.'
-                      : 'Connect QuickBooks in Settings to open payroll corrections from here.'}
-                  </p>
-                </div>
-                {quickbooksConnected ? (
-                  <a
-                    href="https://qbo.intuit.com/app/homepage"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="payroll-btn primary"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                  >
-                    <ExternalLink size={16} />
-                    Open QuickBooks to correct payroll
-                  </a>
-                ) : (
-                  <Link to="/settings" className="payroll-btn secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <ExternalLink size={16} />
-                    Connect QuickBooks
-                  </Link>
-                )}
+        <div className="payroll-qb-corrections" style={{ marginTop: 24, marginBottom: 24 }}>
+          <div className="payroll-summary-card" style={{ maxWidth: '100%', padding: '20px 24px', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700 }}>Linked account payroll (coming soon)</h3>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted, #6b7280)', lineHeight: 1.4 }}>
+                  Soon you will be able to connect a bank/payroll account and run payroll directly from this screen without leaving the app.
+                </p>
               </div>
+              <Link to="/settings" className="payroll-btn secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <ExternalLink size={16} />
+                Open Settings
+              </Link>
             </div>
           </div>
-        )}
+        </div>
 
         {viewMode === 'detailed' && (
           <div className="payroll-period-bar">
@@ -740,19 +726,80 @@ export function PayrollPage() {
       {approveModalOpen && (
         <div className="payroll-modal-overlay" onClick={() => !sending && setApproveModalOpen(false)}>
           <div className="payroll-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="payroll-modal-title">{sent ? 'Report sent' : 'Send payroll report?'}</h3>
+            <h3 className="payroll-modal-title">{sent ? 'Payroll initiated' : 'Approve & run payroll'}</h3>
             <p className="payroll-modal-desc">
               {sent
-                ? `An email has been opened to send the report to ${payrollContact?.email}. Attach the CSV if needed.`
-                : `This will open your email to send the payroll report to ${payrollContact?.name || payrollContact?.email}. You can attach the exported CSV.`}
+                ? runMode === 'linked_account'
+                  ? 'This run has been logged. Direct linked-account payroll execution is coming soon.'
+                  : `An email has been opened to send the report to ${payrollContact?.email}. Attach the CSV if needed.`
+                : 'Choose how you want to run this payroll period.'}
             </p>
             {!sent && (
-              <div className="payroll-modal-actions">
-                <button type="button" className="payroll-btn secondary" onClick={() => setApproveModalOpen(false)} disabled={sending}>Cancel</button>
-                <button type="button" className="payroll-btn primary" onClick={confirmSend} disabled={sending}>
-                  {sending ? 'Sending…' : 'Send'}
-                </button>
-              </div>
+              <>
+                <div className="payroll-modal-form">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="radio"
+                      name="payroll-run-mode"
+                      value="bookkeeper"
+                      checked={runMode === 'bookkeeper'}
+                      onChange={() => setRunMode('bookkeeper')}
+                    />
+                    Send payroll report to bookkeeper/accountant
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="radio"
+                      name="payroll-run-mode"
+                      value="linked_account"
+                      checked={runMode === 'linked_account'}
+                      onChange={() => setRunMode('linked_account')}
+                    />
+                    Run via linked bank/payroll account (coming soon)
+                  </label>
+                  {runMode === 'bookkeeper' && !payrollContact?.email && (
+                    <p className="payroll-modal-desc" style={{ margin: 0 }}>
+                      Add a payroll contact first so we know where to send the report.
+                    </p>
+                  )}
+                  {runMode === 'linked_account' && (
+                    <p className="payroll-modal-desc" style={{ margin: 0 }}>
+                      Direct linked-account payroll is not live yet. Use the bookkeeper path for now.
+                    </p>
+                  )}
+                </div>
+                <div className="payroll-modal-actions">
+                  <button type="button" className="payroll-btn secondary" onClick={() => setApproveModalOpen(false)} disabled={sending}>Cancel</button>
+                  <button
+                    type="button"
+                    className="payroll-btn primary"
+                    onClick={confirmSend}
+                    disabled={
+                      sending ||
+                      (runMode === 'bookkeeper' && !payrollContact?.email) ||
+                      (runMode === 'linked_account')
+                    }
+                  >
+                    {sending
+                      ? 'Running…'
+                      : runMode === 'linked_account'
+                        ? 'Coming soon'
+                        : 'Send Report'}
+                  </button>
+                  {runMode === 'bookkeeper' && !payrollContact?.email && (
+                    <button
+                      type="button"
+                      className="payroll-btn secondary"
+                      onClick={() => {
+                        setApproveModalOpen(false)
+                        setContactModalOpen(true)
+                      }}
+                    >
+                      Set payroll contact
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>

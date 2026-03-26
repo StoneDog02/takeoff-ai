@@ -84,7 +84,7 @@ export function GpsClockOutLogList({ onSelectEmployee, fixedJobId }: GpsClockOut
               {!scopedJobId && <th>Job</th>}
               <th>Exited At</th>
               <th>Location</th>
-              <th>Trigger</th>
+              <th className="hidden md:table-cell">Trigger</th>
             </tr>
           </thead>
           <tbody>
@@ -121,7 +121,7 @@ export function GpsClockOutLogList({ onSelectEmployee, fixedJobId }: GpsClockOut
                     )}
                     <td><span className="teams-cell-value" style={{ fontWeight: 500 }}>{formatDateTime(log.exited_at)}</span></td>
                     <td><span className="teams-cell-muted" style={{ fontFamily: 'monospace', fontSize: 12 }}>{log.lat != null && log.lng != null ? `${log.lat.toFixed(5)}, ${log.lng.toFixed(5)}` : '—'}</span></td>
-                    <td><span className="teams-status-pill late">Left boundary</span></td>
+                    <td className="hidden md:table-cell"><span className="teams-status-pill late">Left boundary</span></td>
                   </tr>
                 )
               })

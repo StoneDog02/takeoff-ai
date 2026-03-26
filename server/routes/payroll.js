@@ -4,6 +4,12 @@ const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
 
 const router = express.Router()
 
+function isMissingTableError(err, tableName) {
+  const code = err && typeof err.code === 'string' ? err.code : ''
+  const msg = err && typeof err.message === 'string' ? err.message : ''
+  return code === 'PGRST205' && msg.includes(`'public.${tableName}'`)
+}
+
 // ----- Payroll contact (who receives the report) -----
 router.get('/contact', async (req, res, next) => {
   try {
@@ -15,7 +21,11 @@ router.get('/contact', async (req, res, next) => {
       .select('name, email, phone')
       .eq('user_id', req.user?.id)
       .maybeSingle()
-    if (error) throw error
+    if (error) {
+      // Older/local DBs may not have payroll_contact yet; keep Payroll usable.
+      if (isMissingTableError(error, 'payroll_contact')) return res.json(null)
+      throw error
+    }
     if (!data) return res.json(null)
     res.json({
       name: data.name ?? '',
@@ -46,7 +56,12 @@ router.put('/contact', async (req, res, next) => {
       .upsert(payload, { onConflict: 'user_id' })
       .select('name, email, phone')
       .single()
-    if (error) throw error
+    if (error) {
+      if (isMissingTableError(error, 'payroll_contact')) {
+        return res.status(503).json({ error: 'Payroll contact storage is not configured yet' })
+      }
+      throw error
+    }
     res.json({ name: data.name ?? '', email: data.email ?? '', phone: data.phone ?? '' })
   } catch (err) {
     next(err)

@@ -195,7 +195,7 @@ export function WorkTypesTab({
             </div>
           )}
 
-          <div className="space-y-3">
+          <div className="space-y-2 lg:space-y-3">
             {workTypes.length === 0 ? (
               <p className="text-sm text-muted dark:text-white-dim py-4">No work types yet. Add one so crew can clock in under a rate for this job.</p>
             ) : (
@@ -204,26 +204,50 @@ export function WorkTypesTab({
                 return (
                   <div
                     key={wt.id}
-                    className="rounded-xl border border-border dark:border-border-dark overflow-hidden flex gap-4 p-4"
+                    className="relative rounded-xl border border-border dark:border-border-dark overflow-hidden flex gap-3 lg:gap-4 p-3 lg:p-4 items-start"
                     style={{ backgroundColor: style.bg }}
                   >
-                    <div className="w-10 h-10 rounded-lg bg-white/80 dark:bg-black/10 flex items-center justify-center shrink-0 text-gray-600 dark:text-white-dim" style={{ color: style.rate }}>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => removeWorkType(wt.id)}
+                        disabled={isGeneralLaborWorkTypeName(wt)}
+                        className="absolute top-2 right-2 z-10 lg:hidden p-1.5 rounded-lg text-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-muted disabled:hover:bg-transparent"
+                        title={isGeneralLaborWorkTypeName(wt) ? 'General Labor is required on every job' : 'Remove work type'}
+                        aria-label={isGeneralLaborWorkTypeName(wt) ? 'Cannot remove General Labor' : 'Remove work type'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M3 6h18" />
+                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          <line x1="10" x2="10" y1="11" y2="17" />
+                          <line x1="14" x2="14" y1="11" y2="17" />
+                        </svg>
+                      </button>
+                    )}
+                    <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-lg bg-white/80 dark:bg-black/10 flex items-center justify-center shrink-0 text-gray-600 dark:text-white-dim" style={{ color: style.rate }}>
                       <WorkTypeIcon typeKey={wt.type_key} size={20} customColor={wt.custom_color} />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className={`flex-1 min-w-0 ${readOnly ? '' : 'pr-9 lg:pr-0'}`}>
                       <div className="font-semibold text-gray-900 dark:text-landing-white">{wt.name}</div>
-                      {wt.description && <div className="text-sm text-muted dark:text-white-dim mt-0.5">{wt.description}</div>}
+                      {wt.description && (
+                        <div className="text-sm text-muted dark:text-white-dim mt-0.5 max-lg:leading-snug">
+                          {wt.description}
+                        </div>
+                      )}
                     </div>
-                    <div className="shrink-0 text-right">
-                      <span className="font-bold" style={{ color: style.rate }}>{formatWorkTypePayRateDisplay(wt)}</span>
-                      <div className="text-xs opacity-80" style={{ color: style.rate }}>{unitLabel(wt.unit)}</div>
+                    <div
+                      className={`shrink-0 text-right max-lg:self-start ${readOnly ? 'max-lg:pt-0.5' : 'max-lg:pt-10'}`}
+                    >
+                      <span className="font-bold text-sm lg:text-base" style={{ color: style.rate }}>{formatWorkTypePayRateDisplay(wt)}</span>
+                      <div className="text-[11px] lg:text-xs opacity-80" style={{ color: style.rate }}>{unitLabel(wt.unit)}</div>
                     </div>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => removeWorkType(wt.id)}
                         disabled={isGeneralLaborWorkTypeName(wt)}
-                        className="shrink-0 text-sm disabled:opacity-40 disabled:cursor-not-allowed text-muted hover:text-red-600 dark:hover:text-red-400"
+                        className="hidden lg:block shrink-0 text-sm disabled:opacity-40 disabled:cursor-not-allowed text-muted hover:text-red-600 dark:hover:text-red-400"
                         title={isGeneralLaborWorkTypeName(wt) ? 'General Labor is required on every job' : undefined}
                         aria-label="Remove"
                       >

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Mail, Phone, MessageSquare, ChevronDown, Zap, Trash2 } from 'lucide-react'
+import { Search, Mail, Phone, MessageSquare, ChevronDown, Ellipsis, Zap, Trash2 } from 'lucide-react'
 import type { DirectoryContractor } from '@/data/mockDirectoryData'
 import { DirectoryAvatar } from './DirectoryAvatar'
 import { TradePill } from './TradePill'
@@ -53,21 +53,21 @@ export function DirectoryTabView({
       : '—'
 
   return (
-    <div className="directory-tab-content w-full">
+    <div className="directory-tab-content directory-mobile-redesign w-full">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+      <div className="directory-mobile-header flex flex-wrap items-start justify-between gap-4 mb-6">
         <div className="flex flex-col gap-0 text-left">
-          <h2 className="dashboard-title text-[20px] font-extrabold tracking-tight m-0">
+          <h2 className="directory-mobile-title dashboard-title text-[20px] font-extrabold tracking-tight m-0">
             Contractors
           </h2>
-          <p className="text-[13.5px] text-[var(--text-muted)] mt-1 mb-0">
+          <p className="directory-mobile-subtitle text-[13.5px] text-[var(--text-muted)] mt-1 mb-0">
             Manage your contractor contact list. Add and remove contractors.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setShowAdd(true)}
-          className="inline-flex items-center gap-1.5 bg-[var(--red)] text-white border-0 rounded-lg py-2.5 px-4 text-sm font-bold cursor-pointer hover:bg-[var(--red-mid)] transition-colors"
+          className="directory-mobile-add-btn inline-flex items-center gap-1.5 bg-[var(--red)] text-white border-0 rounded-lg py-2.5 px-4 text-sm font-bold cursor-pointer hover:bg-[var(--red-mid)] transition-colors"
         >
           <span className="w-4 h-4 flex items-center justify-center">+</span>
           Add contractor
@@ -75,8 +75,8 @@ export function DirectoryTabView({
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center mb-4">
-        <div className="relative flex-1 min-w-0 max-w-[320px]">
+      <div className="directory-mobile-filters flex flex-wrap gap-3 items-center mb-4">
+        <div className="directory-mobile-search relative flex-1 min-w-0 max-w-[320px]">
           <Search
             size={14}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
@@ -89,13 +89,13 @@ export function DirectoryTabView({
             className="w-full rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-dark-4 py-2 pl-9 pr-3 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--red)]/30"
           />
         </div>
-        <div className="flex gap-1.5 flex-wrap">
+        <div className="directory-mobile-trade-chips flex gap-1.5 flex-wrap">
           {trades.map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setFilterTrade(t)}
-              className={`py-1.5 px-3.5 rounded-full text-xs font-semibold border transition-colors ${
+              className={`directory-mobile-trade-chip py-1.5 px-3.5 rounded-full text-xs font-semibold border transition-colors ${
                 filterTrade === t
                   ? 'bg-[var(--text-primary)] text-[var(--bg-page)] border-transparent'
                   : 'bg-surface dark:bg-dark-4 border-border dark:border-border-dark text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
@@ -108,37 +108,50 @@ export function DirectoryTabView({
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div className="directory-mobile-metrics grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {[
-          { label: 'Total contractors', value: contractors.length },
-          { label: 'Unread messages', value: totalUnread },
-          { label: 'Avg rating', value: `${avgRating} ★` },
+          { label: 'Total contractors', value: String(contractors.length) },
+          { label: 'Unread messages', value: String(totalUnread) },
+          {
+            label: 'Avg rating',
+            value: avgRating,
+            starBelow: contractors.length > 0 && avgRating !== '—',
+          },
         ].map((m) => (
           <div
             key={m.label}
-            className="rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 p-3.5"
+            className="directory-mobile-metric rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 p-3.5"
           >
-            <div className="text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+            <div className="directory-mobile-metric-label text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
               {m.label}
             </div>
-            <div className="text-xl font-extrabold text-[var(--text-primary)] tracking-tight">
-              {m.value}
+            <div
+              className={`directory-mobile-metric-value text-xl font-semibold text-[var(--text-primary)] tracking-tight tabular-nums ${
+                'starBelow' in m && m.starBelow ? 'directory-mobile-metric-value--rating' : ''
+              }`}
+            >
+              <span className="directory-mobile-metric-value-num">{m.value}</span>
+              {'starBelow' in m && m.starBelow && (
+                <span className="directory-mobile-metric-star" aria-hidden>
+                  ★
+                </span>
+              )}
             </div>
           </div>
         ))}
       </div>
 
       {/* Cards grid: items-start so cards keep their own height */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+      <div className="directory-mobile-card-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
         {filtered.map((c) => {
           const isDropdownOpen = openDropdown === c.id
           return (
             <div
               key={c.id}
-              className="rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-visible transition-shadow hover:shadow-card"
+              className="directory-mobile-card rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-visible transition-shadow hover:shadow-card"
             >
               <div className="p-4">
-                <div className="flex gap-3.5 items-start mb-3">
+                <div className="directory-mobile-card-top flex gap-3.5 items-start mb-3">
                   <DirectoryAvatar initials={c.avatar} color={c.color} size={46} />
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-[15px] text-[var(--text-primary)] mb-1">
@@ -158,7 +171,7 @@ export function DirectoryTabView({
                     <button
                       type="button"
                       onClick={() => onRemove(c.id)}
-                      className="w-8 h-8 rounded-lg border border-border dark:border-border-dark bg-transparent text-[var(--text-muted)] cursor-pointer inline-flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-[var(--red)] hover:border-red-200 dark:hover:border-red-900/50 transition-colors"
+                      className="directory-mobile-trash-btn w-8 h-8 rounded-lg border border-border dark:border-border-dark bg-transparent text-[var(--text-muted)] cursor-pointer inline-flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-[var(--red)] hover:border-red-200 dark:hover:border-red-900/50 transition-colors"
                       aria-label="Remove contractor"
                     >
                       <Trash2 size={14} />
@@ -181,7 +194,7 @@ export function DirectoryTabView({
                   )}
                 </div>
 
-                <div className="rounded-lg p-2.5 mb-3 bg-[var(--bg-page)] dark:bg-dark-4 border border-border dark:border-border-dark">
+                <div className="directory-mobile-last-msg rounded-lg p-2.5 mb-3 bg-[var(--bg-page)] dark:bg-dark-4 border border-border dark:border-border-dark">
                   <div className="text-[11px] text-[var(--text-muted)] font-semibold uppercase tracking-wide mb-0.5">
                     Last message · {c.lastTime}
                   </div>
@@ -190,11 +203,11 @@ export function DirectoryTabView({
                   </div>
                 </div>
 
-                <div className="flex gap-2 items-center">
+                <div className="directory-mobile-actions flex gap-2 items-center">
                   <button
                     type="button"
                     onClick={() => onMessage(c)}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[var(--red)] text-white border-0 text-[13px] font-bold cursor-pointer hover:bg-[var(--red-mid)]"
+                    className="directory-mobile-message-btn flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[var(--red)] text-white border-0 text-[13px] font-bold cursor-pointer hover:bg-[var(--red-mid)]"
                   >
                     <MessageSquare size={13} />
                     Message
@@ -209,15 +222,16 @@ export function DirectoryTabView({
                         e.stopPropagation()
                         setOpenDropdown(isDropdownOpen ? null : c.id)
                       }}
-                      className="py-2 px-2 rounded-lg bg-[var(--bg-raised)] dark:bg-dark-4 border border-border dark:border-border-dark text-[var(--text-muted)] cursor-pointer inline-flex items-center justify-center hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                      className="directory-mobile-more-btn py-2 px-2 rounded-lg bg-[var(--bg-raised)] dark:bg-dark-4 border border-border dark:border-border-dark text-[var(--text-muted)] cursor-pointer inline-flex items-center justify-center hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
                       aria-haspopup="true"
                       aria-expanded={isDropdownOpen}
                       aria-label="More options"
                     >
-                      <ChevronDown
-                        size={14}
-                        className={`transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
-                      />
+                      {isDropdownOpen ? (
+                        <ChevronDown size={14} className="transition-transform rotate-180" />
+                      ) : (
+                        <Ellipsis size={14} />
+                      )}
                     </button>
                     {isDropdownOpen && (
                       <div

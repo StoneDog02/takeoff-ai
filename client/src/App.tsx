@@ -8,6 +8,10 @@ import { BuildListsPage } from '@/routes/BuildListsPage'
 import { BuildListDetailPage } from '@/routes/BuildListDetailPage'
 import { ProjectsPage } from '@/routes/ProjectsPage'
 import { RevenuePage } from '@/pages/RevenuePage'
+import { FinancialsLayout } from '@/pages/FinancialsLayout'
+import { FinancialsTransactionsPage } from '@/pages/FinancialsTransactionsPage'
+import { FinancialsReportsPage } from '@/pages/FinancialsReportsPage'
+import { FinancialsInvoicingPage } from '@/pages/FinancialsInvoicingPage'
 import { DocumentsPage } from '@/pages/DocumentsPage'
 import { AccountingPage } from '@/pages/AccountingPage'
 import { TeamsPage } from '@/pages/TeamsPage'
@@ -73,13 +77,21 @@ export const router = createBrowserRouter([
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'projects', element: <ProjectsPage /> },
           { path: 'projects/:id', element: <ProjectsPage /> },
-          { path: 'financials', element: <RevenuePage /> },
+          {
+            path: 'financials',
+            element: <FinancialsLayout />,
+            children: [
+              { index: true, element: <Navigate to="/financials/overview" replace /> },
+              { path: 'overview', element: <RevenuePage /> },
+              { path: 'transactions', element: <FinancialsTransactionsPage /> },
+              { path: 'reports', element: <FinancialsReportsPage /> },
+              { path: 'invoicing', element: <FinancialsInvoicingPage /> },
+            ],
+          },
           { path: 'revenue', element: <Navigate to="/financials" replace /> },
           { path: 'accounting', element: <AccountingPage /> },
-          { path: 'invoicing', element: <Navigate to="/financials?tab=invoicing" replace /> },
           { path: 'documents', element: <DocumentsPage /> },
-          { path: 'estimates', element: <Navigate to="/financials?tab=invoicing" replace /> },
-          { path: 'teams', element: <TeamsPage /> },
+          { path: 'estimates', element: <Navigate to="/financials/invoicing" replace /> },
           { path: 'payroll', element: <PayrollPage /> },
           { path: 'directory', element: <DirectoryPage /> },
           { path: 'contractors', element: <Navigate to="/directory" replace /> },

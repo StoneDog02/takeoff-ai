@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
@@ -189,6 +189,17 @@ function colMatchesStatus(colKey: string, status: string): boolean {
 }
 
 /** Human-readable status for list/cards (backlog + legacy approved state). */
+/** Short label for list rows (e.g. "Stoney H.") */
+function formatPmShortLabel(name: string | null | undefined): string {
+  const n = (name || '').trim()
+  if (!n) return '—'
+  const parts = n.split(/\s+/)
+  if (parts.length === 1) return parts[0]
+  const last = parts[parts.length - 1]
+  const lastInitial = last.length > 0 ? last[0].toUpperCase() : ''
+  return `${parts[0]} ${lastInitial}.`
+}
+
 function displayProjectStatusLabel(status: string | undefined): string {
   const n = normStatus(status ?? '')
   if (n === 'awaiting_job_creation' || n === 'backlog') return 'Backlog'
@@ -301,6 +312,7 @@ export function ProjectsPage() {
   const [activity, setActivity] = useState<ProjectActivityItem[]>([])
   const [buildPlans, setBuildPlans] = useState<ProjectBuildPlan[]>([])
   const [heroMenuOpen, setHeroMenuOpen] = useState(false)
+  const [listActionsMenuOpen, setListActionsMenuOpen] = useState(false)
   const [activateModalOpen, setActivateModalOpen] = useState(false)
   /** When set, activation modal targets this project (board); detail flow clears this. */
   const [pendingActivateProjectId, setPendingActivateProjectId] = useState<string | null>(null)
@@ -310,6 +322,7 @@ export function ProjectsPage() {
   const [activateError, setActivateError] = useState<string | null>(null)
   const [activateSuccessToast, setActivateSuccessToast] = useState<string | null>(null)
   const heroMenuRef = useRef<HTMLDivElement>(null)
+  const listActionsMenuRef = useRef<HTMLDivElement>(null)
   const [buildEstimateOpen, setBuildEstimateOpen] = useState(false)
   const [buildEstimateBlankMode, setBuildEstimateBlankMode] = useState(false)
   const [buildEstimateBidSheet, setBuildEstimateBidSheet] = useState<BidSheet | null | undefined>(undefined)
@@ -438,6 +451,17 @@ export function ProjectsPage() {
     document.addEventListener('click', onDocClick, true)
     return () => document.removeEventListener('click', onDocClick, true)
   }, [heroMenuOpen])
+
+  useEffect(() => {
+    if (!listActionsMenuOpen) return
+    const onDocClick = (e: MouseEvent) => {
+      if (listActionsMenuRef.current && !listActionsMenuRef.current.contains(e.target as Node)) {
+        setListActionsMenuOpen(false)
+      }
+    }
+    document.addEventListener('click', onDocClick, true)
+    return () => document.removeEventListener('click', onDocClick, true)
+  }, [listActionsMenuOpen])
 
   useEffect(() => {
     if (id && pendingActivateProjectId && id !== pendingActivateProjectId) {
@@ -1454,6 +1478,50 @@ export function ProjectsPage() {
     setPaymentPrompt(null)
   }, [paymentPrompt, id])
 
+  const kanbanTrackRef = useRef<HTMLDivElement>(null)
+  const [kanbanSnapIndex, setKanbanSnapIndex] = useState(0)
+
+  const updateKanbanSnapIndex = useCallback(() => {
+    const el = kanbanTrackRef.current
+    if (!el) return
+    const cols = el.querySelectorAll(':scope > .projects-board-column')
+    if (cols.length === 0) return
+    const first = cols[0] as HTMLElement
+    const second = cols[1] as HTMLElement | undefined
+    const step = second ? second.offsetLeft - first.offsetLeft : Math.max(1, first.offsetWidth)
+    const idx = Math.round(el.scrollLeft / step)
+    setKanbanSnapIndex(Math.max(0, Math.min(idx, cols.length - 1)))
+  }, [])
+
+  const scrollKanbanToIndex = useCallback((index: number) => {
+    const el = kanbanTrackRef.current
+    if (!el) return
+    const col = el.children[index] as HTMLElement | undefined
+    if (!col) return
+    el.scrollTo({ left: col.offsetLeft, behavior: 'smooth' })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+    if (listView !== 'board' || loading) return
+    const el = kanbanTrackRef.current
+    if (!el) return
+    const mm = window.matchMedia('(max-width: 1023px)')
+    const onScroll = () => {
+      if (mm.matches) updateKanbanSnapIndex()
+    }
+    const onResizeOrMq = () => updateKanbanSnapIndex()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onResizeOrMq)
+    mm.addEventListener('change', onResizeOrMq)
+    updateKanbanSnapIndex()
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResizeOrMq)
+      mm.removeEventListener('change', onResizeOrMq)
+    }
+  }, [listView, loading, updateKanbanSnapIndex])
+
   if (id === undefined) {
     const searchLower = search.trim().toLowerCase()
     const searchMatch = (p: DashboardProject) =>
@@ -1572,63 +1640,95 @@ export function ProjectsPage() {
                 {displayedProjects.length} project{displayedProjects.length !== 1 ? 's' : ''} · {activeCount} active
               </p>
             </div>
-            <div className="projects-list-actions">
-              <div className="projects-list-search-wrap">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-                </svg>
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search projects..."
-                  className="projects-list-search"
-                />
-              </div>
-              <div className="projects-list-view-toggle">
-                <button
-                  type="button"
-                  onClick={() => setListView('board')}
-                  className={`projects-list-view-btn ${listView === 'board' ? 'active' : ''}`}
-                  aria-label="Board view"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="5" height="18" /><rect x="9.5" y="3" width="5" height="18" /><rect x="16" y="3" width="5" height="18" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setListView('grid')}
-                  className={`projects-list-view-btn ${listView === 'grid' ? 'active' : ''}`}
-                  aria-label="Grid view"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setListView('table')}
-                  className={`projects-list-view-btn ${listView === 'table' ? 'active' : ''}`}
-                  aria-label="List view"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-                  </svg>
-                </button>
-              </div>
+            <div className="projects-list-header-actions" ref={listActionsMenuRef}>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); openProductLibrary() }}
-                className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
+                className="projects-list-kebab-btn"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={listActionsMenuOpen}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setListActionsMenuOpen((v) => !v)
+                }}
               >
-                Products & Services
-              </button>
-              <button type="button" onClick={() => setNewEstimateOpen(true)} className="projects-list-new-btn">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <circle cx="12" cy="5" r="1.8" />
+                  <circle cx="12" cy="12" r="1.8" />
+                  <circle cx="12" cy="19" r="1.8" />
                 </svg>
-                New project
+              </button>
+              {listActionsMenuOpen && (
+                <div className="projects-list-kebab-menu" role="menu" aria-label="Project actions">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="projects-list-kebab-item"
+                    onClick={() => {
+                      setListActionsMenuOpen(false)
+                      openProductLibrary()
+                    }}
+                  >
+                    Products &amp; Services
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="projects-list-kebab-item projects-list-kebab-item-primary"
+                    onClick={() => {
+                      setListActionsMenuOpen(false)
+                      setNewEstimateOpen(true)
+                    }}
+                  >
+                    + New project
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="projects-list-actions">
+            <div className="projects-list-search-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+              </svg>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search projects..."
+                className="projects-list-search"
+              />
+            </div>
+            <div className="projects-list-view-toggle">
+              <button
+                type="button"
+                onClick={() => setListView('board')}
+                className={`projects-list-view-btn ${listView === 'board' ? 'active' : ''}`}
+                aria-label="Board view"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="5" height="18" /><rect x="9.5" y="3" width="5" height="18" /><rect x="16" y="3" width="5" height="18" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setListView('grid')}
+                className={`projects-list-view-btn ${listView === 'grid' ? 'active' : ''}`}
+                aria-label="Grid view"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setListView('table')}
+                className={`projects-list-view-btn ${listView === 'table' ? 'active' : ''}`}
+                aria-label="List view"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
               </button>
             </div>
           </div>
@@ -1665,7 +1765,12 @@ export function ProjectsPage() {
             </div>
             ) : listView === 'board' ? (
             <div className="projects-board-wrapper">
-              <div className="projects-board">
+              <div
+                ref={kanbanTrackRef}
+                className="projects-board kanban-track"
+                role="region"
+                aria-label="Project pipeline columns"
+              >
                 {PIPELINE_COLUMNS_MAIN.map((col) => {
                   const columnProjects = displayedProjects.filter((p) => colMatchesStatus(col.key, p.status ?? ''))
                   return (
@@ -1694,6 +1799,19 @@ export function ProjectsPage() {
                     </div>
                   )
                 })}
+              </div>
+              <div className="kanban-track-dots" role="tablist" aria-label="Pipeline columns">
+                {PIPELINE_COLUMNS_MAIN.map((col, i) => (
+                  <button
+                    key={col.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={i === kanbanSnapIndex}
+                    aria-label={`${col.label} column${i === kanbanSnapIndex ? ', current' : ''}`}
+                    className={`kanban-track-dot${i === kanbanSnapIndex ? ' kanban-track-dot--active' : ''}`}
+                    onClick={() => scrollKanbanToIndex(i)}
+                  />
+                ))}
               </div>
               {(() => {
                 const backlogCol = PIPELINE_COLUMNS.find((c) => c.key === 'backlog')!
@@ -1725,69 +1843,127 @@ export function ProjectsPage() {
               </p>
             ) : (
               <div className="projects-list-table">
-                <div className="projects-list-table-head" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px' }}>
-                  <span>Project</span><span>Status</span><span>Phase</span><span>Budget (Actual)</span><span>Days Left</span><span>PM</span><span></span>
-                </div>
-                {displayedProjects.map((p) => {
-                  const budgetTotal = p.budget_total ?? 0
-                  const spentTotal = p.spent_total ?? 0
-                  const budgetPct = budgetTotal > 0 ? Math.round((spentTotal / budgetTotal) * 100) : 0
-                  const currentPhase = p.phases?.find((ph) => !ph.completed)?.name ?? (p.phases?.length ? p.phases[p.phases.length - 1]?.name : null)
-                  const sn = normStatus(p.status ?? '')
-                  const isBacklogLike = sn === 'backlog' || sn === 'awaiting_job_creation' || sn === 'planning'
-                  const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
-                    isBacklogLike ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } :
-                    (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
-                    (p.status ?? '') === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } :
-                    { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' }
-                  return (
-                    <div
-                      key={p.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => navigate(`/projects/${p.id}`)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
-                      className="projects-list-table-row"
-                      style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: '#6b7280' }}
-                    >
-                      <div>
-                        <div className="font-semibold text-[14px] text-gray-900 dark:text-landing-white">{p.name}</div>
-                        <div className="text-xs text-muted dark:text-white-dim">
-                          {p.address_line_1 || p.city || '—'}
+                <div className="projects-list-table-mobile" role="table" aria-label="Projects">
+                  <div className="projects-list-simple-head" role="row">
+                    <span role="columnheader">Project</span>
+                    <span role="columnheader">Status</span>
+                    <span role="columnheader">Budget</span>
+                  </div>
+                  {displayedProjects.map((p) => {
+                    const budgetTotal = p.budget_total ?? 0
+                    const spentTotal = p.spent_total ?? 0
+                    const budgetPct = budgetTotal > 0 ? Math.min(100, Math.round((spentTotal / budgetTotal) * 100)) : 0
+                    const addr = [p.address_line_1, p.city, p.state, p.postal_code].filter(Boolean).join(', ') || null
+                    const sn = normStatus(p.status ?? '')
+                    const isBacklogLike = sn === 'backlog' || sn === 'awaiting_job_creation' || sn === 'planning'
+                    const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
+                      isBacklogLike ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } :
+                      (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
+                      (p.status ?? '') === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } :
+                      { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' }
+                    return (
+                      <div
+                        key={p.id}
+                        role="row"
+                        tabIndex={0}
+                        aria-label={`Open project ${p.name}`}
+                        onClick={() => navigate(`/projects/${p.id}`)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
+                        className="projects-list-simple-row"
+                      >
+                        <div className="projects-list-simple-project" role="cell">
+                          <div className="projects-list-simple-name">{p.name}</div>
+                          <div className="projects-list-simple-addr">{addr || '—'}</div>
+                        </div>
+                        <div className="projects-list-simple-status" role="cell">
+                          <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
+                            {displayProjectStatusLabel(p.status)}
+                          </span>
+                          <div className="projects-list-simple-pm">{formatPmShortLabel(p.client)}</div>
+                        </div>
+                        <div className="projects-list-simple-budget" role="cell">
+                          {budgetTotal > 0 ? (
+                            <>
+                              <div className="projects-list-simple-spent">${spentTotal.toLocaleString()}</div>
+                              <div className="projects-list-simple-of">of ${budgetTotal.toLocaleString()}</div>
+                              <div className="projects-list-simple-bar-wrap" aria-hidden>
+                                <div className="projects-list-simple-bar-fill" style={{ width: `${budgetPct}%` }} />
+                              </div>
+                            </>
+                          ) : (
+                            <span className="projects-list-simple-dash">—</span>
+                          )}
                         </div>
                       </div>
-                      <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
-                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
-                        {displayProjectStatusLabel(p.status)}
-                      </span>
-                      <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{currentPhase ?? '—'}</span>
-                      <div>
-                        <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${spentTotal.toLocaleString()}</div>
-                        <div className="text-[10px] text-muted dark:text-white-dim">{budgetTotal > 0 ? `${budgetPct}% of $${budgetTotal.toLocaleString()} budget` : '—'}</div>
+                    )
+                  })}
+                </div>
+                <div className="projects-list-table-desktop">
+                  <div className="projects-list-table-head" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px' }}>
+                    <span>Project</span><span>Status</span><span>Phase</span><span>Budget (Actual)</span><span>Days Left</span><span>PM</span><span></span>
+                  </div>
+                  {displayedProjects.map((p) => {
+                    const budgetTotal = p.budget_total ?? 0
+                    const spentTotal = p.spent_total ?? 0
+                    const budgetPct = budgetTotal > 0 ? Math.round((spentTotal / budgetTotal) * 100) : 0
+                    const currentPhase = p.phases?.find((ph) => !ph.completed)?.name ?? (p.phases?.length ? p.phases[p.phases.length - 1]?.name : null)
+                    const sn = normStatus(p.status ?? '')
+                    const isBacklogLike = sn === 'backlog' || sn === 'awaiting_job_creation' || sn === 'planning'
+                    const statusStyle = (p.status ?? 'active') === 'active' ? { bg: 'var(--blue-bg)', text: 'var(--blue)', dot: '#3b82f6' } :
+                      isBacklogLike ? { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' } :
+                      (p.status ?? '') === 'on_hold' ? { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' } :
+                      (p.status ?? '') === 'completed' ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' } :
+                      { bg: 'var(--bg-base)', text: 'var(--text-muted)', dot: '#6b7280' }
+                    return (
+                      <div
+                        key={p.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => navigate(`/projects/${p.id}`)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
+                        className="projects-list-table-row"
+                        style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 120px 44px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: '#6b7280' }}
+                      >
+                        <div>
+                          <div className="font-semibold text-[14px] text-gray-900 dark:text-landing-white">{p.name}</div>
+                          <div className="text-xs text-muted dark:text-white-dim">
+                            {p.address_line_1 || p.city || '—'}
+                          </div>
+                        </div>
+                        <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
+                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
+                          {displayProjectStatusLabel(p.status)}
+                        </span>
+                        <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{currentPhase ?? '—'}</span>
+                        <div>
+                          <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${spentTotal.toLocaleString()}</div>
+                          <div className="text-[10px] text-muted dark:text-white-dim">{budgetTotal > 0 ? `${budgetPct}% of $${budgetTotal.toLocaleString()} budget` : '—'}</div>
+                        </div>
+                        <span className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">{p.days_left != null ? String(p.days_left) : '—'}</span>
+                        <div className="projects-card-pm">
+                          {p.client ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.client}</span> : <span className="text-xs text-muted">—</span>}
+                        </div>
+                        <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmProject(toProject(p))}
+                            className="p-2 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20"
+                            title="Delete project"
+                            aria-label="Delete project"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
-                      <span className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">{p.days_left != null ? String(p.days_left) : '—'}</span>
-                      <div className="projects-card-pm">
-                        {p.client ? <span className="text-xs text-gray-600 dark:text-white-dim">{p.client}</span> : <span className="text-xs text-muted">—</span>}
-                      </div>
-                      <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteConfirmProject(toProject(p))}
-                          className="p-2 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20"
-                          title="Delete project"
-                          aria-label="Delete project"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            <line x1="10" y1="11" x2="10" y2="17" />
-                            <line x1="14" y1="11" x2="14" y2="17" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             )
           ) : (
@@ -1930,6 +2106,27 @@ export function ProjectsPage() {
           {activateProjectModalEl}
           {activateSuccessToastEl}
         </div>
+        {showProductLibrary && typeof document !== 'undefined'
+          ? createPortal(
+              <div
+                className="estimates-detail-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Products & Services library"
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setShowProductLibrary(false)
+                }}
+              >
+                <div
+                  className="estimates-detail-panel__inner estimates-detail-panel__inner--products-drawer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <CustomProductLibrary onClose={() => setShowProductLibrary(false)} />
+                </div>
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     )
   }
@@ -1998,6 +2195,7 @@ export function ProjectsPage() {
         : timelineEnd
           ? formatDate(timelineEnd)
           : '—'
+  const timelinePrimary = timelineStart || timelineEnd ? timelineLabel : '— No end date set'
 
   const totalDays = timelineStart && timelineEnd ? dayjs(timelineEnd).diff(dayjs(timelineStart), 'day') + 1 : null
   const daysLeft = totalDays != null && timelineEnd ? Math.max(0, dayjs(timelineEnd).diff(dayjs(), 'day')) : null
@@ -2073,6 +2271,14 @@ export function ProjectsPage() {
               ? { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' }
               : { bg: '#f8fafc', text: '#64748b', dot: '#94a3b8' }
   const addressDisplay = [project?.address_line_1, project?.city].filter(Boolean).join(', ') || '—'
+  const projectSubtitleLine = project
+    ? [project.assigned_to_name, [project.address_line_1, [project.city, project.state, project.postal_code].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(' · ')
+    : '—'
+  const planTypeLabel =
+    (project?.plan_type === 'commercial' && 'Commercial') ||
+    (project?.plan_type === 'civil' && 'Civil') ||
+    (project?.plan_type === 'auto' && 'Auto') ||
+    'Residential'
   const projectGeofenceAddressLine = project
     ? [project.address_line_1, project.address_line_2, [project.city, project.state, project.postal_code].filter(Boolean).join(' ')].filter(Boolean).join(', ')
     : ''
@@ -2109,6 +2315,7 @@ export function ProjectsPage() {
 
   return (
     <div className="project-overview-page w-full max-w-[1600px] mx-auto">
+      <div className="hidden lg:block">
       {/* Hero */}
       <div className="project-overview-hero">
         <div className="project-overview-breadcrumb-wrap">
@@ -2393,6 +2600,285 @@ export function ProjectsPage() {
           })}
         </nav>
       </div>
+      </div>
+
+      <div className="lg:hidden">
+        <div className="project-overview-hero">
+        <div className="project-overview-breadcrumb-wrap">
+          <Link to="/projects" className="project-overview-breadcrumb">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+            Projects
+          </Link>
+        </div>
+        <div className="project-overview-title-row">
+          <div className="min-w-0 flex-1">
+            <h1 className="project-overview-title project-overview-title--single">{project?.name}</h1>
+            <p className="project-overview-subtitle">{projectSubtitleLine}</p>
+            <div className="project-overview-badges">
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1.5" style={{ background: statusPillStyle.bg, color: statusPillStyle.text }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusPillStyle.dot }} />
+                {displayProjectStatusLabel(project?.status)}
+              </span>
+            </div>
+          </div>
+          <div className="project-overview-hero-actions relative shrink-0" ref={heroMenuRef}>
+            <button
+              type="button"
+              className="project-overview-hero-menu-trigger"
+              onClick={(e) => { e.stopPropagation(); setHeroMenuOpen((v) => !v) }}
+              aria-expanded={heroMenuOpen}
+              aria-haspopup="true"
+              title="Project actions"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+            </button>
+            {heroMenuOpen && (
+              <div className="project-overview-hero-menu" role="menu">
+                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
+                {project?.status !== 'estimating' && (
+                  <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false) }}>Share</button>
+                )}
+                <button type="button" className="project-overview-hero-menu-item project-overview-hero-menu-item-danger" role="menuitem" onClick={() => { setHeroMenuOpen(false); project && setDeleteConfirmProject(project) }} title="Delete project">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {(project?.status === 'estimating' || project?.status === 'backlog') && (
+          <div className="project-overview-hero-cta-strip">
+            {project?.status === 'estimating' && (
+              <>
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate w-full sm:w-auto flex-1 min-w-0 justify-center"
+                  onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
+                >
+                  {hasPersistedJobEstimate ? 'Edit Estimate →' : 'Build Estimate →'}
+                </button>
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-build-estimate-secondary w-full sm:w-auto flex-1 min-w-0 justify-center"
+                  onClick={(e) => { e.stopPropagation(); openProductLibrary() }}
+                >
+                  Products & Services
+                </button>
+              </>
+            )}
+            {project?.status === 'backlog' && (
+              <button
+                type="button"
+                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate w-full justify-center"
+                onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
+              >
+                Activate Project →
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Stats grid (replaces horizontal KPI strip) */}
+        {project?.status === 'estimating' ? (
+          <div className="project-overview-stats-grid project-overview-stats-grid--estimating">
+            <div className="project-overview-stats-cell">
+              <div className="project-overview-stats-cell-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                Client
+              </div>
+              <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.assigned_to_name || '—'}</div>
+              {project?.client_email?.trim() ? (
+                <div className="text-[12px] text-[var(--text-muted)] mt-0.5">{project.client_email.trim()}</div>
+              ) : null}
+            </div>
+            <div className="project-overview-stats-cell">
+              <div className="project-overview-stats-cell-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                Plan type
+              </div>
+              <div className="text-[15px] font-semibold text-[var(--text-primary)]">{planTypeLabel}</div>
+            </div>
+            <div className="project-overview-stats-cell">
+              <div className="project-overview-stats-cell-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                Created
+              </div>
+              <div className="text-[15px] font-semibold text-[var(--text-primary)]">{project?.created_at ? formatDate(project.created_at) : '—'}</div>
+            </div>
+            <div className="project-overview-stats-cell">
+              <div className="project-overview-stats-cell-label">Takeoff</div>
+              <div className="text-[15px] font-semibold text-[var(--text-primary)]">
+                {takeoffs.length === 0 ? 'Not run' : `Complete — ${takeoffCategories.reduce((sum, cat) => sum + (cat.items?.length ?? 0), 0)} items`}
+              </div>
+            </div>
+            <div className="project-overview-stats-cell">
+              <div className="project-overview-stats-cell-label">Bids</div>
+              <div className="text-[15px] font-semibold text-[var(--text-primary)]">
+                {(() => {
+                  const tradeCount = workspaceBidSheet?.trade_packages?.length ?? 0
+                  const awarded = workspaceBidSheet?.sub_bids?.filter((b) => b.awarded) ?? []
+                  const tradesAwardedCount = new Set(awarded.map((b) => b.trade_package_id)).size
+                  const totalAwarded = awarded.reduce((s, b) => s + (Number(b.amount) || 0), 0)
+                  if (tradeCount === 0) return '0 trades'
+                  if (tradesAwardedCount === 0) return `0 of ${tradeCount} trades awarded`
+                  return `${tradesAwardedCount} of ${tradeCount} awarded · $${totalAwarded.toLocaleString()} total`
+                })()}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="project-overview-stats-grid">
+              <div className="project-overview-stats-cell project-overview-stats-cell--health">
+                <div className="project-overview-stats-cell-label">Project health</div>
+                <HealthRing score={healthScore} />
+                <div className="project-overview-stats-cell-sub">Budget, schedule</div>
+              </div>
+              <div className="project-overview-stats-cell">
+                <div className="project-overview-stats-cell-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                  Budget vs actual
+                </div>
+            {budgetShowsAwaitingApproval && !hasEstimateBudgetPreview ? (
+              <>
+                <div className="text-[14px] font-semibold" style={{ color: 'var(--est-amber, #b86e1a)' }}>
+                  Awaiting Approval
+                </div>
+                <div className="mt-1.5">
+                  <div className="text-[11px] text-[var(--text-muted)] mb-0.5">Budget after estimate is approved</div>
+                  <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                    <div className="h-full rounded-sm" style={{ width: 0, background: 'var(--border)' }} />
+                  </div>
+                </div>
+              </>
+            ) : budgetShowsAwaitingApproval && hasEstimateBudgetPreview ? (
+              <>
+                <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudgetOverview ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                  ${budgetSummary.actual_total.toLocaleString()}{' '}
+                  <span className="text-xs font-normal font-sans text-[var(--text-muted)] opacity-75">
+                    / ${overviewDisplayBudget.toLocaleString()}
+                  </span>
+                </div>
+                <div className="mt-1.5">
+                  <div className="text-[11px] text-[var(--text-muted)] mb-0.5">
+                    {overviewBudgetPct}% of estimate · pending approval
+                  </div>
+                  <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                    <div
+                      className="h-full rounded-sm transition-[width]"
+                      style={{
+                        width: `${Math.min(100, overviewBudgetPct)}%`,
+                        background: overviewBudgetPct > 95 ? 'var(--red)' : overviewBudgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[14px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                  ${budgetSummary.actual_total.toLocaleString()}{' '}
+                  <span className="text-xs font-normal font-sans text-[var(--text-primary)]">
+                    / ${revisedBudget.toLocaleString()}
+                  </span>
+                </div>
+                <div className="mt-1.5">
+                  <div className="text-[11px] text-[var(--text-primary)] mb-0.5">{budgetPct}% used</div>
+                  <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                    <div
+                      className="h-full rounded-sm transition-[width]"
+                      style={{
+                        width: `${Math.min(100, budgetPct)}%`,
+                        background: budgetPct > 95 ? 'var(--red)' : budgetPct > 80 ? '#f59e0b' : 'var(--green,#16a34a)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+              </div>
+              <div className="project-overview-stats-cell">
+                <div className="project-overview-stats-cell-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                  Plan type
+                </div>
+                <div className="text-[15px] font-semibold text-[var(--text-primary)]">{planTypeLabel}</div>
+              </div>
+              <div className="project-overview-stats-cell">
+                <div className="project-overview-stats-cell-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                  Timeline
+                </div>
+                <div className="text-[14px] font-semibold text-[var(--text-primary)]">{timelinePrimary}</div>
+                {timelineStart && timelineEnd ? (
+                  <div className="mt-1.5">
+                    <div className="flex justify-between mb-0.5 text-[11px] text-[var(--text-primary)]">
+                      <span>{timelinePct}% elapsed</span>
+                      <span className="font-semibold" style={{ color: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-primary)' }}>{daysLeft != null ? `${daysLeft}d left` : '—'}</span>
+                    </div>
+                    <div className="h-1 rounded-sm overflow-hidden bg-[var(--bg-base)]">
+                      <div className="h-full rounded-sm transition-[width]" style={{ width: `${timelinePct}%`, background: daysLeft != null && daysLeft <= 7 ? 'var(--red)' : 'var(--text-primary)' }} />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="project-overview-stats-grid-meta">
+              <div className="project-overview-stats-cell-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                Build plans
+              </div>
+              {buildPlans.length > 0 ? (
+                <div className="flex flex-col gap-1 mt-1 min-w-0">
+                  {buildPlans.map((plan) => (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={async () => {
+                        if (!id) return
+                        try {
+                          const { url } = await api.projects.getBuildPlanViewUrl(id, plan.id)
+                          window.open(url, '_blank')
+                        } catch {
+                          window.open(plan.url, '_blank')
+                        }
+                      }}
+                      className="text-[12px] font-medium text-left text-[var(--accent)] hover:underline truncate cursor-pointer bg-transparent border-none p-0"
+                      title={plan.file_name}
+                    >
+                      {plan.file_name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[12px] text-[var(--text-muted)] mt-1">No plans. Use Edit to add.</div>
+              )}
+            </div>
+          </>
+        )}
+
+        </div>
+
+      {/* Tabs */}
+        <nav className="project-overview-tabs" aria-label="Project sections">
+          {tabs.map((tab) => {
+            const isEstimating = project?.status === 'estimating'
+            const tabDisabledWhenEstimating = isEstimating && ['worktypes', 'crew', 'budget', 'schedule'].includes(tab.id)
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => { if (!tabDisabledWhenEstimating) setActiveTab(tab.id) }}
+                className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''} ${tabDisabledWhenEstimating ? 'project-overview-tab--disabled' : ''}`}
+                title={tabDisabledWhenEstimating ? 'Available after job is created' : undefined}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </nav>
+      </div>
 
       {paymentPrompt && id && (activeTab === 'overview' || activeTab === 'schedule') && (
         <div
@@ -2493,6 +2979,7 @@ export function ProjectsPage() {
               onOpenWizard={() => setSetupWizardOpen(true)}
             />
           )}
+          <div className="hidden lg:block">
           {project.status === 'backlog' && (
             <div className="project-backlog-banner">
               <p className="project-backlog-banner-text">
@@ -2772,6 +3259,307 @@ export function ProjectsPage() {
             </div>
           </div>
           </div>
+          </div>
+
+          <div className="lg:hidden w-full min-w-0 max-w-full">
+          {project.status === 'backlog' && (
+            <div className="project-backlog-banner project-backlog-banner--compact">
+              <p className="project-backlog-banner-text m-0">
+                Approved and ready to start — set a start date, then use <strong>Activate Project</strong> above when you&apos;re ready.
+              </p>
+            </div>
+          )}
+          <div className="project-overview-body project-overview-body--v2 w-full min-w-0 max-w-full box-border">
+          {/* Mobile: quick → budget → breakdown → milestones | team → activity */}
+          <div className="project-overview-body__col project-overview-body__col--quick w-full min-w-0">
+            <div className="project-overview-card w-full min-w-0">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Quick actions</span>
+              </div>
+              <div className="project-overview-card-body">
+                <div className="project-overview-quick-actions">
+                {[
+                  { label: 'Log Time', icon: '⏱', color: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' },
+                  { label: 'Add Photo', icon: '📷', color: '#f0fdf4', border: '#bbf7d0', text: '#15803d' },
+                  { label: 'Flag Issue', icon: '🚩', color: '#fff7ed', border: '#fed7aa', text: '#c2410c' },
+                  { label: 'Add Note', icon: '📝', color: '#fdf4ff', border: '#e9d5ff', text: '#7e22ce' },
+                ].map((action) => (
+                  <button key={action.label} type="button" className="project-overview-quick-btn" style={{ background: action.color, borderColor: action.border }} onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }} onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}>
+                    <div className="text-lg mb-1">{action.icon}</div>
+                    <div className="text-xs font-semibold" style={{ color: action.text }}>{action.label}</div>
+                  </button>
+                ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="project-overview-body__col project-overview-body__col--budget w-full min-w-0">
+            <div className="project-overview-card w-full min-w-0">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Budget vs actual</span>
+                <button
+                  type="button"
+                  className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+                  disabled={project.status === 'estimating'}
+                  title={project.status === 'estimating' ? 'Available after job is created' : 'Open Change Orders'}
+                  onClick={() => { if (project.status !== 'estimating') setActiveTab('budget') }}
+                >
+                  Full breakdown →
+                </button>
+              </div>
+              <div className="project-overview-card-body">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  {budgetShowsAwaitingApproval && !hasEstimateBudgetPreview ? (
+                    <>
+                      <div
+                        className="text-[20px] font-semibold leading-snug max-w-[220px]"
+                        style={{ color: 'var(--est-amber, #b86e1a)' }}
+                      >
+                        Awaiting Approval
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)] mt-1">
+                        Budget and actuals apply once the estimate is approved
+                      </div>
+                    </>
+                  ) : budgetShowsAwaitingApproval && hasEstimateBudgetPreview ? (
+                    <>
+                      <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudgetOverview ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                        ${budgetSummary.actual_total.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)] opacity-80">
+                        of ${overviewDisplayBudget.toLocaleString()}{' '}
+                        <span className="italic">estimated</span> budget
+                      </div>
+                      <div className="text-[11px] mt-1 font-medium" style={{ color: 'var(--est-amber, #b86e1a)' }}>
+                        Pending client approval — totals may change
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[22px] font-bold font-mono" style={{ color: isUnderBudget ? 'var(--green,#16a34a)' : 'var(--red)' }}>
+                        ${budgetSummary.actual_total.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)]">of ${revisedBudget.toLocaleString()} budget</div>
+                    </>
+                  )}
+                </div>
+              </div>
+              {overviewBudgetDisplayItems.map((item) => {
+                const provisionalBudget = hasEstimateBudgetPreview
+                const categoryKeyForDisplay = budgetCategoryKeyFromEstimateSection(
+                  item.category || item.label
+                )
+                const displayLabel = OVERVIEW_ESTIMATE_KEY_TO_LABEL[categoryKeyForDisplay] ?? item.label
+                const over = item.actual > item.predicted
+                const color = BUDGET_ITEM_COLORS[displayLabel] ?? '#6366f1'
+                const maxVal = Math.max(item.predicted, item.actual)
+                const budgetWidth = maxVal > 0 ? (item.predicted / maxVal) * 100 : 0
+                const actualWidth = maxVal > 0 ? Math.min(100, (item.actual / maxVal) * 100) : 0
+                const mutedBar = provisionalBudget ? 'opacity-45' : ''
+                return (
+                  <div
+                    key={item.id}
+                    className={`mb-3.5 last:mb-0 ${provisionalBudget ? 'opacity-[0.92]' : ''}`}
+                  >
+                    <div className="flex justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, opacity: provisionalBudget ? 0.55 : 1 }} />
+                        <span className={`text-[13px] font-medium ${provisionalBudget ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>{displayLabel}</span>
+                      </div>
+                      <div className="flex gap-3 items-center">
+                        <span className={`text-xs ${provisionalBudget ? 'text-[var(--text-muted)] opacity-70 italic' : 'text-[var(--text-muted)]'}`}>
+                          ${item.predicted.toLocaleString()}
+                          {provisionalBudget ? <span className="not-italic text-[10px] ml-1 opacity-80">(est.)</span> : null}
+                        </span>
+                        <span className="text-[13px] font-semibold font-mono" style={{ color: over ? 'var(--red)' : 'var(--text-primary)' }}>${item.actual.toLocaleString()}</span>
+                        <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-md" style={{ background: over ? '#fef2f2' : '#f0fdf4', color: over ? 'var(--red)' : 'var(--green,#16a34a)' }}>{over ? '-' : '+'}${Math.abs(item.actual - item.predicted).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-md overflow-hidden bg-[var(--bg-base)] relative">
+                      <div className={`absolute left-0 top-0 h-full rounded-md bg-[var(--border)] ${mutedBar}`} style={{ width: `${budgetWidth}%` }} />
+                      <div className="absolute left-0 top-0 h-full rounded-md opacity-90" style={{ width: `${actualWidth}%`, background: over ? 'var(--red)' : color }} />
+                    </div>
+                  </div>
+                )
+              })}
+              </div>
+            </div>
+          </div>
+
+          <div className="project-overview-body__col project-overview-body__col--breakdown w-full min-w-0">
+            <div className="project-overview-card w-full min-w-0">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Project breakdown</span>
+              </div>
+              <div className="project-overview-card-body">
+              {project.scope && <div className="project-overview-card-subtitle">{project.scope}</div>}
+              {acceptedEstimate && acceptedEstimateDetail && phases.length > 0 && phaseIdsWithPaymentMilestone.size > 0 && (
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 mb-2 leading-snug">
+                  When a phase is done, use <strong className="text-[var(--text-primary)]">Mark complete</strong> to send its milestone invoice.
+                </p>
+              )}
+              {acceptedEstimate && acceptedEstimateDetail && phases.length > 0 && phaseIdsWithPaymentMilestone.size === 0 && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400/95 mt-1 mb-2 leading-snug">
+                  No billable milestones match these phases yet. Align schedule phases with your accepted estimate’s progress milestones to enable invoicing.
+                </p>
+              )}
+              <div className="flex flex-col gap-0">
+                {phases.length > 0 ? phases.map((ph) => {
+                  const today = dayjs().format('YYYY-MM-DD')
+                  const status = today > ph.end_date ? 'complete' : today >= ph.start_date && today <= ph.end_date ? 'in-progress' : 'upcoming'
+                  const cfg = { complete: { bg: '#f0fdf4', bar: '#16a34a', text: '#15803d', label: 'Complete' }, 'in-progress': { bg: '#eff6ff', bar: '#3b82f6', text: '#1d4ed8', label: 'In progress' }, upcoming: { bg: 'var(--bg-base)', bar: 'var(--border)', text: 'var(--text-muted)', label: 'Upcoming' } }[status]
+                  const pct = status === 'complete' ? 100 : status === 'in-progress' ? 50 : 0
+                  return (
+                    <div key={ph.id} className="project-overview-phase-row">
+                      <div className="flex justify-between items-center mb-2 gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.bar }} />
+                          <span className="project-overview-phase-name truncate">{ph.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {phaseIdsWithPaymentMilestone.has(ph.id) && acceptedEstimate && acceptedEstimateDetail && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/35 bg-[var(--accent)]/[0.08] px-2 py-1 text-[11px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/[0.14] whitespace-nowrap shrink-0"
+                              onClick={() => void handlePhaseMarkComplete(ph.id)}
+                            >
+                              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                              Mark complete
+                            </button>
+                          )}
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.text }}>{cfg.label}</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center gap-3">
+                        <div className="project-overview-phase-bar-wrap">
+                          <div className="h-full rounded-sm transition-[width] duration-300" style={{ width: `${pct}%`, background: cfg.bar }} />
+                        </div>
+                        <span className="text-[11px] text-[var(--text-muted)] font-mono whitespace-nowrap">{dayjs(ph.start_date).format('MM/DD')} – {dayjs(ph.end_date).format('MM/DD')}</span>
+                      </div>
+                    </div>
+                  )
+                }) : <p className="text-sm text-[var(--text-muted)]">No phases yet.</p>}
+              </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="project-overview-body__split w-full min-w-0">
+            <div className="project-overview-card w-full min-w-0">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Milestones</span>
+              </div>
+              <div className="project-overview-card-body">
+              <div className="flex flex-col gap-0">
+                {milestones.length > 0 ? milestones.map((m) => (
+                  <div key={m.id} className="project-overview-milestone-row">
+                    <div className="project-overview-milestone-icon" style={{ background: m.completed ? '#f0fdf4' : '#fff7ed' }}>
+                      {m.completed ? <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg> : <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-[var(--text-primary)]">{m.title}</div>
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)] font-mono">{formatDate(m.due_date)}</div>
+                  </div>
+                )) : <p className="text-sm text-[var(--text-muted)]">None yet.</p>}
+              </div>
+              </div>
+            </div>
+            <div className="project-overview-card w-full min-w-0">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Team</span>
+              </div>
+              <div className="project-overview-card-body">
+              <div className="flex flex-col gap-0">
+                {(() => {
+                  const empMap = new Map(rosterEmployees.map((e) => [e.id, e]))
+                  const rosterRows = jobAssignments
+                    .filter((a) => !a.ended_at)
+                    .map((a) => {
+                      const emp = empMap.get(a.employee_id)
+                      return { assignment: a, name: emp?.name ?? a.employee_id, role: a.role_on_job || emp?.role || '—' }
+                    })
+                  const hasRoster = rosterRows.length > 0
+                  const subTeamRows = groupSubcontractorsForTeamDisplay(subcontractors)
+                  const hasSubs = subTeamRows.length > 0
+                  if (!hasRoster && !hasSubs) return <p className="text-sm text-[var(--text-muted)]">None yet.</p>
+                  return (
+                    <>
+                      {rosterRows.map(({ assignment, name, role }, i) => (
+                        <div key={assignment.id} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)]">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][i % 3] }}>{name.slice(0, 2).toUpperCase()}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">{name}</div>
+                            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{role}</div>
+                          </div>
+                          <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
+                        </div>
+                      ))}
+                      {subTeamRows.map((row, i) => (
+                        <div key={row.dedupeKey} className="flex items-center gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: ['#6366f1', '#0ea5e9', '#f59e0b'][(rosterRows.length + i) % 3] }}>{row.name.slice(0, 2).toUpperCase()}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">{row.name}</div>
+                            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.tradeLine}</div>
+                          </div>
+                          <button type="button" className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-base)] border border-[var(--border)] px-2.5 py-1 rounded-md cursor-pointer">Message</button>
+                        </div>
+                      ))}
+                    </>
+                  )
+                })()}
+              </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="project-overview-body__col project-overview-body__col--activity w-full min-w-0">
+            <div className="project-overview-card w-full min-w-0">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Live Activity</span>
+              </div>
+              <div className="project-overview-card-body">
+              <div className="project-overview-card-subtitle">Recent updates across this project</div>
+              <div className="flex flex-col gap-0 relative">
+                <div className="project-overview-activity-line" />
+                {activity.length === 0 ? (
+                  <p className="text-sm text-[var(--text-muted)] py-4 pl-10">No recent activity yet.</p>
+                ) : (
+                  activity.map((a, i) => {
+                    const tc = TAG_COLORS[a.tag] ?? { bg: 'var(--bg-base)', text: 'var(--text-secondary)' }
+                    const displayAction = a.detail ? `${a.action}: ${a.detail}` : a.action
+                    return (
+                      <div key={`${a.at}-${i}`} className="project-overview-activity-item">
+                        <div className="project-overview-activity-avatar" style={{ background: avatarColorFor(a.who, i) }}>
+                          {getInitials(a.who || '')}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              {a.who && <span className="text-xs font-semibold text-[var(--text-primary)]">{a.who} </span>}
+                              <span className="text-xs text-[var(--text-secondary)]">{displayAction}</span>
+                            </div>
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0" style={{ background: tc.bg, color: tc.text }}>{a.tag}</span>
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{formatActivityTime(a.at)}</div>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <button type="button" className="project-overview-view-all">View all activity</button>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          </div>
           </>
           )}
         </div>
@@ -3048,7 +3836,12 @@ export function ProjectsPage() {
 
       {activeTab === 'documents' && project && (
         <section className="w-full min-w-0 px-8 py-6">
-          <ProjectDocumentsTab projectId={project.id} projectName={project.name} refreshTrigger={detailRefreshTrigger} />
+          <ProjectDocumentsTab
+            projectId={project.id}
+            projectName={project.name}
+            refreshTrigger={detailRefreshTrigger}
+            onBudgetSynced={() => setDetailRefreshTrigger((t) => t + 1)}
+          />
         </section>
       )}
 

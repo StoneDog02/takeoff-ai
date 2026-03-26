@@ -311,34 +311,37 @@ export function BidSheetFlow({
     )
   }
 
+  const takeoffComplete = (takeoffCategories?.length ?? 0) > 0
+
   return (
     <div className="bidsheet-tab">
-      {/* Compact status line + primary tabs */}
+      {/* KPI strip + takeoff / awarded summary + primary tabs */}
       <div className="bidsheet-top-bar">
-        <div className="bidsheet-status-line">
-          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('packages')} title="Go to Trade Packages">
-            {pipelineCounts.takeoff ? '✓ Takeoff' : 'Takeoff'}
-          </button>
-          <span className="bidsheet-status-sep" />
-          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('packages')} title="Go to Trade Packages">
-            {pipelineCounts.packages} packages
-          </button>
-          <span className="bidsheet-status-sep" />
-          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('collection')} title="Go to Bid Collection">
-            {pipelineCounts.sent} sent
-          </button>
-          <span className="bidsheet-status-sep" />
-          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('collection')} title="Go to Bid Collection">
-            {pipelineCounts.received} received
-          </button>
-          <span className="bidsheet-status-sep" />
-          <button type="button" className="bidsheet-status-btn" onClick={() => setActiveSubTab('collection')} title="Go to Bid Collection">
-            {pipelineCounts.awarded} awarded
-          </button>
-          <span className="bidsheet-status-sep" />
-          <button type="button" className="bidsheet-status-btn bidsheet-status-awarded" onClick={() => setActiveSubTab('summary')} title="Go to GC Summary">
-            Awarded total: <strong style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--green, #16a34a)' }}>{fmt(awardedTotal)}</strong>
-          </button>
+        <div className="bidsheet-kpi-block">
+          <div className="bidsheet-kpi-strip" role="presentation">
+            {(
+              [
+                { label: 'Packages', val: pipelineCounts.packages },
+                { label: 'Sent', val: pipelineCounts.sent },
+                { label: 'Received', val: pipelineCounts.received },
+                { label: 'Awarded', val: pipelineCounts.awarded },
+              ] as const
+            ).map((k) => (
+              <div key={k.label} className="bidsheet-kpi-cell">
+                <div className="bidsheet-kpi-label">{k.label}</div>
+                <div className="bidsheet-kpi-val">{k.val}</div>
+              </div>
+            ))}
+          </div>
+          <div className="bidsheet-kpi-summary">
+            <span className={takeoffComplete ? 'bidsheet-takeoff-complete' : 'bidsheet-takeoff-pending'}>
+              {takeoffComplete ? '✓ Takeoff complete' : 'Takeoff pending'}
+            </span>
+            <span className="bidsheet-kpi-awarded">
+              <span className="bidsheet-kpi-awarded-label">Awarded total</span>
+              <span className="bidsheet-kpi-awarded-val">{fmt(awardedTotal)}</span>
+            </span>
+          </div>
         </div>
         <div className="bidsheet-primary-tabs">
           {SUB_TABS.map(({ key, label }) => (
@@ -348,7 +351,14 @@ export function BidSheetFlow({
               onClick={() => setActiveSubTab(key)}
               className={`bidsheet-primary-tab ${activeSubTab === key ? 'active' : ''}`}
             >
-              {label}
+              {key === 'proposal' ? (
+                <>
+                  <span className="hidden md:inline">{label}</span>
+                  <span className="md:hidden">Proposal</span>
+                </>
+              ) : (
+                label
+              )}
             </button>
           ))}
         </div>
@@ -357,7 +367,7 @@ export function BidSheetFlow({
       {/* Body: Sidebar + Main */}
       <div className="bidsheet-body">
         {/* Left: Subcontractors */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="bidsheet-sidebar-col" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="bidsheet-sidebar-card">
             <div className="bidsheet-sidebar-head">
               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Subcontractors</span>
@@ -387,11 +397,14 @@ export function BidSheetFlow({
                 </div>
               )
             })}
+            <div className="bidsheet-sidebar-add-inner">
+              <button type="button" className="bidsheet-add-sub-btn" onClick={() => setAddSubOpen(true)} disabled={!onAddSub}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                <span className="hidden md:inline">Add Sub</span>
+                <span className="md:hidden">+ Add Sub</span>
+              </button>
+            </div>
           </div>
-          <button type="button" className="bidsheet-add-sub-btn" onClick={() => setAddSubOpen(true)} disabled={!onAddSub}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            Add Sub
-          </button>
           {addSubOpen && (
             <div style={{ background: 'var(--bg-surface)', borderRadius: 12, border: '1.5px solid var(--border)', padding: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>New Subcontractor</div>
@@ -425,15 +438,43 @@ export function BidSheetFlow({
         {/* Right: Content */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {activeSubTab === 'packages' && (
-            <div className="bidsheet-packages-card">
-              <div className="bidsheet-info-bar">
+            <div className={`bidsheet-packages-card ${tradePackages.length === 0 ? 'bidsheet-packages-card--stack-mobile' : ''}`}>
+              <div className={`bidsheet-info-bar ${tradePackages.length === 0 ? 'max-md:hidden' : ''}`}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                 {hasGeneratedFromTakeoff ? 'Auto-generated from takeoff. Each sub sees only their scope — no pricing visible.' : 'Build trade packages from your takeoff so you can send scopes to subs.'}
                 <button type="button" onClick={generateTradePackages} disabled={saving || takeoffCategories.length === 0} className="ml-auto text-[11px] py-1 px-2.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] cursor-pointer text-[var(--text-secondary)] font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed" title={takeoffCategories.length === 0 ? 'Run Launch Takeoff first' : undefined}>
                   {hasGeneratedFromTakeoff ? 'Re-generate from Takeoff' : 'Generate from Takeoff'}
                 </button>
               </div>
-              <div className="bidsheet-trade-btns">
+
+              {tradePackages.length === 0 && (
+                <div className="bidsheet-build-cta-card md:hidden">
+                  <div className="bidsheet-build-cta-top">
+                    <div className="bidsheet-build-cta-icon" aria-hidden>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                        <line x1="12" y1="22.08" x2="12" y2="12" />
+                      </svg>
+                    </div>
+                    <div className="bidsheet-build-cta-copy">
+                      <div className="bidsheet-build-cta-title">Build trade packages</div>
+                      <div className="bidsheet-build-cta-sub">Generate packages from your takeoff to send scopes to subs.</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={generateTradePackages}
+                    disabled={saving || takeoffCategories.length === 0}
+                    className="bidsheet-build-cta-btn"
+                    title={takeoffCategories.length === 0 ? 'Run Launch Takeoff first' : undefined}
+                  >
+                    Generate from Takeoff →
+                  </button>
+                </div>
+              )}
+
+              <div className={`bidsheet-trade-btns ${tradePackages.length === 0 ? 'hidden md:flex' : ''}`}>
                 {tradePackages.map((pkg) => {
                   const c = colors(pkg.trade_tag)
                   const isActive = activeTrade === pkg.trade_tag
@@ -489,11 +530,28 @@ export function BidSheetFlow({
                 </div>
               )}
               {tradePackages.length === 0 && (
-                <p className="text-sm text-muted">
-                  {takeoffCategories.length > 0
-                    ? 'No trade packages yet. Use "Generate from Takeoff" above to build the bid sheet from your takeoff.'
-                    : 'No trade packages yet. Run Launch Takeoff first, then use "Generate from Takeoff" to build the bid sheet.'}
-                </p>
+                <>
+                  <div className="bidsheet-packages-empty-card md:hidden">
+                    <div className="bidsheet-packages-empty-title">No trade packages yet</div>
+                    <p className="bidsheet-packages-empty-body">
+                      {takeoffCategories.length > 0 ? (
+                        'Use "Generate from Takeoff" above to build the bid sheet from your takeoff.'
+                      ) : (
+                        <>
+                          Run Launch Takeoff first, then use{' '}
+                          <span className="font-semibold text-[var(--text-secondary)]">Generate from Takeoff</span>
+                          {' '}
+                          to build the bid sheet.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <p className="text-sm text-muted hidden md:block">
+                    {takeoffCategories.length > 0
+                      ? 'No trade packages yet. Use "Generate from Takeoff" above to build the bid sheet from your takeoff.'
+                      : 'No trade packages yet. Run Launch Takeoff first, then use "Generate from Takeoff" to build the bid sheet.'}
+                  </p>
+                </>
               )}
             </div>
           )}

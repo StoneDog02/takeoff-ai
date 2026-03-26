@@ -135,11 +135,43 @@ const STYLES = `
     margin: 0;
   }
 
-  .pdr-header--grid .pdr-header-add {
+  .pdr-header--grid .pdr-header-cta {
     grid-column: 2 !important;
     grid-row: 2 !important;
     justify-self: end !important;
     align-self: center !important;
+    display: inline-flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+    max-width: 100%;
+  }
+  .pdr-header--grid .pdr-header-import {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--pdr-bg-secondary) !important;
+    border: 0.5px solid var(--pdr-border) !important;
+    border-radius: 10px;
+    padding: 8px 14px !important;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--pdr-text-primary) !important;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+    transition: background 0.15s, border-color 0.15s;
+    line-height: 1.2;
+    box-sizing: border-box;
+  }
+  .pdr-header--grid .pdr-header-import:hover {
+    background: var(--pdr-bg-tertiary) !important;
+  }
+  .pdr-header--grid .pdr-header-add {
     display: inline-flex !important;
     align-items: center;
     gap: 6px;
@@ -674,11 +706,13 @@ export interface ProductsDrawerProps {
   products?: ProductsDrawerProduct[]
   onClose: () => void
   onAdd: () => void
+  /** QuickBooks / spreadsheet import (optional). */
+  onImport?: () => void
   onEdit?: (product: ProductsDrawerProduct) => void
   onDelete?: (product: ProductsDrawerProduct) => void
 }
 
-export function ProductsDrawer({ products = [], onClose, onAdd, onEdit, onDelete }: ProductsDrawerProps) {
+export function ProductsDrawer({ products = [], onClose, onAdd, onImport, onEdit, onDelete }: ProductsDrawerProps) {
   useEffect(() => {
     injectPdrStyles()
   }, [])
@@ -708,12 +742,22 @@ export function ProductsDrawer({ products = [], onClose, onAdd, onEdit, onDelete
             </svg>
           </button>
           <h2 className="pdr-title">Products &amp; Services</h2>
-          <button type="button" className="pdr-header-add" onClick={onAdd}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Add product
-          </button>
+          <div className="pdr-header-cta">
+            {onImport ? (
+              <button type="button" className="pdr-header-import" onClick={onImport} aria-label="Import from spreadsheet">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                </svg>
+                Import
+              </button>
+            ) : null}
+            <button type="button" className="pdr-header-add" onClick={onAdd}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Add product
+            </button>
+          </div>
         </header>
 
         <div className="pdr-header-below">

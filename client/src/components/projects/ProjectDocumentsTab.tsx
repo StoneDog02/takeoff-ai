@@ -179,44 +179,59 @@ export function ProjectDocumentsTab({ projectId, projectName, refreshTrigger }: 
             <div className="documents-group-body">
               {group.items.map((doc) => {
                 const archived = !!doc.archived_at
+                const isDraft = (doc.status || '').toLowerCase() === 'draft'
+                const pdfBusy = pdfWorkingId === doc.id
                 return (
-                  <div key={doc.id} className={`documents-row ${archived ? 'opacity-60' : ''}`}>
+                  <div key={doc.id} className={`documents-row ${archived ? 'documents-row--archived' : ''}`}>
                     <div className="documents-type-icon" title={doc.document_type}>
                       <DocTypeIcon type={doc.document_type} />
                     </div>
                     <div className="documents-row-title" title={doc.title || ''}>
                       {doc.title || doc.document_type}
                     </div>
-                    <div className="text-[var(--text-secondary)] min-w-0 truncate">{recipientLabel(doc)}</div>
-                    <div className="font-mono text-[13px] tabular-nums">{formatMoney(doc.total_amount)}</div>
-                    <div className="text-[12px] text-[var(--text-muted)]">{sentLabel(doc)}</div>
-                    <span className={statusBadgeClass(doc.status)}>{statusDisplayLabel(doc.status)}</span>
-                    <div className="flex flex-wrap gap-2 justify-end">
-                      <button type="button" className="documents-btn documents-btn-primary" onClick={() => openView(doc)}>
-                        View
-                      </button>
-                      <button
-                        type="button"
-                        className="documents-btn"
-                        onClick={() => void handlePdf(doc)}
-                        disabled={pdfWorkingId === doc.id}
-                      >
-                        {pdfWorkingId === doc.id ? 'Working…' : 'Download PDF'}
-                      </button>
-                      {!archived ? (
+                    <div className="documents-row-recipient text-[var(--text-secondary)] min-w-0 truncate">{recipientLabel(doc)}</div>
+                    <div className="documents-row-amount font-mono text-[13px] tabular-nums font-semibold text-[var(--text-primary)]">
+                      {formatMoney(doc.total_amount)}
+                    </div>
+                    <div className="documents-row-date text-[12px] text-[var(--text-muted)]">{sentLabel(doc)}</div>
+                    <div className="documents-row-actions">
+                      <span className={`documents-row-status ${statusBadgeClass(doc.status)}`}>{statusDisplayLabel(doc.status)}</span>
+                      <div className="documents-row-btns">
+                        <button type="button" className="documents-btn documents-btn-primary" onClick={() => openView(doc)}>
+                          View
+                        </button>
                         <button
                           type="button"
-                          className="documents-btn"
-                          title={PAPER_TRAIL_RETENTION_HINT}
-                          onClick={() => void handleArchive(doc)}
+                          className="documents-btn documents-btn-outline"
+                          onClick={() => void handlePdf(doc)}
+                          disabled={pdfBusy || isDraft}
+                          title={isDraft ? 'Save and send the document first' : undefined}
                         >
-                          Archive
+                          {pdfBusy ? (
+                            '…'
+                          ) : (
+                            <>
+                              <span className="documents-btn-pdf-full">Download PDF</span>
+                              <span className="documents-btn-pdf-short">PDF</span>
+                            </>
+                          )}
                         </button>
-                      ) : (
-                        <button type="button" className="documents-btn" onClick={() => void handleRestore(doc)}>
-                          Restore
-                        </button>
-                      )}
+                        {!archived ? (
+                          <button
+                            type="button"
+                            className="documents-btn documents-btn-outline"
+                            title={PAPER_TRAIL_RETENTION_HINT}
+                            onClick={() => void handleArchive(doc)}
+                            disabled={isDraft}
+                          >
+                            Archive
+                          </button>
+                        ) : (
+                          <button type="button" className="documents-btn documents-btn-outline" onClick={() => void handleRestore(doc)}>
+                            Restore
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )

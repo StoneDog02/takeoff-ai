@@ -1,5 +1,4 @@
-import { useState, useCallback, useEffect, Suspense, lazy } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState, useCallback, useEffect } from 'react'
 import { dayjs } from '@/lib/date'
 import { STATUS_CONFIG } from '@/data/revenueSeedData'
 import type { TrendPeriodKey } from '@/data/revenueSeedData'
@@ -8,19 +7,12 @@ import { RevenueDonutChart } from '@/components/revenue/RevenueDonutChart'
 import { RevenueExport } from '@/components/revenue/RevenueExport'
 import { useRevenueLiveData } from '@/hooks/useRevenueLiveData'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
-import { FinancialsTransactions } from '@/components/FinancialsTransactions'
-import { FinancialsReports } from '@/components/FinancialsReports'
-
-const EstimatesPage = lazy(() =>
-  import('@/pages/EstimatesPage').then((m) => ({ default: m.EstimatesPage })),
-)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
   '$' + Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0 })
 const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0)
 const marginColor = (p: number) => (p >= 30 ? '#10B981' : p >= 15 ? '#F59E0B' : '#EF4444')
-const marginBg = (p: number) => (p >= 30 ? '#ECFDF5' : p >= 15 ? '#FFFBEB' : '#FEF2F2')
 
 function getDefaultDates(period: TrendPeriodKey): { from: string; to: string } {
   const now = dayjs()
@@ -42,50 +34,7 @@ function getDefaultDates(period: TrendPeriodKey): { from: string; to: string } {
   }
 }
 
-const FINANCIALS_TAB_IDS = ['overview', 'transactions', 'reports', 'invoicing'] as const
-type FinancialsTabId = (typeof FINANCIALS_TAB_IDS)[number]
-
-function parseFinancialsTab(raw: string | null): FinancialsTabId {
-  if (raw && (FINANCIALS_TAB_IDS as readonly string[]).includes(raw)) return raw as FinancialsTabId
-  return 'overview'
-}
-
-function FinancialsSectionTabs({
-  active,
-  onSelect,
-}: {
-  active: FinancialsTabId
-  onSelect: (tab: FinancialsTabId) => void
-}) {
-  const tabs: { id: FinancialsTabId; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'transactions', label: 'Transactions' },
-    { id: 'reports', label: 'Reports' },
-    { id: 'invoicing', label: 'Invoicing' },
-  ]
-  return (
-    <div className="estimates-page__tabs-row">
-      <nav className="estimates-page__tabs estimates-page__tabs--bar" aria-label="Financials sections">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`estimates-page__tab ${active === t.id ? 'active' : ''}`}
-            onClick={() => onSelect(t.id)}
-            aria-current={active === t.id ? 'true' : undefined}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-    </div>
-  )
-}
-
 export function RevenuePage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = parseFinancialsTab(searchParams.get('tab'))
-
   const [period, setPeriod] = useState<TrendPeriodKey>('YTD')
   const [jobFilter, setJobFilter] = useState('')
   const [viewMode, setViewMode] = useState<'overview' | 'margin'>('overview')
@@ -93,23 +42,6 @@ export function RevenuePage() {
   const defaultDates = getDefaultDates('YTD')
   const [fromDate, setFromDate] = useState(defaultDates.from)
   const [toDate, setToDate] = useState(defaultDates.to)
-  const [financialsTab, setFinancialsTabState] = useState<FinancialsTabId>(tabFromUrl)
-
-  useEffect(() => {
-    setFinancialsTabState(parseFinancialsTab(searchParams.get('tab')))
-  }, [searchParams])
-
-  const setFinancialsTab = useCallback(
-    (id: FinancialsTabId) => {
-      setFinancialsTabState(id)
-      if (id === 'overview') {
-        setSearchParams({}, { replace: true })
-      } else {
-        setSearchParams({ tab: id }, { replace: true })
-      }
-    },
-    [setSearchParams],
-  )
 
   const { jobs: JOBS, trendData: chartData, cashflow: CASHFLOW, expenditure: EXPENDITURE, lastYear, loading, error } = useRevenueLiveData({
     jobFilter: jobFilter || 'All jobs',
@@ -217,33 +149,15 @@ export function RevenuePage() {
     return (
       <div className="dashboard-app revenue-page min-h-full">
         <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 pt-6 pb-12">
-          <FinancialsSectionTabs active={financialsTab} onSelect={setFinancialsTab} />
-          {financialsTab === 'overview' && (
-            <>
-              <div className="revenue-overhaul-header">
-                <div>
-                  <div className="revenue-overhaul-breadcrumb">Finance</div>
-                  <h1 className="dashboard-title revenue-overhaul-title">Revenue</h1>
-                </div>
-              </div>
-              <div className="py-12">
-                <LoadingSkeleton variant="page" className="min-h-[30vh]" />
-              </div>
-            </>
-          )}
-          {financialsTab === 'transactions' && <FinancialsTransactions />}
-          {financialsTab === 'reports' && <FinancialsReports />}
-          {financialsTab === 'invoicing' && (
-            <Suspense
-              fallback={
-                <div className="py-8">
-                  <LoadingSkeleton variant="page" className="min-h-[30vh]" />
-                </div>
-              }
-            >
-              <EstimatesPage embedded />
-            </Suspense>
-          )}
+          <div className="revenue-overhaul-header">
+            <div>
+              <div className="revenue-overhaul-breadcrumb">Finance</div>
+              <h1 className="dashboard-title revenue-overhaul-title">Revenue</h1>
+            </div>
+          </div>
+          <div className="py-12">
+            <LoadingSkeleton variant="page" className="min-h-[30vh]" />
+          </div>
         </div>
       </div>
     )
@@ -251,10 +165,7 @@ export function RevenuePage() {
 
   return (
     <div className="dashboard-app revenue-page min-h-full">
-        <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 pt-6 pb-12">
-        <FinancialsSectionTabs active={financialsTab} onSelect={setFinancialsTab} />
-        {financialsTab === 'overview' && (
-          <>
+      <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 pt-6 pb-12">
         {error && (
           <div
             className="mb-4 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300"
@@ -316,48 +227,16 @@ export function RevenuePage() {
 
         {/* ── KPI CARDS ── */}
         <div className="revenue-overhaul-kpi-row">
-          {/* Net Profit — hero card */}
-          <div className="revenue-overhaul-kpi-card revenue-overhaul-kpi-hero">
+          <div className="revenue-overhaul-kpi-card">
             <div
               className="revenue-overhaul-kpi-bar"
               style={{ background: marginColor(marginPct) }}
             />
-            <div className="revenue-overhaul-kpi-hero-inner">
-              <div>
-                <div className="revenue-overhaul-kpi-label">Net Profit</div>
-                <div className="revenue-overhaul-kpi-value-hero">{fmt(netProfit)}</div>
-                <div className="revenue-overhaul-kpi-meta">
-                  <span>Revenue {fmt(totalRev)}</span>
-                  <span className="revenue-overhaul-dot">·</span>
-                  <span>Expenses {fmt(totalExp)}</span>
-                </div>
-              </div>
-              <div className="revenue-overhaul-kpi-margin-wrap">
-                <div
-                  className="revenue-overhaul-margin-badge"
-                  style={{
-                    background: marginBg(marginPct),
-                    borderColor: marginColor(marginPct) + '30',
-                  }}
-                >
-                  <div
-                    className="revenue-overhaul-margin-value"
-                    style={{ color: marginColor(marginPct) }}
-                  >
-                    {marginPct}%
-                  </div>
-                  <div
-                    className="revenue-overhaul-margin-label"
-                    style={{ color: marginColor(marginPct) }}
-                  >
-                    Margin
-                  </div>
-                </div>
-                <div className="revenue-overhaul-margin-status">
-                  {marginPct >= 30 ? '🟢 Healthy' : marginPct >= 15 ? '🟡 Watch' : '🔴 Low'}
-                </div>
-              </div>
-            </div>
+            <div className="revenue-overhaul-kpi-label">Net Profit</div>
+            <div className="revenue-overhaul-kpi-value">{fmt(netProfit)}</div>
+            <span className="revenue-overhaul-kpi-meta-small">
+              Revenue {fmt(totalRev)} · Expenses {fmt(totalExp)}
+            </span>
           </div>
 
           <div className="revenue-overhaul-kpi-card">
@@ -617,21 +496,6 @@ export function RevenuePage() {
             </div>
           </div>
         </div>
-        </>
-        )}
-        {financialsTab === 'transactions' && <FinancialsTransactions />}
-        {financialsTab === 'reports' && <FinancialsReports />}
-        {financialsTab === 'invoicing' && (
-          <Suspense
-            fallback={
-              <div className="py-8">
-                <LoadingSkeleton variant="page" className="min-h-[30vh]" />
-              </div>
-            }
-          >
-            <EstimatesPage embedded />
-          </Suspense>
-        )}
       </div>
     </div>
   )

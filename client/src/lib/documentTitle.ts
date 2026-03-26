@@ -15,11 +15,6 @@ export function getDocumentTitle(pathname: string, search: string = ''): string 
 
   if (p === '/' || p === '/landing') return LANDING_DOCUMENT_TITLE
 
-  if (p === '/financials') {
-    const tab = new URLSearchParams(search).get('tab')
-    if (tab === 'invoicing') return `Invoicing${SEP}${APP_TAB_NAME}`
-  }
-
   const map: Record<string, string> = {
     '/privacy': 'Privacy',
     '/terms': 'Terms',
@@ -30,8 +25,11 @@ export function getDocumentTitle(pathname: string, search: string = ''): string 
     '/dashboard': 'Dashboard',
     '/projects': 'Projects',
     '/financials': 'Financials',
+    '/financials/overview': 'Financials',
+    '/financials/transactions': 'Transactions',
+    '/financials/reports': 'Reports',
+    '/financials/invoicing': 'Invoicing',
     '/accounting': 'Accounting',
-    '/invoicing': 'Invoicing',
     '/documents': 'Documents',
     '/teams': 'Teams',
     '/payroll': 'Payroll',

@@ -519,7 +519,7 @@ export function EmployeeClockPage() {
               </div>
               <div className="text-sm text-muted mt-1.5">{formatDateLong(now)}</div>
             </div>
-            <div className="clock-fade-up grid grid-cols-2 gap-3 mb-6" style={{ animationDelay: '0.08s' }}>
+            <div className="clock-fade-up grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6" style={{ animationDelay: '0.08s' }}>
               <div className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-white/5 p-4 shadow-sm">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-muted mb-1">This week</div>
                 <div className="text-2xl font-extrabold text-gray-900 dark:text-landing-white">{weekHours.toFixed(1)} hrs</div>

@@ -1,4 +1,7 @@
 import type { ReactNode, CSSProperties } from 'react'
+import { ChevronLeft } from 'lucide-react'
+import { useContext } from 'react'
+import { SettingsMobileNavContext } from './SettingsMobileNavContext'
 
 const styles = {
   sectionHeader: { marginBottom: 28 },
@@ -24,10 +27,43 @@ const styles = {
 }
 
 export function SectionHeader({ title, desc }: { title: string; desc: string }) {
+  const mobileNav = useContext(SettingsMobileNavContext)
   return (
     <div style={styles.sectionHeader}>
-      <h2 style={styles.sectionTitle}>{title}</h2>
-      <p style={styles.sectionDesc}>{desc}</p>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: mobileNav?.onBack ? 'center' : 'flex-start',
+          gap: 10,
+        }}
+      >
+        {mobileNav?.onBack && (
+          <button
+            type="button"
+            onClick={mobileNav.onBack}
+            aria-label="Back to settings"
+            style={{
+              flexShrink: 0,
+              width: 40,
+              height: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 10,
+              border: '1px solid var(--border, #e8e6e1)',
+              background: 'var(--bg-surface, #fff)',
+              color: 'var(--text-primary, #111)',
+              cursor: 'pointer',
+            }}
+          >
+            <ChevronLeft size={20} strokeWidth={2} />
+          </button>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={styles.sectionTitle}>{title}</h2>
+          <p style={styles.sectionDesc}>{desc}</p>
+        </div>
+      </div>
     </div>
   )
 }

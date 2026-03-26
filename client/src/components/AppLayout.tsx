@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Outlet, useNavigate, useLocation } from 'react
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+import { MobileNavBar } from '@/components/MobileNavBar'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
 import { SupportBubble } from '@/components/support/SupportBubble'
 import { useSupportNewCount } from '@/hooks/useSupportNewCount'
@@ -22,7 +23,7 @@ export function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const isFinancialsActive = location.pathname === '/financials'
+  const isFinancialsActive = location.pathname.startsWith('/financials')
   const { user, isAdmin, type, role_label, employee, loading } = useAuth()
   const { previewRole } = usePreview()
   const showAdminNavEnabled = isAdmin && previewRole !== 'project_manager'
@@ -48,6 +49,10 @@ export function AppLayout() {
       setDismissedAlertsLoading(false)
     }).catch(() => setDismissedAlertsLoading(false))
   }, [notificationsPanelOpen])
+
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     if (loading) return
@@ -119,7 +124,13 @@ export function AppLayout() {
       <div className={`nav-overlay ${mobileNavOpen ? 'visible' : ''}`} onClick={closeMobileNav} aria-hidden />
 
       <div className="app">
-        <nav className={`sidenav ${navCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`} id="sidenav">
+        <nav
+          className={`sidenav ${navCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}
+          id="sidenav"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('a[href]')) closeMobileNav()
+          }}
+        >
           <div className="nav-header">
             <Link to="/" className="logo" aria-label="Proj-X home">
               <div className="logo-icon">
@@ -262,6 +273,7 @@ export function AppLayout() {
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
           {previewRole === 'project_manager' && <PreviewBanner />}
           <AppLayoutProvider openMobileNav={openMobileNav}>
+            <MobileNavBar onOpenMenu={openMobileNav} />
             <Outlet />
           </AppLayoutProvider>
         </div>
@@ -289,7 +301,7 @@ export function AppLayout() {
                 ) : dismissedAlerts.length > 0 ? (
                   <ul className="notifications-panel-alerts" role="list">
                     {dismissedAlerts.map((a) => {
-                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/financials?tab=invoicing' : '/financials'
+                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/financials/invoicing' : '/financials/overview'
                       return (
                         <li key={a.id}>
                           <Link to={href} className="notifications-panel-alert" onClick={() => setNotificationsPanelOpen(false)}>

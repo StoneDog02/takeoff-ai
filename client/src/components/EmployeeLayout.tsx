@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+import { MobileNavBar } from '@/components/MobileNavBar'
 
 export function EmployeeLayout() {
   const [ready, setReady] = useState(false)
@@ -16,6 +17,7 @@ export function EmployeeLayout() {
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
   const { isAdmin } = useAuth()
   const { previewRole, clearPreview } = usePreview()
 
@@ -50,6 +52,10 @@ export function EmployeeLayout() {
     return () => { cancelled = true }
   }, [navigate, isAdmin, previewRole])
 
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [location.pathname, location.search])
+
   const isPreview = isAdmin && previewRole === 'employee'
 
   const toggleCollapse = () => setNavCollapsed((c) => !c)
@@ -83,7 +89,13 @@ export function EmployeeLayout() {
       <div className={`nav-overlay ${mobileNavOpen ? 'visible' : ''}`} onClick={closeMobileNav} aria-hidden />
 
       <div className="app">
-        <nav className={`sidenav ${navCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`} id="sidenav">
+        <nav
+          className={`sidenav ${navCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}
+          id="sidenav"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('a[href]')) closeMobileNav()
+          }}
+        >
           <div className="nav-header">
             <Link to="/employee/clock" className="logo" aria-label="Proj-X home">
               <div className="logo-icon">
@@ -152,6 +164,7 @@ export function EmployeeLayout() {
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
           {isPreview && <PreviewBanner />}
           <AppLayoutProvider openMobileNav={openMobileNav}>
+            <MobileNavBar onOpenMenu={openMobileNav} />
             <Outlet />
           </AppLayoutProvider>
         </div>

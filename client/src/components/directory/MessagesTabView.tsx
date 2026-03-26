@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, Send, Phone, Mail, Paperclip, Zap } from 'lucide-react'
+import { Search, Send, Phone, Mail, Paperclip, Zap, ChevronLeft } from 'lucide-react'
 import type { DirectoryContractor } from '@/data/mockDirectoryData'
 import type { ThreadMessage } from '@/data/mockDirectoryData'
 import { DirectoryAvatar } from './DirectoryAvatar'
@@ -19,15 +19,32 @@ export function MessagesTabView({
   onThreadsChange,
   initialContact,
 }: MessagesTabViewProps) {
-  const [selected, setSelected] = useState<DirectoryContractor | null>(
-    initialContact ?? contractors[0] ?? null
-  )
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(!!initialContact)
+  const [selected, setSelected] = useState<DirectoryContractor | null>(initialContact ?? null)
   const [search, setSearch] = useState('')
   const [input, setInput] = useState('')
 
   useEffect(() => {
-    if (initialContact) setSelected(initialContact)
+    const mq = window.matchMedia('(max-width: 767px)')
+    const sync = () => setIsMobile(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
+    if (initialContact) {
+      setSelected(initialContact)
+      setMobileThreadOpen(true)
+    }
   }, [initialContact])
+
+  /** Desktop: default to first contractor when list loads. Mobile: stay list-first until user picks a thread. */
+  useEffect(() => {
+    if (isMobile || contractors.length === 0) return
+    setSelected((prev) => prev ?? contractors[0])
+  }, [contractors, isMobile])
 
   const filtered = contractors.filter(
     (c) =>
@@ -55,11 +72,27 @@ export function MessagesTabView({
     setInput('')
   }
 
+  const showList = !isMobile || !mobileThreadOpen
+  const showChat = !isMobile || mobileThreadOpen
+
+  const openThread = (c: DirectoryContractor) => {
+    setSelected(c)
+    if (isMobile) setMobileThreadOpen(true)
+  }
+
+  const backToList = () => {
+    setMobileThreadOpen(false)
+  }
+
   return (
     <div className="directory-messages flex flex-1 min-h-0 flex-col">
-      <div className="flex flex-1 min-h-0 gap-4 py-0">
+      <div className="flex flex-1 min-h-0 gap-4 py-0 directory-messages-panels">
         {/* Left: contractor list */}
-        <div className="directory-messages-list w-[310px] shrink-0 flex flex-col rounded-2xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-hidden">
+        <div
+          className={`directory-messages-list w-full shrink-0 flex flex-col rounded-2xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-hidden md:w-[310px] ${
+            showList ? 'flex' : 'hidden md:flex'
+          }`}
+        >
           <div className="px-4 py-3.5 border-b border-border dark:border-border-dark font-bold text-sm text-[var(--text-primary)] flex justify-between items-center">
             Contractors
             {totalUnread > 0 && (
@@ -93,7 +126,7 @@ export function MessagesTabView({
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => setSelected(c)}
+                  onClick={() => openThread(c)}
                   className={`w-full text-left px-3.5 py-3 flex gap-2.5 items-start cursor-pointer transition-colors border-b border-border dark:border-border-dark last:border-0 ${
                     isActive
                       ? 'bg-[var(--red-glow-soft)] dark:bg-red-950/20 border-l-[3px] border-l-[var(--red)]'
@@ -141,9 +174,23 @@ export function MessagesTabView({
         </div>
 
         {/* Center: chat */}
-        <div className="flex-1 flex flex-col min-w-0 rounded-2xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-hidden">
+        <div
+          className={`flex-1 flex flex-col min-w-0 rounded-2xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 overflow-hidden ${
+            showChat ? 'flex' : 'hidden md:flex'
+          }`}
+        >
           {selected && (
             <div className="px-5 py-4 border-b border-border dark:border-border-dark flex items-center gap-3.5 shrink-0">
+              {isMobile && mobileThreadOpen && (
+                <button
+                  type="button"
+                  onClick={backToList}
+                  className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border dark:border-border-dark bg-[var(--bg-page)] dark:bg-dark-4 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                  aria-label="Back to contacts"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+              )}
               <DirectoryAvatar
                 initials={selected.avatar}
                 color={selected.color}
@@ -255,9 +302,9 @@ export function MessagesTabView({
           </div>
         </div>
 
-        {/* Right: profile */}
+        {/* Right: profile (desktop / tablet only — mobile uses full-width thread) */}
         {selected && (
-          <div className="w-[230px] shrink-0 flex flex-col gap-3">
+          <div className="hidden w-[230px] shrink-0 flex-col gap-3 md:flex md:flex-col">
             <div className="rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-dark-3 p-4 text-center">
               <div className="flex justify-center mb-2.5">
                 <DirectoryAvatar
