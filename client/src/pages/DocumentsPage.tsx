@@ -15,15 +15,6 @@ import {
   statusDisplayLabel,
 } from '@/lib/paperTrailDocumentUi'
 
-const TYPE_FILTER: { value: string; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'estimate', label: 'Estimates' },
-  { value: 'invoice', label: 'Invoices' },
-  { value: 'change_order', label: 'Change Orders' },
-  { value: 'bid_package', label: 'Bid Packages' },
-  { value: 'receipt', label: 'Receipts' },
-]
-
 const PAPER_TRAIL_RETENTION_HINT =
   'Documents are kept permanently for legal and tax purposes. You can archive to hide from view.'
 

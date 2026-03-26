@@ -3840,7 +3840,6 @@ export function ProjectsPage() {
             projectId={project.id}
             projectName={project.name}
             refreshTrigger={detailRefreshTrigger}
-            onBudgetSynced={() => setDetailRefreshTrigger((t) => t + 1)}
           />
         </section>
       )}

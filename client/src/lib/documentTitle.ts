@@ -10,7 +10,7 @@ const SEP = ' · '
  * Browser tab title for the current path. Pattern: "{context} · Proj-X" so tabs stay
  * distinct and support metadata (e.g. support page_title) stays readable.
  */
-export function getDocumentTitle(pathname: string, search: string = ''): string {
+export function getDocumentTitle(pathname: string, _search: string = ''): string {
   const p = pathname.replace(/\/$/, '') || '/'
 
   if (p === '/' || p === '/landing') return LANDING_DOCUMENT_TITLE

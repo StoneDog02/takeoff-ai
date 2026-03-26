@@ -81,8 +81,20 @@ export function CardHeader({ title, desc }: { title: string; desc?: string }) {
   )
 }
 
-export function CardBody({ children, style = {} }: { children: ReactNode; style?: CSSProperties }) {
-  return <div style={{ ...styles.cardBody, ...style }}>{children}</div>
+export function CardBody({
+  children,
+  style = {},
+  className,
+}: {
+  children: ReactNode
+  style?: CSSProperties
+  className?: string
+}) {
+  return (
+    <div className={className} style={{ ...styles.cardBody, ...style }}>
+      {children}
+    </div>
+  )
 }
 
 export function Label({ children, hint }: { children: ReactNode; hint?: string }) {

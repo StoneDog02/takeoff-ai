@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { SectionHeader, Card, CardHeader, CardBody, Field, FieldRow, Input, Select, Btn, SaveRow } from './SettingsPrimitives'
+import { SectionHeader, Card, CardHeader, CardBody, Field, Input, Select, Btn, SaveRow } from './SettingsPrimitives'
 import { settingsApi } from '@/api/settings'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
