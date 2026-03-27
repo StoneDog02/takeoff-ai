@@ -17,6 +17,23 @@ const { isEmployeePortalRequest } = require('../middleware/auth')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
 
+/** Convert stored media URL/path to a storage object path. */
+function getStoragePathFromUrlOrPath(value, bucket) {
+  if (!value || typeof value !== 'string') return null
+  if (!value.startsWith('http')) return value
+  const patterns = [
+    new RegExp(`/object/public/${bucket}/(.+)$`),
+    new RegExp(`/object/sign/${bucket}/(.+?)(\\?|$)`),
+    new RegExp(`/storage/v1/object/public/${bucket}/(.+)$`),
+    new RegExp(`/storage/v1/object/sign/${bucket}/(.+?)(\\?|$)`),
+  ]
+  for (const pattern of patterns) {
+    const match = value.match(pattern)
+    if (match?.[1]) return match[1]
+  }
+  return null
+}
+
 /** Default work type on every new job: general labor paid at each employee’s profile hourly rate (type_key labor). */
 async function seedDefaultGeneralLaborWorkType(supabase, projectId) {
   if (!supabase || !projectId) return
@@ -776,7 +793,17 @@ router.get('/:id/media', loadProject, async (req, res, next) => {
       .eq('project_id', req.params.id)
       .order('uploaded_at', { ascending: false })
     if (error) throw error
-    res.json(data || [])
+    const rows = data || []
+    const resolved = await Promise.all(rows.map(async (row) => {
+      const path = getStoragePathFromUrlOrPath(row.url, BUILD_PLANS_BUCKET)
+      if (!path) return row
+      const { data: signed, error: signErr } = await supabase.storage
+        .from(BUILD_PLANS_BUCKET)
+        .createSignedUrl(path, 60 * 60)
+      if (signErr || !signed?.signedUrl) return row
+      return { ...row, url: signed.signedUrl }
+    }))
+    res.json(resolved)
   } catch (err) {
     next(err)
   }
@@ -817,6 +844,13 @@ router.post('/:id/media', loadProject, upload.single('file'), async (req, res, n
       .select()
       .single()
     if (error) throw error
+    const pathForSigned = getStoragePathFromUrlOrPath(row?.url, BUILD_PLANS_BUCKET)
+    if (pathForSigned) {
+      const { data: signed } = await supabaseStorage.storage.from(BUILD_PLANS_BUCKET).createSignedUrl(pathForSigned, 60 * 60)
+      if (signed?.signedUrl) {
+        return res.status(201).json({ ...row, url: signed.signedUrl })
+      }
+    }
     res.status(201).json(row)
   } catch (err) {
     next(err)
