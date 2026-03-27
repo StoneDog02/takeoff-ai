@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import { ConfirmDialog } from '@/components/settings/ConfirmDialog'
 import type {
@@ -13,6 +13,7 @@ import { mergeAttendanceWithTimeEntries } from '@/lib/mergeAttendanceFromTimeEnt
 import { getInitials } from './TeamsAvatar'
 import { WeekBars } from './WeekBars'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+import { EMPLOYEE_TRADE_ROLE_OPTIONS } from '@/components/teams/employeeTradeRoleOptions'
 
 const PANEL_TABS = ['overview', 'time', 'attendance', 'pay'] as const
 type PanelTab = (typeof PANEL_TABS)[number]
@@ -89,6 +90,15 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirmValue, setDeleteConfirmValue] = useState('')
+
+  const roleSelectOptions = useMemo(() => {
+    const r = editForm.role.trim()
+    const base: string[] = [...EMPLOYEE_TRADE_ROLE_OPTIONS]
+    if (r && !base.includes(r)) {
+      return [r, ...base]
+    }
+    return base
+  }, [editForm.role])
 
   useEffect(() => {
     if (!emp) return
@@ -322,12 +332,18 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
                         </div>
                         <div className="teams-form-row">
                           <label className="teams-label">Role</label>
-                          <input
-                            type="text"
-                            className="teams-input"
+                          <select
+                            className="teams-input teams-select"
                             value={editForm.role}
                             onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
-                          />
+                          >
+                            <option value="">Select role…</option>
+                            {roleSelectOptions.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div className="teams-form-row">
                           <label className="teams-label">Email</label>

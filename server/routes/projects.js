@@ -186,6 +186,59 @@ async function loadProjectForOwnerOrAssignedEmployee(req, res, next) {
   return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
 }
 
+/** Field lead on an assignment or roster profile — daily log + job-walk media for that job. */
+function isDailyLogFieldRole(roleOnJob) {
+  if (!roleOnJob || typeof roleOnJob !== 'string') return false
+  const s = roleOnJob.trim().toLowerCase()
+  return s === 'project manager' || s === 'site supervisor' || s === 'superintendent'
+}
+
+/** GC owner, or employee on the crew with field lead either as role-on-job or roster profile (employees.role). */
+async function loadProjectForFieldDailyLogAccess(req, res, next) {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' })
+  const { id } = req.params
+  const trimmed = typeof id === 'string' ? id.trim() : ''
+  if (!trimmed || trimmed === 'undefined') {
+    return res.status(400).json({ error: 'Project ID is missing or invalid. Close the dialog and open the project again.' })
+  }
+  const db = defaultSupabase
+  if (!db) return res.status(503).json({ error: 'Database not configured' })
+  const { data: project, error } = await db
+    .from('projects')
+    .select('*')
+    .eq('id', trimmed)
+    .maybeSingle()
+  if (error) {
+    console.warn('[projects] loadProjectForFieldDailyLogAccess error', { projectId: trimmed, error: error.message })
+    return res.status(500).json({ error: 'Failed to load project' })
+  }
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
+  }
+  if (project.user_id === req.user.id) {
+    req.params.id = trimmed
+    req.project = project
+    return next()
+  }
+  if (req.employee) {
+    const { data: assignment } = await db
+      .from('job_assignments')
+      .select('id, role_on_job')
+      .eq('employee_id', req.employee.id)
+      .eq('job_id', trimmed)
+      .is('ended_at', null)
+      .maybeSingle()
+    const fieldByJob = assignment && isDailyLogFieldRole(assignment.role_on_job)
+    const fieldByProfile = assignment && req.employee?.role && isDailyLogFieldRole(req.employee.role)
+    if (fieldByJob || fieldByProfile) {
+      req.params.id = trimmed
+      req.project = project
+      return next()
+    }
+  }
+  return res.status(404).json({ error: 'Project not found. You may need to refresh the page or open the project again.' })
+}
+
 // --- Projects CRUD ---
 /** GET / - list projects with summary for cards (phases, budget actual, days left) */
 router.get('/', (req, res, next) => {
@@ -461,7 +514,7 @@ router.delete('/:id', loadProject, async (req, res, next) => {
 })
 
 // --- Phases ---
-router.get('/:id/phases', loadProject, async (req, res, next) => {
+router.get('/:id/phases', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     const { data, error } = await supabase
@@ -784,7 +837,7 @@ router.get('/:id/activity', loadProject, async (req, res, next) => {
 })
 
 // --- Job walk media ---
-router.get('/:id/media', loadProject, async (req, res, next) => {
+router.get('/:id/media', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     const { data, error } = await supabase
@@ -809,7 +862,7 @@ router.get('/:id/media', loadProject, async (req, res, next) => {
   }
 })
 
-router.post('/:id/media', loadProject, upload.single('file'), async (req, res, next) => {
+router.post('/:id/media', loadProjectForFieldDailyLogAccess, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
     const supabaseClient = req.supabase || defaultSupabase
@@ -832,15 +885,22 @@ router.post('/:id/media', loadProject, upload.single('file'), async (req, res, n
     const { data: urlData } = supabaseStorage.storage.from('job-walk-media').getPublicUrl(path)
     if (urlData?.publicUrl) url = urlData.publicUrl
 
+    const logDateRaw = req.body && req.body.log_date
+    const logDate =
+      typeof logDateRaw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(logDateRaw.trim()) ? logDateRaw.trim() : null
+
+    const insertMedia = {
+      project_id: projectId,
+      url,
+      type,
+      uploader_name: uploaderName,
+      caption: caption || null,
+    }
+    if (logDate) insertMedia.log_date = logDate
+
     const { data: row, error } = await supabaseClient
       .from('job_walk_media')
-      .insert({
-        project_id: projectId,
-        url,
-        type,
-        uploader_name: uploaderName,
-        caption: caption || null,
-      })
+      .insert(insertMedia)
       .select()
       .single()
     if (error) throw error
@@ -857,7 +917,7 @@ router.post('/:id/media', loadProject, upload.single('file'), async (req, res, n
   }
 })
 
-router.delete('/:id/media/:mediaId', loadProject, async (req, res, next) => {
+router.delete('/:id/media/:mediaId', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
     const { error } = await supabase
@@ -866,6 +926,264 @@ router.delete('/:id/media/:mediaId', loadProject, async (req, res, next) => {
       .eq('id', req.params.mediaId)
       .eq('project_id', req.params.id)
     if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** Daily logs — one row per project per calendar day. */
+function isDailyLogLocked(row) {
+  if (!row) return true
+  if (row.locked_at) return true
+  const created = row.created_at ? new Date(row.created_at) : null
+  if (!created || Number.isNaN(created.getTime())) return false
+  return Date.now() - created.getTime() >= 24 * 60 * 60 * 1000
+}
+
+router.get('/:id/daily-log-field-data', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const pid = req.params.id
+    const { data: assigns, error: aErr } = await db
+      .from('job_assignments')
+      .select('*')
+      .eq('job_id', pid)
+      .is('ended_at', null)
+    if (aErr) throw aErr
+    const empIds = [...new Set((assigns || []).map((a) => a.employee_id).filter(Boolean))]
+    let employees = []
+    if (empIds.length > 0) {
+      const { data: emps, error: eErr } = await db.from('employees').select('*').in('id', empIds)
+      if (eErr) throw eErr
+      employees = emps || []
+    }
+    const { data: phaseRows, error: pErr } = await db
+      .from('phases')
+      .select('*')
+      .eq('project_id', pid)
+      .order('order', { ascending: true })
+    if (pErr) throw pErr
+    res.json({
+      assignments: assigns || [],
+      employees,
+      phases: phaseRows || [],
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/:id/daily-logs', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const { data, error } = await db
+      .from('daily_logs')
+      .select('*')
+      .eq('project_id', req.params.id)
+      .order('log_date', { ascending: false })
+    if (error) throw error
+    res.json(data || [])
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/:id/daily-logs', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const logDate = req.body && req.body.log_date
+    if (typeof logDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(logDate.trim())) {
+      return res.status(400).json({ error: 'log_date is required (YYYY-MM-DD)' })
+    }
+    const d = logDate.trim()
+    const { data: existing, error: findErr } = await db
+      .from('daily_logs')
+      .select('*')
+      .eq('project_id', req.params.id)
+      .eq('log_date', d)
+      .maybeSingle()
+    if (findErr) throw findErr
+    if (existing) return res.status(200).json(existing)
+
+    const { data, error } = await db
+      .from('daily_logs')
+      .insert({
+        project_id: req.params.id,
+        log_date: d,
+        weather: 'sunny',
+        crew_count: 0,
+        created_by: req.user.id,
+      })
+      .select()
+      .single()
+    if (error) {
+      if (error.code === '23505') {
+        const { data: row } = await db
+          .from('daily_logs')
+          .select('*')
+          .eq('project_id', req.params.id)
+          .eq('log_date', d)
+          .single()
+        if (row) return res.status(200).json(row)
+      }
+      throw error
+    }
+    res.status(201).json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.patch('/:id/daily-logs/:logId', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const { logId } = req.params
+    const { data: row, error: loadErr } = await db
+      .from('daily_logs')
+      .select('*')
+      .eq('id', logId)
+      .eq('project_id', req.params.id)
+      .maybeSingle()
+    if (loadErr) throw loadErr
+    if (!row) return res.status(404).json({ error: 'Daily log not found' })
+    if (isDailyLogLocked(row)) {
+      return res.status(403).json({ error: 'This daily log is locked and cannot be edited.' })
+    }
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {}
+    const updates = {}
+
+    if (body.log_date !== undefined) {
+      const ld = body.log_date
+      if (typeof ld !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ld.trim())) {
+        return res.status(400).json({ error: 'log_date must be YYYY-MM-DD' })
+      }
+      const nextDate = ld.trim()
+      if (nextDate !== row.log_date) {
+        const { data: clash } = await db
+          .from('daily_logs')
+          .select('id')
+          .eq('project_id', req.params.id)
+          .eq('log_date', nextDate)
+          .neq('id', logId)
+          .maybeSingle()
+        if (clash) return res.status(409).json({ error: 'Another log already exists for that date.' })
+      }
+      updates.log_date = nextDate
+    }
+
+    if (body.weather !== undefined) {
+      if (body.weather === null || body.weather === '') updates.weather = null
+      else if (typeof body.weather === 'string') {
+        const w = body.weather.toLowerCase()
+        if (!['sunny', 'cloudy', 'rain', 'snow', 'wind'].includes(w)) {
+          return res.status(400).json({ error: 'Invalid weather value' })
+        }
+        updates.weather = w
+      }
+    }
+
+    if (body.temperature !== undefined) {
+      updates.temperature = body.temperature === null || body.temperature === '' ? null : String(body.temperature)
+    }
+
+    if (body.crew_count !== undefined) {
+      const n = Number(body.crew_count)
+      updates.crew_count = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+    }
+
+    if (body.crew_present !== undefined) {
+      updates.crew_present = body.crew_present === null ? null : body.crew_present
+    }
+
+    if (body.work_summary !== undefined) {
+      updates.work_summary = body.work_summary === null || body.work_summary === '' ? null : String(body.work_summary)
+    }
+
+    if (body.phase_id !== undefined) {
+      if (body.phase_id === null || body.phase_id === '') {
+        updates.phase_id = null
+      } else {
+        const { data: ph, error: phErr } = await db
+          .from('phases')
+          .select('id')
+          .eq('id', body.phase_id)
+          .eq('project_id', req.params.id)
+          .maybeSingle()
+        if (phErr) throw phErr
+        if (!ph) return res.status(400).json({ error: 'phase_id does not belong to this project' })
+        updates.phase_id = body.phase_id
+      }
+    }
+
+    if (body.materials !== undefined) {
+      updates.materials = body.materials === null ? null : body.materials
+    }
+
+    if (body.issues !== undefined) {
+      updates.issues = body.issues === null ? null : body.issues
+    }
+
+    if (body.visitor_log !== undefined) {
+      updates.visitor_log = body.visitor_log === null ? null : body.visitor_log
+    }
+
+    if (body.notes !== undefined) {
+      updates.notes = body.notes === null || body.notes === '' ? null : String(body.notes)
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.json(row)
+    }
+
+    const { data: updated, error } = await db
+      .from('daily_logs')
+      .update(updates)
+      .eq('id', logId)
+      .eq('project_id', req.params.id)
+      .select()
+      .single()
+    if (error) throw error
+    res.json(updated)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id/daily-logs/:logId', loadProjectForFieldDailyLogAccess, async (req, res, next) => {
+  try {
+    const db = defaultSupabase
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const { logId } = req.params
+    const { data: row, error: loadErr } = await db
+      .from('daily_logs')
+      .select('*')
+      .eq('id', logId)
+      .eq('project_id', req.params.id)
+      .maybeSingle()
+    if (loadErr) throw loadErr
+    if (!row) return res.status(404).json({ error: 'Daily log not found' })
+    if (isDailyLogLocked(row)) {
+      return res.status(403).json({ error: 'This daily log is locked and cannot be deleted.' })
+    }
+
+    const logDate = row.log_date
+    const { error: mediaErr } = await db
+      .from('job_walk_media')
+      .update({ log_date: null })
+      .eq('project_id', req.params.id)
+      .eq('log_date', logDate)
+    if (mediaErr) {
+      console.warn('[projects] daily log delete: clear media log_date', mediaErr?.message || mediaErr)
+    }
+
+    const { error: delErr } = await db.from('daily_logs').delete().eq('id', logId).eq('project_id', req.params.id)
+    if (delErr) throw delErr
     res.status(204).send()
   } catch (err) {
     next(err)

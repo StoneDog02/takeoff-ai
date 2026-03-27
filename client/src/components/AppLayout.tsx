@@ -5,7 +5,9 @@ import { PreviewBanner } from '@/components/PreviewBanner'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { MobileNavBar } from '@/components/MobileNavBar'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
+import { OfflineSyncBanners } from '@/components/OfflineSyncBanners'
 import { SupportBubble } from '@/components/support/SupportBubble'
+import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { useSupportNewCount } from '@/hooks/useSupportNewCount'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
@@ -28,6 +30,7 @@ export function AppLayout() {
   const { previewRole } = usePreview()
   const showAdminNavEnabled = isAdmin && previewRole !== 'project_manager'
   const supportNewCount = useSupportNewCount(showAdminNavEnabled)
+  const { isOnline, syncPending, syncing } = useOfflineSync()
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -272,6 +275,7 @@ export function AppLayout() {
 
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
           {previewRole === 'project_manager' && <PreviewBanner />}
+          <OfflineSyncBanners isOnline={isOnline} syncPending={syncPending} />
           <AppLayoutProvider openMobileNav={openMobileNav}>
             <MobileNavBar onOpenMenu={openMobileNav} />
             <Outlet />
@@ -279,7 +283,7 @@ export function AppLayout() {
         </div>
       </div>
 
-      <SupportBubble />
+      <SupportBubble connectionStatus={{ isOnline, syncing }} />
 
       {notificationsPanelOpen && (
         <>

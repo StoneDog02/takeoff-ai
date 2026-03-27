@@ -16,6 +16,7 @@ import { DocumentsPage } from '@/pages/DocumentsPage'
 import { AccountingPage } from '@/pages/AccountingPage'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { DirectoryPage } from '@/pages/DirectoryPage'
+import { TeamsPage } from '@/pages/TeamsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { SupportInboxPage } from '@/pages/admin/SupportInboxPage'
@@ -31,6 +32,7 @@ import { EmployeeClockPage } from '@/routes/EmployeeClockPage'
 import { EmployeeHoursPage } from '@/routes/EmployeeHoursPage'
 import { EmployeeJobsPage } from '@/routes/EmployeeJobsPage'
 import { EmployeeProfilePage } from '@/routes/EmployeeProfilePage'
+import { EmployeeDailyLogsPage } from '@/routes/EmployeeDailyLogsPage'
 import { MessagesPage } from '@/pages/MessagesPage'
 import { BidPortal } from '@/pages/BidPortal'
 import { EstimatePortal } from '@/pages/EstimatePortal'
@@ -66,6 +68,7 @@ export const router = createBrowserRouter([
           { path: 'clock', element: <EmployeeClockPage /> },
           { path: 'hours', element: <EmployeeHoursPage /> },
           { path: 'jobs', element: <EmployeeJobsPage /> },
+          { path: 'daily-logs', element: <EmployeeDailyLogsPage /> },
           { path: 'messages', element: <MessagesPage employeePortal /> },
           { path: 'profile', element: <EmployeeProfilePage /> },
         ],
@@ -92,6 +95,7 @@ export const router = createBrowserRouter([
           { path: 'documents', element: <DocumentsPage /> },
           { path: 'estimates', element: <Navigate to="/financials/invoicing" replace /> },
           { path: 'payroll', element: <PayrollPage /> },
+          { path: 'teams', element: <TeamsPage /> },
           { path: 'directory', element: <DirectoryPage /> },
           { path: 'contractors', element: <Navigate to="/directory" replace /> },
           { path: 'messages', element: <Navigate to="/directory" replace /> },

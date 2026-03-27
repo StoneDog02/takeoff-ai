@@ -86,6 +86,31 @@ export interface JobWalkMedia {
   uploaded_at?: string
   uploader_name: string
   caption?: string
+  /** Set for daily log uploads; filter with this instead of caption-only tagging when present. */
+  log_date?: string | null
+  /** True when the file is only in the offline upload queue (not yet on the server). */
+  queued?: boolean
+}
+
+/** Row in `daily_logs` (Supabase). Weather values are lowercase. */
+export interface DailyLogRow {
+  id: string
+  project_id: string
+  log_date: string
+  weather: string | null
+  temperature: string | null
+  crew_count: number
+  crew_present: unknown
+  work_summary: string | null
+  phase_id: string | null
+  materials: unknown
+  issues: unknown
+  visitor_log: unknown
+  notes: string | null
+  created_by: string | null
+  locked_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 /** Build plan file (PDF/drawing) attached to a project for reference. */

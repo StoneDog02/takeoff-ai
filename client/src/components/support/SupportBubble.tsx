@@ -18,7 +18,16 @@ const PLACEHOLDERS: Record<SupportType, string> = {
   question: 'How can we help?',
 }
 
-export function SupportBubble() {
+export type SupportBubbleConnectionStatus = {
+  isOnline: boolean
+  syncing: boolean
+}
+
+export function SupportBubble({
+  connectionStatus,
+}: {
+  connectionStatus?: SupportBubbleConnectionStatus
+}) {
   const { user, loading } = useAuth()
   const location = useLocation()
   const [open, setOpen] = useState(false)
@@ -120,6 +129,25 @@ export function SupportBubble() {
         onClick={toggle}
       >
         <MessageCircleQuestion size={22} strokeWidth={2.25} aria-hidden />
+        {connectionStatus ? (
+          <span
+            className={`offline-status-dot${
+              connectionStatus.syncing
+                ? ' offline-status-dot--syncing'
+                : connectionStatus.isOnline
+                  ? ' offline-status-dot--online'
+                  : ' offline-status-dot--offline'
+            }`}
+            title={
+              connectionStatus.syncing
+                ? 'Syncing…'
+                : connectionStatus.isOnline
+                  ? 'Online'
+                  : 'Offline'
+            }
+            aria-hidden
+          />
+        ) : null}
       </button>
 
       <div

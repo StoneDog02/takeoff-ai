@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import type { Employee, Project } from '@/types/global'
+import { EMPLOYEE_TRADE_ROLE_OPTIONS } from '@/components/teams/employeeTradeRoleOptions'
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const TRADES = ['Lead Carpenter', 'Carpenter', 'Electrician', 'Plumber', 'Tile Installer', 'Framing Lead', 'Project Manager', 'Site Supervisor', 'Foreman', 'Estimator', 'Apprentice', 'Laborer', 'Painter', 'HVAC Tech', 'Concrete', 'Other']
+const TRADES = EMPLOYEE_TRADE_ROLE_OPTIONS
 const EMP_TYPES = ['Full-time (W-2)', 'Part-time (W-2)', '1099 Contractor', 'Subcontractor']
 const PAY_SCHEDULES = ['Weekly', 'Bi-weekly', 'Semi-monthly', 'Monthly']
 const APP_ROLES = [

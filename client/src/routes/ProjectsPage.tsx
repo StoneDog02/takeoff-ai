@@ -10,7 +10,6 @@ import type {
   Phase,
   Milestone,
   ProjectTask,
-  JobWalkMedia,
   ProjectBuildPlan,
   Subcontractor,
   MaterialList,
@@ -26,7 +25,6 @@ import { teamsApi } from '@/api/teamsClient'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { ProjectDocumentCountBadge } from '@/components/projects/ProjectDocumentCountBadge'
 import { HealthRing } from '@/components/projects/HealthRing'
-import { JobWalkGallery } from '@/components/projects/JobWalkGallery'
 import { BudgetTab } from '@/components/projects/BudgetTab'
 import { LaunchTakeoffWidget, type TakeoffPlanType } from '@/components/projects/LaunchTakeoffWidget'
 import { TakeoffProgressPopup } from '@/components/projects/TakeoffProgressPopup'
@@ -36,7 +34,7 @@ import { ProjectDocumentsTab } from '@/components/projects/ProjectDocumentsTab'
 import { EstimatingWorkspace } from '@/components/projects/EstimatingWorkspace'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
 import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
-import { GeofenceTab } from '@/components/teams/GeofenceTab'
+import { DailyLogTab } from '@/components/projects/DailyLogTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
 import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeleteProjectModal'
 import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
@@ -152,8 +150,12 @@ export interface NewProjectFormData {
   assigned_to_name?: string
 }
 
-const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'geofence', 'budget', 'schedule', 'media', 'takeoff', 'bidsheet', 'documents'] as const
+const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'geofence', 'budget', 'schedule', 'takeoff', 'bidsheet', 'documents'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
+const DETAIL_TAB_GROUP_STORAGE_KEY = 'projects:detail-tab-group'
+/** Office group includes takeoff/documents for URL/state sync; tab bar only shows `officeTabs` (no dedicated Takeoff tab). */
+const OFFICE_TAB_IDS: DetailTabId[] = ['overview', 'budget', 'schedule', 'worktypes', 'takeoff', 'documents']
+const FIELD_TAB_IDS: DetailTabId[] = ['geofence', 'crew', 'bidsheet']
 
 const PIPELINE_COLUMNS = [
   { key: 'estimating', label: 'Estimating', dotColor: '#6b7280', barColor: '#6b7280' },
@@ -265,7 +267,6 @@ export function ProjectsPage() {
   const [phases, setPhases] = useState<Phase[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [tasks, setTasks] = useState<ProjectTask[]>([])
-  const [media, setMedia] = useState<JobWalkMedia[]>([])
   const [budget, setBudget] = useState<{ items: { id: string; project_id: string; label: string; predicted: number; actual: number; category: string }[]; summary: { predicted_total: number; actual_total: number; profitability: number }; labor_actual_from_time_entries?: number; subs_actual_from_bid_sheet?: number; approved_change_orders_total?: number } | null>(null)
   /** Awaiting approval: latest open estimate rolled up for overview (greyed “provisional” budget). */
   const [awaitingApprovalEstimatePreview, setAwaitingApprovalEstimatePreview] = useState<{
@@ -437,11 +438,21 @@ export function ProjectsPage() {
     })()
   }
   const [activeTabState, setActiveTabState] = useState<DetailTabId>('overview')
+  const [tabGroup, setTabGroup] = useState<'office' | 'field'>('office')
   const activeTab: DetailTabId = (tabFromUrl && DETAIL_TAB_IDS.includes(tabFromUrl as DetailTabId)) ? (tabFromUrl as DetailTabId) : activeTabState
   const setActiveTab = (tab: DetailTabId) => {
     setActiveTabState(tab)
     setSearchParams({ tab }, { replace: true })
   }
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(DETAIL_TAB_GROUP_STORAGE_KEY)
+    if (stored === 'office' || stored === 'field') setTabGroup(stored)
+  }, [])
+
+  useEffect(() => {
+    window.sessionStorage.setItem(DETAIL_TAB_GROUP_STORAGE_KEY, tabGroup)
+  }, [tabGroup])
 
   useEffect(() => {
     if (!heroMenuOpen) return
@@ -518,6 +529,19 @@ export function ProjectsPage() {
       if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
     }
   }, [id])
+
+  useEffect(() => {
+    if (activeTab === 'takeoff' || activeTab === 'documents') {
+      setTabGroup('office')
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    const tabsForGroup = tabGroup === 'office' ? OFFICE_TAB_IDS : FIELD_TAB_IDS
+    if (!tabsForGroup.includes(activeTab)) {
+      setActiveTab(tabsForGroup[0])
+    }
+  }, [activeTab, tabGroup])
 
   useEffect(() => {
     if (id !== undefined) return
@@ -685,7 +709,6 @@ export function ProjectsPage() {
       setPhases([])
       setMilestones([])
       setTasks([])
-      setMedia([])
       setTakeoffs([])
       setSubcontractors([])
       setOverviewSetupReady(false)
@@ -706,12 +729,11 @@ export function ProjectsPage() {
       api.projects.getPhases(id),
       api.projects.getMilestones(id),
       api.projects.getTasks(id),
-      api.projects.getMedia(id),
       api.projects.getBudget(id),
       api.projects.getTakeoffs(id),
       api.projects.getSubcontractors(id),
     ])
-      .then(([proj, ph, mil, taskList, med, bud, toffs, subs]) => {
+      .then(([proj, ph, mil, taskList, bud, toffs, subs]) => {
         setProject(proj)
         const phasesData = ph ?? []
         const milestonesData = mil ?? []
@@ -719,7 +741,6 @@ export function ProjectsPage() {
         setPhases(phasesData)
         setMilestones(milestonesData)
         setTasks(tasksData)
-        setMedia(med?.length ? med : [])
         setBudget(bud?.items?.length ? bud : { items: [], summary: bud?.summary ?? emptyBudget.summary })
         setTakeoffs(toffs?.length ? toffs : [])
         setSubcontractors(subs?.length ? subs : [])
@@ -821,12 +842,6 @@ export function ProjectsPage() {
     }
   }, [id])
 
-  const refreshMedia = () => {
-    if (id) {
-      api.projects.getMedia(id).then(setMedia)
-      api.projects.getActivity(id).then(setActivity)
-    }
-  }
   const refreshSubcontractors = () => {
     if (id) api.projects.getSubcontractors(id).then(setSubcontractors)
   }
@@ -2245,18 +2260,18 @@ export function ProjectsPage() {
     (timelinePct <= 90 ? 25 : 15)
   ))
 
-  const tabs = [
-    { id: 'overview' as const, label: 'Overview', icon: 'grid' },
-    { id: 'worktypes' as const, label: 'Work Types & Pay', icon: 'briefcase' },
-    { id: 'crew' as const, label: 'Crew', icon: 'people' },
-    { id: 'geofence' as const, label: 'GPS / Geofence', icon: 'map' },
-    { id: 'budget' as const, label: 'Change Orders', icon: 'dollar' },
-    { id: 'schedule' as const, label: 'Schedule', icon: 'calendar' },
-    { id: 'media' as const, label: 'Job Walk Media', icon: 'image' },
-    { id: 'takeoff' as const, label: 'Takeoff', icon: 'document' },
-    { id: 'bidsheet' as const, label: 'Bid Sheet', icon: 'checklist' },
-    { id: 'documents' as const, label: 'Documents', icon: 'document' },
+  const officeTabs = [
+    { id: 'overview' as const, label: 'Overview' },
+    { id: 'budget' as const, label: 'Change Order' },
+    { id: 'schedule' as const, label: 'Schedule' },
+    { id: 'worktypes' as const, label: 'Work Types & Pay' },
   ]
+  const fieldTabs = [
+    { id: 'geofence' as const, label: 'Daily Log' },
+    { id: 'crew' as const, label: 'Crew' },
+    { id: 'bidsheet' as const, label: 'Bid Sheet' },
+  ]
+  const tabs = tabGroup === 'office' ? officeTabs : fieldTabs
 
   const statusPillStyle =
     statusKey === 'active'
@@ -2279,9 +2294,6 @@ export function ProjectsPage() {
     (project?.plan_type === 'civil' && 'Civil') ||
     (project?.plan_type === 'auto' && 'Auto') ||
     'Residential'
-  const projectGeofenceAddressLine = project
-    ? [project.address_line_1, project.address_line_2, [project.city, project.state, project.postal_code].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-    : ''
   const BUDGET_ITEM_COLORS: Record<string, string> = { Labor: '#6366f1', Materials: '#0ea5e9', Subcontractors: '#8b5cf6' }
   const TAG_COLORS: Record<string, { bg: string; text: string }> = { Media: { bg: '#eff6ff', text: '#1d4ed8' }, Time: { bg: '#f0fdf4', text: '#15803d' }, Budget: { bg: '#fefce8', text: '#a16207' }, Bid: { bg: '#fdf4ff', text: '#7e22ce' }, Schedule: { bg: '#fff7ed', text: '#c2410c' }, Takeoff: { bg: '#eff6ff', text: '#1d4ed8' } }
 
@@ -2581,24 +2593,48 @@ export function ProjectsPage() {
           )}
         </div>
 
-        {/* Tabs */}
-        <nav className="project-overview-tabs" aria-label="Project sections">
-          {tabs.map((tab) => {
-            const isEstimating = project?.status === 'estimating'
-            const tabDisabledWhenEstimating = isEstimating && ['worktypes', 'crew', 'budget', 'schedule'].includes(tab.id)
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => { if (!tabDisabledWhenEstimating) setActiveTab(tab.id) }}
-                className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''} ${tabDisabledWhenEstimating ? 'project-overview-tab--disabled' : ''}`}
-                title={tabDisabledWhenEstimating ? 'Available after job is created' : undefined}
-              >
-                {tab.label}
-              </button>
-            )
-          })}
-        </nav>
+        <div className="project-tab-group-switcher">
+          <div className="project-tab-group-toggle" role="tablist" aria-label="Project tab groups">
+            <button
+              type="button"
+              className={`project-tab-group-btn ${tabGroup === 'office' ? 'active' : ''}`}
+              onClick={() => {
+                setTabGroup('office')
+                setActiveTab(OFFICE_TAB_IDS[0])
+              }}
+            >
+              Office
+            </button>
+            <button
+              type="button"
+              className={`project-tab-group-btn ${tabGroup === 'field' ? 'active' : ''}`}
+              onClick={() => {
+                setTabGroup('field')
+                setActiveTab(FIELD_TAB_IDS[0])
+              }}
+            >
+              Field
+            </button>
+          </div>
+          <div className="project-tab-group-divider" aria-hidden />
+          <nav className="project-overview-tabs" aria-label="Project sections">
+            {tabs.map((tab) => {
+              const isEstimating = project?.status === 'estimating'
+              const tabDisabledWhenEstimating = isEstimating && ['worktypes', 'crew', 'budget', 'schedule'].includes(tab.id)
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => { if (!tabDisabledWhenEstimating) setActiveTab(tab.id) }}
+                  className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''} ${tabDisabledWhenEstimating ? 'project-overview-tab--disabled' : ''}`}
+                  title={tabDisabledWhenEstimating ? 'Available after job is created' : undefined}
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </nav>
+        </div>
       </div>
       </div>
 
@@ -2860,7 +2896,30 @@ export function ProjectsPage() {
 
         </div>
 
-      {/* Tabs */}
+      <div className="project-tab-group-switcher">
+        <div className="project-tab-group-toggle" role="tablist" aria-label="Project tab groups">
+          <button
+            type="button"
+            className={`project-tab-group-btn ${tabGroup === 'office' ? 'active' : ''}`}
+            onClick={() => {
+              setTabGroup('office')
+              setActiveTab(OFFICE_TAB_IDS[0])
+            }}
+          >
+            Office
+          </button>
+          <button
+            type="button"
+            className={`project-tab-group-btn ${tabGroup === 'field' ? 'active' : ''}`}
+            onClick={() => {
+              setTabGroup('field')
+              setActiveTab(FIELD_TAB_IDS[0])
+            }}
+          >
+            Field
+          </button>
+        </div>
+        <div className="project-tab-group-divider" aria-hidden />
         <nav className="project-overview-tabs" aria-label="Project sections">
           {tabs.map((tab) => {
             const isEstimating = project?.status === 'estimating'
@@ -2878,6 +2937,7 @@ export function ProjectsPage() {
             )
           })}
         </nav>
+      </div>
       </div>
 
       {paymentPrompt && id && (activeTab === 'overview' || activeTab === 'schedule') && (
@@ -2929,7 +2989,7 @@ export function ProjectsPage() {
                 onBypassTakeoff={() => setEstimatingTakeoffBypassed(true)}
                 bidSheetSkipped={estimatingBidSheetSkipped}
                 onSkipBidSheet={() => setEstimatingBidSheetSkipped(true)}
-                onViewFullTakeoff={() => setActiveTab('takeoff')}
+                onViewFullTakeoff={() => { setTabGroup('office'); setActiveTab('takeoff') }}
                 onViewBidSheet={() => setActiveTab('bidsheet')}
                 onRefreshBidSheet={refreshWorkspaceBidSheet}
                 lastBidSheetUpdated={lastBidSheetUpdated}
@@ -3206,8 +3266,61 @@ export function ProjectsPage() {
             </div>
           </div>
 
-          {/* Col 3 – Quick Actions + Live Activity */}
+          {/* Col 3 – Project documents + Quick Actions + Live Activity */}
           <div className="flex flex-col gap-[18px]">
+            <div className="project-overview-card">
+              <div className="project-overview-card-title">Project documents</div>
+              <div className="flex flex-col gap-0">
+                <div className="flex items-start justify-between gap-3 py-2.5 border-b border-[var(--border)]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wide">Takeoff</div>
+                    <div className="text-[13px] font-semibold text-[var(--text-primary)] mt-1">
+                      {takeoffs.length === 0
+                        ? 'Not run'
+                        : `${formatDate(takeoffs[0]!.created_at)} · ${takeoffCategories.reduce((sum, cat) => sum + (cat.items?.length ?? 0), 0)} items`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-[12px] font-semibold text-[var(--accent)] shrink-0 bg-transparent border-none p-0 cursor-pointer hover:underline"
+                    onClick={() => {
+                      setTabGroup('office')
+                      setActiveTab('takeoff')
+                    }}
+                  >
+                    View Takeoff →
+                  </button>
+                </div>
+                <div className="py-2.5">
+                  <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1.5">Build plans</div>
+                  {buildPlans.length > 0 ? (
+                    <div className="flex flex-col gap-1 min-w-0">
+                      {buildPlans.map((plan) => (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          onClick={async () => {
+                            if (!id) return
+                            try {
+                              const { url } = await api.projects.getBuildPlanViewUrl(id, plan.id)
+                              window.open(url, '_blank')
+                            } catch {
+                              window.open(plan.url, '_blank')
+                            }
+                          }}
+                          className="text-[12px] font-medium text-left text-[var(--accent)] hover:underline truncate cursor-pointer bg-transparent border-none p-0"
+                          title={plan.file_name}
+                        >
+                          {plan.file_name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[12px] text-[var(--text-muted)]">No plans. Use Edit to add.</div>
+                  )}
+                </div>
+              </div>
+            </div>
             <div className="project-overview-card">
               <div className="project-overview-card-title">Quick Actions</div>
               <div className="project-overview-quick-actions">
@@ -3519,6 +3632,61 @@ export function ProjectsPage() {
           </div>
 
           <div className="project-overview-body__col project-overview-body__col--activity w-full min-w-0">
+            <div className="project-overview-card w-full min-w-0 mb-[18px]">
+              <div className="project-overview-card-header">
+                <span className="project-overview-card-header-title">Project documents</span>
+              </div>
+              <div className="project-overview-card-body">
+                <div className="flex items-start justify-between gap-3 py-2 border-b border-[var(--border)]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wide">Takeoff</div>
+                    <div className="text-[13px] font-semibold text-[var(--text-primary)] mt-1">
+                      {takeoffs.length === 0
+                        ? 'Not run'
+                        : `${formatDate(takeoffs[0]!.created_at)} · ${takeoffCategories.reduce((sum, cat) => sum + (cat.items?.length ?? 0), 0)} items`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-[12px] font-semibold text-[var(--accent)] shrink-0 bg-transparent border-none p-0 cursor-pointer hover:underline"
+                    onClick={() => {
+                      setTabGroup('office')
+                      setActiveTab('takeoff')
+                    }}
+                  >
+                    View Takeoff →
+                  </button>
+                </div>
+                <div className="py-2">
+                  <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1.5">Build plans</div>
+                  {buildPlans.length > 0 ? (
+                    <div className="flex flex-col gap-1 min-w-0">
+                      {buildPlans.map((plan) => (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          onClick={async () => {
+                            if (!id) return
+                            try {
+                              const { url } = await api.projects.getBuildPlanViewUrl(id, plan.id)
+                              window.open(url, '_blank')
+                            } catch {
+                              window.open(plan.url, '_blank')
+                            }
+                          }}
+                          className="text-[12px] font-medium text-left text-[var(--accent)] hover:underline truncate cursor-pointer bg-transparent border-none p-0"
+                          title={plan.file_name}
+                        >
+                          {plan.file_name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[12px] text-[var(--text-muted)]">No plans. Use Edit to add.</div>
+                  )}
+                </div>
+              </div>
+            </div>
             <div className="project-overview-card w-full min-w-0">
               <div className="project-overview-card-header">
                 <span className="project-overview-card-header-title">Live Activity</span>
@@ -3595,11 +3763,7 @@ export function ProjectsPage() {
 
       {activeTab === 'geofence' && project && (
         <section className="w-full min-w-0 px-8 py-6">
-          <GeofenceTab
-            projectId={project.id}
-            projectName={project.name}
-            projectAddress={projectGeofenceAddressLine}
-          />
+          <DailyLogTab projectId={project.id} projectName={project.name} phases={phases} />
         </section>
       )}
 
@@ -3792,22 +3956,6 @@ export function ProjectsPage() {
         </section>
       )}
 
-      {activeTab === 'media' && project && (
-        <section className="w-full min-w-0 px-8 py-6">
-          <JobWalkGallery
-            projectId={project.id}
-            projectName={project.name}
-            media={media}
-            onUpload={async (file, uploaderName, caption) => {
-              await api.projects.uploadMedia(project.id, file, uploaderName, caption)
-            }}
-            onDelete={async (mediaId) => {
-              await api.projects.deleteMedia(project.id, mediaId)
-            }}
-            onRefresh={refreshMedia}
-          />
-        </section>
-      )}
 
       {activeTab === 'takeoff' && project && (
         <section className="w-full min-w-0 px-8 py-6">

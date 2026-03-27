@@ -45,7 +45,7 @@ export function TeamsPage() {
 
         <div className="teams-page-content">
           {tab === 'roster' && (
-            <EmployeeRoster key={rosterRefreshKey} onSelectEmployee={setSelectedEmp} />
+            <EmployeeRoster refreshTrigger={rosterRefreshKey} onSelectEmployee={setSelectedEmp} />
           )}
           {tab === 'man-hours' && (
             <ManHoursTab onSelectEmployee={setSelectedEmp} />
@@ -62,7 +62,10 @@ export function TeamsPage() {
       <EmployeePanel
         emp={selectedEmp}
         onClose={() => setSelectedEmp(null)}
-        onEmployeeUpdated={setSelectedEmp}
+        onEmployeeUpdated={(updated) => {
+          setSelectedEmp(updated)
+          setRosterRefreshKey((k) => k + 1)
+        }}
         onEmployeeDeleted={() => {
           setSelectedEmp(null)
           setRosterRefreshKey((k) => k + 1)

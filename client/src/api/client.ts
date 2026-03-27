@@ -18,6 +18,9 @@ import type {
   BidSheet,
   MaterialList as GlobalMaterialList,
   ScheduleItem,
+  DailyLogRow,
+  Employee,
+  JobAssignment,
 } from '@/types/global'
 import { API_BASE } from '@/api/config'
 import { getSessionAuthHeaders } from '@/api/authHeaders'
@@ -419,12 +422,19 @@ export const api = {
       const res = await fetch(`${API_BASE}/projects/${projectId}/media`, { headers })
       return handleResponse<JobWalkMedia[]>(res)
     },
-    async uploadMedia(projectId: string, file: File, uploader_name?: string, caption?: string): Promise<JobWalkMedia> {
+    async uploadMedia(
+      projectId: string,
+      file: File,
+      uploader_name?: string,
+      caption?: string,
+      opts?: { log_date?: string }
+    ): Promise<JobWalkMedia> {
       const headers = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
       if (uploader_name) form.append('uploader_name', uploader_name)
       if (caption) form.append('caption', caption)
+      if (opts?.log_date) form.append('log_date', opts.log_date)
       const res = await fetch(`${API_BASE}/projects/${projectId}/media`, {
         method: 'POST',
         body: form,
@@ -435,6 +445,53 @@ export const api = {
     async deleteMedia(projectId: string, mediaId: string): Promise<void> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/media/${mediaId}`, { method: 'DELETE', headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || res.statusText)
+      }
+    },
+    async getDailyLogFieldData(projectId: string): Promise<{
+      assignments: JobAssignment[]
+      employees: Employee[]
+      phases: Phase[]
+    }> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/daily-log-field-data`, { headers })
+      return handleResponse<{ assignments: JobAssignment[]; employees: Employee[]; phases: Phase[] }>(res)
+    },
+    async getDailyLogs(projectId: string): Promise<DailyLogRow[]> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs`, { headers })
+      return handleResponse<DailyLogRow[]>(res)
+    },
+    async createDailyLog(projectId: string, body: { log_date: string }): Promise<DailyLogRow> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<DailyLogRow>(res)
+    },
+    async patchDailyLog(
+      projectId: string,
+      logId: string,
+      body: Record<string, unknown>
+    ): Promise<DailyLogRow> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs/${logId}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body),
+      })
+      return handleResponse<DailyLogRow>(res)
+    },
+    async deleteDailyLog(projectId: string, logId: string): Promise<void> {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs/${logId}`, {
+        method: 'DELETE',
+        headers,
+      })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { error?: string }).error || res.statusText)

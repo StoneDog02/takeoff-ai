@@ -68,7 +68,7 @@ export function ProjectCrewTab({
   const [useProps, setUseProps] = useState(true)
   useEffect(() => {
     if (propsProvided) setUseProps(true)
-  }, [propsProvided, jobAssignmentsProp?.length, rosterEmployeesProp?.length])
+  }, [propsProvided, jobAssignmentsProp, rosterEmployeesProp])
   const assignmentsList = useProps && propsProvided ? jobAssignmentsProp! : assignments
   const employeesList = useProps && propsProvided ? rosterEmployeesProp! : employees
 

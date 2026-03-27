@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
+import { OfflineSyncBanners } from '@/components/OfflineSyncBanners'
 import { SupportBubble } from '@/components/support/SupportBubble'
 import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
@@ -10,16 +11,22 @@ import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { MobileNavBar } from '@/components/MobileNavBar'
+import { useEmployeeDailyLogEligibility } from '@/hooks/useEmployeeDailyLogEligibility'
+import { useOfflineSync } from '@/hooks/useOfflineSync'
 
 export function EmployeeLayout() {
   const [ready, setReady] = useState(false)
   const [employeeName, setEmployeeName] = useState<string | null>(null)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const { isAdmin } = useAuth()
-  const { previewRole, clearPreview } = usePreview()
+  const { isAdmin, employee: authEmployee } = useAuth()
+  const { previewRole } = usePreview()
+  const { eligible: dailyLogsEligible, loading: dailyLogsEligibilityLoading } = useEmployeeDailyLogEligibility()
+  const { isOnline, syncPending, syncing } = useOfflineSync()
 
   useEffect(() => {
     let cancelled = false
@@ -53,7 +60,20 @@ export function EmployeeLayout() {
   }, [navigate, isAdmin, previewRole])
 
   useEffect(() => {
+    if (!profileMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (profileMenuRef.current && !profileMenuRef.current.contains(target)) {
+        setProfileMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [profileMenuOpen])
+
+  useEffect(() => {
     setMobileNavOpen(false)
+    setProfileMenuOpen(false)
   }, [location.pathname, location.search])
 
   const isPreview = isAdmin && previewRole === 'employee'
@@ -67,11 +87,6 @@ export function EmployeeLayout() {
     navigate('/sign-in', { replace: true })
   }
 
-  function handleExitPreview() {
-    clearPreview()
-    navigate('/admin')
-  }
-
   if (!ready) {
     return (
       <div className="dashboard-app flex items-center justify-center min-h-screen">
@@ -80,8 +95,10 @@ export function EmployeeLayout() {
     )
   }
 
-  const initials = employeeName
-    ? employeeName.split(/\s+/).map((s) => s[0]).slice(0, 2).join('').toUpperCase()
+  const displayName = authEmployee?.name?.trim() || employeeName || 'Employee'
+  const roleLabel = authEmployee?.role?.trim() || 'Employee'
+  const initials = displayName && displayName !== 'Employee'
+    ? displayName.split(/\s+/).map((s) => s[0]).slice(0, 2).join('').toUpperCase()
     : 'EM'
 
   return (
@@ -122,47 +139,76 @@ export function EmployeeLayout() {
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
               <span className="nav-label">My Jobs</span>
             </NavLink>
+            {!dailyLogsEligibilityLoading && dailyLogsEligible ? (
+              <NavLink to="/employee/daily-logs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                  <path d="M5 6h6M5 9h4M5 12h5" />
+                </svg>
+                <span className="nav-label">Daily Logs</span>
+              </NavLink>
+            ) : null}
             <NavLink to="/employee/messages" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H6l-2 2V4z" /></svg>
               <span className="nav-label">Messages</span>
             </NavLink>
-
-            <div className="nav-divider" />
-            <div className="nav-section-label">Account</div>
-            <NavLink to="/employee/profile" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M8 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM3 13c0-2.76 2.24-5 5-5s5 2.24 5 5" /></svg>
-              <span className="nav-label">Profile</span>
-            </NavLink>
           </div>
 
-          <div className="nav-divider" />
-          <div className="nav-actions">
-            {isPreview ? (
-              <button type="button" className="nav-item" style={{ width: '100%', justifyContent: 'flex-start' }} onClick={handleExitPreview}>
-                <span className="nav-label">Exit preview</span>
-              </button>
-            ) : (
-              <button type="button" className="nav-item" style={{ width: '100%', justifyContent: 'flex-start' }} onClick={handleLogout} aria-label="Log out">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M11 11l3-3-3-3M11 4h3" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                <span className="nav-label">Log out</span>
-              </button>
-            )}
-            <ThemeToggle className="nav-item" />
-          </div>
-
-          <div className="nav-footer">
-            <div className="user-row">
-              <div className="user-avatar">{initials}</div>
-              <div className="user-info">
-                <div className="user-name">{employeeName ?? 'Employee'}</div>
-                <div className="user-role">Employee</div>
+          <div className="nav-footer profile-menu-wrap" ref={profileMenuRef}>
+            {profileMenuOpen && (
+              <div className="profile-menu-popup" role="menu">
+                <Link
+                  to="/employee/profile"
+                  className="profile-menu-item"
+                  onClick={() => setProfileMenuOpen(false)}
+                  role="menuitem"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                    <path d="M8 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM3 13c0-2.76 2.24-5 5-5s5 2.24 5 5" />
+                  </svg>
+                  <span>Profile</span>
+                </Link>
+                <ThemeToggle className="profile-menu-item" />
+                <button
+                  type="button"
+                  className="profile-menu-item"
+                  onClick={() => {
+                    setProfileMenuOpen(false)
+                    void handleLogout()
+                  }}
+                  role="menuitem"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M11 11l3-3-3-3M11 4h3" />
+                  </svg>
+                  <span>Log out</span>
+                </button>
               </div>
-            </div>
+            )}
+            <button
+              type="button"
+              className="nav-footer-trigger"
+              onClick={() => setProfileMenuOpen((o) => !o)}
+              aria-expanded={profileMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Open account menu"
+            >
+              <div className="user-row">
+                <div className="user-avatar" aria-hidden>
+                  {initials}
+                </div>
+                <div className="user-info">
+                  <div className="user-name">{displayName}</div>
+                  <div className="user-role">{roleLabel}</div>
+                </div>
+              </div>
+            </button>
           </div>
         </nav>
 
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
           {isPreview && <PreviewBanner />}
+          <OfflineSyncBanners isOnline={isOnline} syncPending={syncPending} />
           <AppLayoutProvider openMobileNav={openMobileNav}>
             <MobileNavBar onOpenMenu={openMobileNav} />
             <Outlet />
@@ -170,7 +216,7 @@ export function EmployeeLayout() {
         </div>
       </div>
 
-      <SupportBubble />
+      <SupportBubble connectionStatus={{ isOnline, syncing }} />
     </div>
   )
 }

@@ -18,11 +18,13 @@ const ATTENDANCE_DISPLAY: Record<string, { class: string; label: string }> = {
 
 interface EmployeeRosterProps {
   onSelectEmployee?: (emp: Employee) => void
+  /** Increment when roster should refetch (e.g. employee saved from detail panel). */
+  refreshTrigger?: number
 }
 
 type AttendanceFlag = 'on_time' | 'late' | 'early_out'
 
-export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
+export function EmployeeRoster({ onSelectEmployee, refreshTrigger = 0 }: EmployeeRosterProps) {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [assignments, setAssignments] = useState<JobAssignment[]>([])
   const [jobNames, setJobNames] = useState<Record<string, string>>({})
@@ -112,7 +114,7 @@ export function EmployeeRoster({ onSelectEmployee }: EmployeeRosterProps) {
 
   useEffect(() => {
     load()
-  }, [statusFilter])
+  }, [statusFilter, refreshTrigger])
 
   const assignmentsByEmployee = new Map<string, string[]>()
   assignments.forEach((a) => {

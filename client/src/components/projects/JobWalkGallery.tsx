@@ -455,6 +455,7 @@ export function JobWalkGallery({
                           )}
                         </div>
                         <span className={`media-card-type ${m.type}`}>{m.type === 'video' ? 'VIDEO' : 'PHOTO'}</span>
+                        {m.queued ? <span className="media-queued-badge">Queued</span> : null}
                         {m.caption && (
                           <div className="media-card-note-tag" title={m.caption}>
                             <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -504,6 +505,7 @@ export function JobWalkGallery({
                           {m.caption && <div className="media-list-note">"{m.caption.slice(0, 80)}{m.caption.length > 80 ? '…' : ''}"</div>}
                         </div>
                         <span className={`media-list-type ${m.type}`}>{m.type === 'video' ? 'VIDEO' : 'PHOTO'}</span>
+                        {m.queued ? <span className="media-queued-badge">Queued</span> : null}
                         <div className="media-list-actions">
                           <a href={m.url} download className="btn-sm" style={{ padding: '5px 8px' }} onClick={(e) => e.stopPropagation()}>
                             <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

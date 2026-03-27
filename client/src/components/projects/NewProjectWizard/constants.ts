@@ -53,6 +53,7 @@ export const CUSTOM_WORK_TYPE_PALETTE = [
 /** Crew/job roles for roster employees (role on job) — e.g. Foreman, Superintendent. */
 export const ROLE_OPTS = [
   'Project Manager',
+  'Site Supervisor',
   'Superintendent',
   'Foreman',
   'Laborer',
