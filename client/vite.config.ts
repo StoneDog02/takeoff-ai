@@ -4,11 +4,29 @@ import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 export default defineConfig({
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf'
+          if (id.includes('@supabase')) return 'vendor-supabase'
+          if (id.includes('lucide-react') || id.includes('@phosphor-icons') || id.includes('@iconscout'))
+            return 'vendor-icons'
+          if (id.includes('react-router')) return 'vendor-router'
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('\\react\\')) return 'vendor-react'
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
+        // Default 2 MiB fails the build when the main chunk exceeds it (e.g. ~2.1 MB).
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { getMe } from '@/api/me'
 import { AuthPageLayout } from '@/components/landing/AuthPageLayout'
+import { supabase } from '@/lib/supabaseClient'
 
 export function SignInPage() {
   const [email, setEmail] = useState('')
@@ -14,7 +16,6 @@ export function SignInPage() {
     setError(null)
     setLoading(true)
     try {
-      const { supabase } = await import('@/lib/supabaseClient')
       if (!supabase) {
         setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.')
         setLoading(false)
@@ -30,7 +31,6 @@ export function SignInPage() {
         setLoading(false)
         return
       }
-      const { getMe } = await import('@/api/me')
       try {
         const me = await getMe()
         if (me.type === 'employee') navigate('/employee/clock', { replace: true })

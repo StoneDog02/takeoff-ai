@@ -1,43 +1,102 @@
+import { lazy } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RootLayout } from '@/components/Layout'
-import { AppLayout } from '@/components/AppLayout'
-import { EmployeeLayout } from '@/components/EmployeeLayout'
-import { DashboardPage } from '@/routes/DashboardPage'
-import { TakeoffPage } from '@/routes/TakeoffPage'
-import { BuildListsPage } from '@/routes/BuildListsPage'
-import { BuildListDetailPage } from '@/routes/BuildListDetailPage'
-import { ProjectsPage } from '@/routes/ProjectsPage'
-import { RevenuePage } from '@/pages/RevenuePage'
-import { FinancialsLayout } from '@/pages/FinancialsLayout'
-import { FinancialsTransactionsPage } from '@/pages/FinancialsTransactionsPage'
-import { FinancialsReportsPage } from '@/pages/FinancialsReportsPage'
-import { FinancialsInvoicingPage } from '@/pages/FinancialsInvoicingPage'
-import { DocumentsPage } from '@/pages/DocumentsPage'
-import { AccountingPage } from '@/pages/AccountingPage'
-import { PayrollPage } from '@/pages/PayrollPage'
-import { DirectoryPage } from '@/pages/DirectoryPage'
-import { TeamsPage } from '@/pages/TeamsPage'
-import SettingsPage from '@/pages/SettingsPage'
-import { AdminPage } from '@/pages/AdminPage'
-import { SupportInboxPage } from '@/pages/admin/SupportInboxPage'
 import { AdminGuard } from '@/components/AdminGuard'
-import { LandingPage } from '@/routes/LandingPage'
-import { PrivacyPage } from '@/routes/PrivacyPage'
-import { TermsPage } from '@/routes/TermsPage'
-import { SignInPage } from '@/routes/SignInPage'
-import { SignUpPage } from '@/routes/SignUpPage'
-import { AuthCallbackPage } from '@/routes/AuthCallbackPage'
-import { AcceptInvitePage } from '@/routes/AcceptInvitePage'
-import { EmployeeClockPage } from '@/routes/EmployeeClockPage'
-import { EmployeeHoursPage } from '@/routes/EmployeeHoursPage'
-import { EmployeeJobsPage } from '@/routes/EmployeeJobsPage'
-import { EmployeeProfilePage } from '@/routes/EmployeeProfilePage'
-import { EmployeeDailyLogsPage } from '@/routes/EmployeeDailyLogsPage'
-import { MessagesPage } from '@/pages/MessagesPage'
-import { BidPortal } from '@/pages/BidPortal'
-import { EstimatePortal } from '@/pages/EstimatePortal'
-import { InvoicePortal } from '@/pages/InvoicePortal'
-import { PortalLayout } from '@/components/PortalLayout'
+
+/** Code-split: one async chunk per layout / page to keep the entry bundle small. */
+const PortalLayout = lazy(() =>
+  import('@/components/PortalLayout').then((m) => ({ default: m.PortalLayout }))
+)
+const BidPortal = lazy(() => import('@/pages/BidPortal').then((m) => ({ default: m.BidPortal })))
+const EstimatePortal = lazy(() =>
+  import('@/pages/EstimatePortal').then((m) => ({ default: m.EstimatePortal }))
+)
+const InvoicePortal = lazy(() =>
+  import('@/pages/InvoicePortal').then((m) => ({ default: m.InvoicePortal }))
+)
+
+const AppLayout = lazy(() => import('@/components/AppLayout').then((m) => ({ default: m.AppLayout })))
+const EmployeeLayout = lazy(() =>
+  import('@/components/EmployeeLayout').then((m) => ({ default: m.EmployeeLayout }))
+)
+
+const DashboardPage = lazy(() =>
+  import('@/routes/DashboardPage').then((m) => ({ default: m.DashboardPage }))
+)
+const TakeoffPage = lazy(() => import('@/routes/TakeoffPage').then((m) => ({ default: m.TakeoffPage })))
+const BuildListsPage = lazy(() =>
+  import('@/routes/BuildListsPage').then((m) => ({ default: m.BuildListsPage }))
+)
+const BuildListDetailPage = lazy(() =>
+  import('@/routes/BuildListDetailPage').then((m) => ({ default: m.BuildListDetailPage }))
+)
+const ProjectsPage = lazy(() =>
+  import('@/routes/ProjectsPage').then((m) => ({ default: m.ProjectsPage }))
+)
+const RevenuePage = lazy(() => import('@/pages/RevenuePage').then((m) => ({ default: m.RevenuePage })))
+const FinancialsLayout = lazy(() =>
+  import('@/pages/FinancialsLayout').then((m) => ({ default: m.FinancialsLayout }))
+)
+const FinancialsTransactionsPage = lazy(() =>
+  import('@/pages/FinancialsTransactionsPage').then((m) => ({ default: m.FinancialsTransactionsPage }))
+)
+const FinancialsReportsPage = lazy(() =>
+  import('@/pages/FinancialsReportsPage').then((m) => ({ default: m.FinancialsReportsPage }))
+)
+const FinancialsInvoicingPage = lazy(() =>
+  import('@/pages/FinancialsInvoicingPage').then((m) => ({ default: m.FinancialsInvoicingPage }))
+)
+const DocumentsPage = lazy(() =>
+  import('@/pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage }))
+)
+const AccountingPage = lazy(() =>
+  import('@/pages/AccountingPage').then((m) => ({ default: m.AccountingPage }))
+)
+const PayrollPage = lazy(() => import('@/pages/PayrollPage').then((m) => ({ default: m.PayrollPage })))
+const DirectoryPage = lazy(() =>
+  import('@/pages/DirectoryPage').then((m) => ({ default: m.DirectoryPage }))
+)
+const TeamsPage = lazy(() => import('@/pages/TeamsPage').then((m) => ({ default: m.TeamsPage })))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default: m.AdminPage })))
+const SupportInboxPage = lazy(() =>
+  import('@/pages/admin/SupportInboxPage').then((m) => ({ default: m.SupportInboxPage }))
+)
+
+const LandingPage = lazy(() =>
+  import('@/routes/LandingPage').then((m) => ({ default: m.LandingPage }))
+)
+const PrivacyPage = lazy(() =>
+  import('@/routes/PrivacyPage').then((m) => ({ default: m.PrivacyPage }))
+)
+const TermsPage = lazy(() => import('@/routes/TermsPage').then((m) => ({ default: m.TermsPage })))
+const SignInPage = lazy(() => import('@/routes/SignInPage').then((m) => ({ default: m.SignInPage })))
+const SignUpPage = lazy(() => import('@/routes/SignUpPage').then((m) => ({ default: m.SignUpPage })))
+const AuthCallbackPage = lazy(() =>
+  import('@/routes/AuthCallbackPage').then((m) => ({ default: m.AuthCallbackPage }))
+)
+const AcceptInvitePage = lazy(() =>
+  import('@/routes/AcceptInvitePage').then((m) => ({ default: m.AcceptInvitePage }))
+)
+
+const EmployeeClockPage = lazy(() =>
+  import('@/routes/EmployeeClockPage').then((m) => ({ default: m.EmployeeClockPage }))
+)
+const EmployeeHoursPage = lazy(() =>
+  import('@/routes/EmployeeHoursPage').then((m) => ({ default: m.EmployeeHoursPage }))
+)
+const EmployeeJobsPage = lazy(() =>
+  import('@/routes/EmployeeJobsPage').then((m) => ({ default: m.EmployeeJobsPage }))
+)
+const EmployeeProfilePage = lazy(() =>
+  import('@/routes/EmployeeProfilePage').then((m) => ({ default: m.EmployeeProfilePage }))
+)
+const EmployeeDailyLogsPage = lazy(() =>
+  import('@/routes/EmployeeDailyLogsPage').then((m) => ({ default: m.EmployeeDailyLogsPage }))
+)
+const MessagesPage = lazy(() =>
+  import('@/pages/MessagesPage').then((m) => ({ default: m.MessagesPage }))
+)
 
 export const router = createBrowserRouter([
   {
