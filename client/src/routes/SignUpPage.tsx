@@ -52,6 +52,21 @@ export function SignUpPage() {
       }
     }
 
+    // Persist any Financial Connections accounts linked during signup (same Stripe customer email)
+    if (data.session) {
+      try {
+        await fetch(`${API_BASE}/stripe/financial-connections-sync`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${data.session.access_token}`,
+          },
+        })
+      } catch {
+        // Linked banks remain on the Stripe customer; user can open Settings → Integrations to sync.
+      }
+    }
+
     return undefined
   }
 

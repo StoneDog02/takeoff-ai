@@ -45,6 +45,17 @@ const { requireAdmin } = require('./middleware/admin')
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// If running behind a proxy/load balancer (Render/Vercel/etc.), enable this so req.ip reflects the real client.
+// Keep it on in production; can be overridden in local dev with TRUST_PROXY=0.
+const trustProxyEnv = (process.env.TRUST_PROXY || '').trim()
+const trustProxy =
+  trustProxyEnv === '0' || trustProxyEnv.toLowerCase() === 'false'
+    ? false
+    : trustProxyEnv
+      ? 1
+      : process.env.NODE_ENV === 'production'
+app.set('trust proxy', trustProxy)
+
 app.use(cors({ origin: true }))
 
 // Stripe webhook needs raw body for signature verification; must be before express.json()

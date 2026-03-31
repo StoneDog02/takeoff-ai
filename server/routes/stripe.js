@@ -4,7 +4,7 @@
  */
 const express = require('express')
 const router = express.Router()
-const { requireAuth } = require('../middleware/auth')
+const { requireAuth, getSupabaseForRequest } = require('../middleware/auth')
 const { supabase } = require('../db/supabase')
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY
@@ -13,6 +13,45 @@ const signupProductId = process.env.STRIPE_SIGNUP_PRODUCT_ID
 let stripe = null
 if (stripeSecretKey) {
   stripe = require('stripe')(stripeSecretKey)
+}
+
+function createRateLimiter({ name, windowMs, max, keyFn }) {
+  const buckets = new Map()
+  function cleanup(now) {
+    // Light cleanup; keep memory bounded
+    if (buckets.size < 5000) return
+    for (const [k, v] of buckets.entries()) {
+      if (now - v.resetAt > windowMs * 2) buckets.delete(k)
+    }
+  }
+  return (req, res, next) => {
+    const now = Date.now()
+    cleanup(now)
+    const key = `${name}:${keyFn(req)}`
+    const cur = buckets.get(key)
+    if (!cur || now > cur.resetAt) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs })
+      res.set('X-RateLimit-Limit', String(max))
+      res.set('X-RateLimit-Remaining', String(max - 1))
+      res.set('X-RateLimit-Reset', String(Math.ceil((now + windowMs) / 1000)))
+      return next()
+    }
+    if (cur.count >= max) {
+      res.set('Retry-After', String(Math.ceil((cur.resetAt - now) / 1000)))
+      return res.status(429).json({ error: 'Too many requests. Please try again shortly.' })
+    }
+    cur.count += 1
+    buckets.set(key, cur)
+    res.set('X-RateLimit-Limit', String(max))
+    res.set('X-RateLimit-Remaining', String(Math.max(0, max - cur.count)))
+    res.set('X-RateLimit-Reset', String(Math.ceil(cur.resetAt / 1000)))
+    next()
+  }
+}
+
+function ipKey(req) {
+  const ip = (req.ip || '').toString()
+  return ip || 'unknown'
 }
 
 /** Format amount in cents to display string (e.g. $49.00/mo) */
@@ -109,7 +148,17 @@ router.get('/plans', async (req, res) => {
  * for later (e.g. charge after trial). Returns { client_secret }.
  * Body (optional): { email } to create/link a Stripe Customer.
  */
-router.post('/setup-intent', async (req, res) => {
+const setupIntentLimiter = createRateLimiter({
+  name: 'stripe_setup_intent',
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  keyFn: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    return `${ipKey(req)}:${email || '-'}`
+  },
+})
+
+router.post('/setup-intent', setupIntentLimiter, async (req, res) => {
   if (!stripe) {
     return res.status(503).json({
       error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
@@ -136,6 +185,199 @@ router.post('/setup-intent', async (req, res) => {
     console.error('[stripe] setup-intent error:', err.message)
     return res.status(500).json({
       error: err.message || 'Failed to create setup intent',
+    })
+  }
+})
+
+async function getOrCreateStripeCustomerByEmail(email) {
+  const trimmed = typeof email === 'string' ? email.trim() : ''
+  if (!trimmed || !stripe) return null
+  const existing = await stripe.customers.list({ email: trimmed, limit: 1 })
+  if (existing.data?.length) return existing.data[0]
+  return stripe.customers.create({ email: trimmed })
+}
+
+async function getStripeCustomerIdForUser(req) {
+  const userId = req.user?.id
+  if (!userId) return null
+  // Prefer DB mapping when present (prevents any email-based ambiguity)
+  if (supabase) {
+    const { data } = await supabase
+      .from('user_financial_connections')
+      .select('stripe_customer_id')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (data?.stripe_customer_id) return data.stripe_customer_id
+  }
+  return null
+}
+
+/**
+ * POST /api/stripe/financial-connections-session
+ * Starts Financial Connections for the Stripe Customer tied to the user's email.
+ * Auth: optional Bearer (preferred in app); otherwise body { email } for signup before account exists.
+ * Returns { client_secret } for stripe.collectFinancialConnectionsAccounts on the client.
+ */
+const fcSessionLimiter = createRateLimiter({
+  name: 'stripe_fc_session',
+  windowMs: 10 * 60 * 1000,
+  max: 12,
+  keyFn: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    return `${ipKey(req)}:${email || '-'}`
+  },
+})
+
+router.post('/financial-connections-session', fcSessionLimiter, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  // If authenticated, prefer the user_id→customer_id mapping (or fall back to user email)
+  let stripeCustomerId = null
+  let email
+  const sb = getSupabaseForRequest(req)
+  if (sb) {
+    try {
+      const {
+        data: { user },
+      } = await sb.auth.getUser()
+      if (user?.id) req.user = user
+      if (user?.email) email = user.email
+    } catch {
+      // fall through
+    }
+  }
+  if (req.user?.id) {
+    try {
+      stripeCustomerId = await getStripeCustomerIdForUser(req)
+    } catch {
+      stripeCustomerId = null
+    }
+  }
+  if (!stripeCustomerId && !email) {
+    const raw = req.body?.email
+    if (typeof raw === 'string' && raw.includes('@')) email = raw.trim()
+  }
+  if (!stripeCustomerId && !email) return res.status(400).json({ error: 'email is required' })
+  try {
+    const customer =
+      stripeCustomerId
+        ? await stripe.customers.retrieve(stripeCustomerId)
+        : await getOrCreateStripeCustomerByEmail(email)
+    if (!customer || typeof customer !== 'object' || !customer.id) return res.status(500).json({ error: 'Could not resolve Stripe customer' })
+    const session = await stripe.financialConnections.sessions.create({
+      account_holder: {
+        type: 'customer',
+        customer: customer.id,
+      },
+      permissions: ['transactions'],
+      filters: { countries: ['US'] },
+    })
+    return res.json({
+      client_secret: session.client_secret,
+      stripe_customer_id: customer.id,
+    })
+  } catch (err) {
+    console.error('[stripe] financial-connections-session error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to start bank linking',
+    })
+  }
+})
+
+function mapFcAccount(a) {
+  return {
+    id: a.id,
+    display_name: a.display_name || null,
+    institution_name: a.institution_name || null,
+    last4: a.last4 || null,
+    status: a.status || null,
+    category: a.category || null,
+  }
+}
+
+/**
+ * POST /api/stripe/financial-connections-sync
+ * Lists Financial Connections accounts on the user's Stripe customer and saves IDs to Supabase.
+ */
+router.post('/financial-connections-sync', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  const userId = req.user?.id
+  const email = req.user?.email
+  if (!userId || !email) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const mappedCustomerId = await getStripeCustomerIdForUser(req)
+    const customer =
+      mappedCustomerId
+        ? await stripe.customers.retrieve(mappedCustomerId)
+        : await getOrCreateStripeCustomerByEmail(email)
+    if (!customer || typeof customer !== 'object' || !customer.id) return res.status(500).json({ error: 'Could not resolve Stripe customer' })
+    const list = await stripe.financialConnections.accounts.list({
+      account_holder: { customer: customer.id },
+      limit: 100,
+    })
+    const ids = list.data.map((a) => a.id)
+    if (supabase) {
+      const { error: upErr } = await supabase.from('user_financial_connections').upsert(
+        {
+          user_id: userId,
+          stripe_customer_id: customer.id,
+          account_ids: ids,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
+      if (upErr) console.error('[stripe] financial-connections-sync upsert:', upErr.message)
+    } else {
+      // If the server isn't configured with a service role key, we can still return the Stripe list
+      // but we can't persist it to the database.
+    }
+    return res.json({ accounts: list.data.map(mapFcAccount) })
+  } catch (err) {
+    console.error('[stripe] financial-connections-sync error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to sync bank links',
+    })
+  }
+})
+
+/**
+ * GET /api/stripe/financial-connections-status
+ * Read-only: linked accounts from Stripe for the signed-in user's customer (no DB write).
+ */
+router.get('/financial-connections-status', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  const email = req.user?.email
+  if (!email) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const mappedCustomerId = await getStripeCustomerIdForUser(req)
+    const customer =
+      mappedCustomerId
+        ? await stripe.customers.retrieve(mappedCustomerId)
+        : (await stripe.customers.list({ email: email.trim(), limit: 1 })).data?.[0]
+    if (!customer || typeof customer !== 'object' || !customer.id) return res.json({ stripe_customer_id: null, accounts: [] })
+    const list = await stripe.financialConnections.accounts.list({
+      account_holder: { customer: customer.id },
+      limit: 100,
+    })
+    return res.json({
+      stripe_customer_id: customer.id,
+      accounts: list.data.map(mapFcAccount),
+    })
+  } catch (err) {
+    console.error('[stripe] financial-connections-status error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to load bank links',
     })
   }
 })

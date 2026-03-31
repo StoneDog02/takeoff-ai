@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import type { Stripe, StripeElements } from "@stripe/stripe-js";
 import { API_BASE } from "@/api/config";
+import { LinkBankAccountPanel } from "@/components/stripe/LinkBankAccountPanel";
 import { PricingCard } from "@/components/landing/PricingCard";
 import { getRecaptchaToken, isRecaptchaConfigured } from "@/lib/recaptcha";
 
@@ -819,6 +820,8 @@ function Step6Payment({
           256-bit SSL encryption · Powered by Stripe · Cancel anytime
         </span>
       </div>
+
+      <LinkBankAccountPanel variant="signup" signupEmail={form.email} />
     </div>
   );
 }
