@@ -48,6 +48,29 @@ export async function syncFinancialConnections(
   return { accounts: data.accounts || [] }
 }
 
+/**
+ * Pull Stripe Financial Connections transactions into Supabase (server-side).
+ * Call after linking accounts or periodically while viewing Transactions.
+ */
+export async function syncBankTransactionsFromStripe(
+  accessToken: string
+): Promise<{ synced: number; accounts: number }> {
+  const res = await fetch(`${API_BASE}/stripe/financial-connections-sync-transactions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string
+    synced?: number
+    accounts?: number
+  }
+  if (!res.ok) throw new Error(data.error || 'Could not sync bank transactions')
+  return { synced: data.synced ?? 0, accounts: data.accounts ?? 0 }
+}
+
 export async function getFinancialConnectionsStatus(
   accessToken: string
 ): Promise<{ stripe_customer_id: string | null; accounts: FinancialConnectionsAccount[] }> {

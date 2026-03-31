@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createFinancialConnectionsSession,
   getFinancialConnectionsStatus,
+  syncBankTransactionsFromStripe,
   syncFinancialConnections,
   type FinancialConnectionsAccount,
 } from '@/api/financialConnections'
@@ -110,6 +111,9 @@ export function LinkBankAccountPanel({
       if (accessToken) {
         const { accounts: synced } = await syncFinancialConnections(accessToken)
         setAccounts(synced)
+        await syncBankTransactionsFromStripe(accessToken).catch(() => {
+          /* transactions may lag until Stripe finishes refresh */
+        })
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.')

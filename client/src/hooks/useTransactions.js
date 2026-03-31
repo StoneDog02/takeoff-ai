@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { dayjs } from '@/lib/date'
+import { isBankTxTagged } from '@/lib/bankTransactionUtils'
+import { syncBankTransactionsFromStripe } from '@/api/financialConnections'
 
 /** Matches DB check constraint on public.bank_transactions.expense_type */
 export const EXPENSE_TYPES = [
@@ -12,126 +14,8 @@ export const EXPENSE_TYPES = [
   'Payroll',
 ]
 
-/** Fixed UUIDs so mock rows can be upserted to Supabase by id */
-const MOCK_TRANSACTIONS = [
-  {
-    id: 'a1000000-0000-4000-8000-000000000001',
-    account_id: 'fca_mock_checking_01',
-    merchant_name: 'Home Depot',
-    amount: 1240.55,
-    is_debit: true,
-    transaction_date: dayjs().subtract(2, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: null,
-    is_payroll: false,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000002',
-    account_id: 'fca_mock_checking_01',
-    merchant_name: 'Acme Drywall Supply',
-    amount: 890,
-    is_debit: true,
-    transaction_date: dayjs().subtract(5, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: 'Materials',
-    is_payroll: false,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000003',
-    account_id: 'fca_mock_checking_01',
-    merchant_name: 'Client Deposit — Smith Remodel',
-    amount: 15000,
-    is_debit: false,
-    transaction_date: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: null,
-    is_payroll: false,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000004',
-    account_id: 'fca_mock_card_02',
-    merchant_name: 'Shell',
-    amount: 64.2,
-    is_debit: true,
-    transaction_date: dayjs().subtract(8, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: null,
-    is_payroll: false,
-    receipt_url: 'https://example.com/receipts/shell-demo.pdf',
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000005',
-    account_id: 'fca_mock_card_02',
-    merchant_name: 'Sunrise Equipment Rental',
-    amount: 425,
-    is_debit: true,
-    transaction_date: dayjs().subtract(12, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: 'Equipment',
-    is_payroll: false,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000006',
-    account_id: 'fca_mock_checking_01',
-    merchant_name: 'Payroll — ADP',
-    amount: 8420,
-    is_debit: true,
-    transaction_date: dayjs().subtract(14, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: 'Payroll',
-    is_payroll: true,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000007',
-    account_id: 'fca_mock_checking_01',
-    merchant_name: 'City Lumber',
-    amount: 2103.4,
-    is_debit: true,
-    transaction_date: dayjs().subtract(3, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: null,
-    is_payroll: false,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'a1000000-0000-4000-8000-000000000008',
-    account_id: 'fca_mock_card_02',
-    merchant_name: 'Uber',
-    amount: 24.5,
-    is_debit: true,
-    transaction_date: dayjs().subtract(20, 'day').format('YYYY-MM-DD'),
-    job_id: null,
-    expense_type: 'Overhead',
-    is_payroll: false,
-    receipt_url: null,
-    notes: null,
-    created_at: new Date().toISOString(),
-  },
-]
-
-const MOCK_IDS = new Set(MOCK_TRANSACTIONS.map((r) => r.id))
-
 export function isTagged(row) {
-  return row.job_id != null && row.expense_type != null && String(row.expense_type).length > 0
+  return isBankTxTagged(row)
 }
 
 function inCurrentMonth(isoDate) {
@@ -144,8 +28,8 @@ function computeMetrics(rows) {
   const monthRows = rows.filter((r) => inCurrentMonth(r.transaction_date))
   const debitsMonth = monthRows.filter((r) => r.is_debit)
   const totalSpend = debitsMonth.reduce((s, r) => s + Number(r.amount || 0), 0)
-  const taggedDebits = debitsMonth.filter((r) => isTagged(r))
-  const untaggedDebits = debitsMonth.filter((r) => !isTagged(r))
+  const taggedDebits = debitsMonth.filter((r) => isBankTxTagged(r))
+  const untaggedDebits = debitsMonth.filter((r) => !isBankTxTagged(r))
   const taggedSum = taggedDebits.reduce((s, r) => s + Number(r.amount || 0), 0)
   const untaggedSum = untaggedDebits.reduce((s, r) => s + Number(r.amount || 0), 0)
   const missingReceiptCount = debitsMonth.filter((r) => !r.receipt_url).length
@@ -164,30 +48,17 @@ function applySearchAndTab(rows, filterTab, searchQuery) {
     list = list.filter((r) => (r.merchant_name || '').toLowerCase().includes(q))
   }
   if (filterTab === 'needs_tagging') {
-    list = list.filter((r) => !isTagged(r))
+    list = list.filter((r) => !isBankTxTagged(r))
   } else if (filterTab === 'tagged') {
-    list = list.filter((r) => isTagged(r))
+    list = list.filter((r) => isBankTxTagged(r))
   } else if (filterTab === 'missing_receipt') {
     list = list.filter((r) => r.is_debit && !r.receipt_url)
   }
   return list
 }
 
-function mergeWithMock(dbRows) {
-  const dbById = new Map((dbRows || []).map((r) => [r.id, r]))
-  const merged = MOCK_TRANSACTIONS.map((mock) => {
-    const saved = dbById.get(mock.id)
-    return saved ? { ...mock, ...saved } : { ...mock }
-  })
-  for (const row of dbRows || []) {
-    if (!MOCK_IDS.has(row.id)) merged.push(row)
-  }
-  merged.sort((a, b) => String(b.transaction_date).localeCompare(String(a.transaction_date)))
-  return merged
-}
-
 /**
- * Bank transactions list: mock seed merged with Supabase rows (swap `loadTransactions` for Financial Connections later).
+ * Bank transactions from Supabase (linked accounts / imports).
  */
 export function useTransactions(userId) {
   const [transactions, setTransactions] = useState([])
@@ -200,13 +71,12 @@ export function useTransactions(userId) {
   const [saveError, setSaveError] = useState(null)
   const [savingId, setSavingId] = useState(null)
 
-  const loadTransactions = useCallback(async () => {
+  const fetchTransactions = useCallback(async () => {
     if (!userId || !supabase) {
-      setTransactions(MOCK_TRANSACTIONS)
+      setTransactions([])
       setLoading(false)
       return
     }
-    setLoading(true)
     setLoadError(null)
     const { data, error } = await supabase
       .from('bank_transactions')
@@ -216,12 +86,39 @@ export function useTransactions(userId) {
 
     if (error) {
       setLoadError(error.message)
-      setTransactions(mergeWithMock([]))
+      setTransactions([])
     } else {
-      setTransactions(mergeWithMock(data || []))
+      setTransactions(data || [])
     }
-    setLoading(false)
   }, [userId])
+
+  /** Stripe FC → Supabase, then reload rows. `showLoading` only on first paint. */
+  const syncAndRefresh = useCallback(
+    async (showLoading = true) => {
+      if (!userId || !supabase) {
+        setTransactions([])
+        setLoading(false)
+        return
+      }
+      if (showLoading) setLoading(true)
+      setLoadError(null)
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (session?.access_token) {
+          await syncBankTransactionsFromStripe(session.access_token).catch(() => {
+            /* still show DB rows */
+          })
+        }
+      } catch {
+        // ignore
+      }
+      await fetchTransactions()
+      if (showLoading) setLoading(false)
+    },
+    [userId, fetchTransactions],
+  )
 
   const loadJobs = useCallback(async () => {
     if (!userId || !supabase) {
@@ -241,8 +138,16 @@ export function useTransactions(userId) {
   }, [userId])
 
   useEffect(() => {
-    loadTransactions()
-  }, [loadTransactions])
+    syncAndRefresh(true)
+  }, [syncAndRefresh])
+
+  useEffect(() => {
+    if (!userId) return undefined
+    const id = setInterval(() => {
+      syncAndRefresh(false)
+    }, 90 * 1000)
+    return () => clearInterval(id)
+  }, [userId, syncAndRefresh])
 
   useEffect(() => {
     loadJobs()
@@ -256,8 +161,8 @@ export function useTransactions(userId) {
   )
 
   const grouped = useMemo(() => {
-    const needsTagging = filteredRows.filter((r) => !isTagged(r))
-    const tagged = filteredRows.filter((r) => isTagged(r))
+    const needsTagging = filteredRows.filter((r) => !isBankTxTagged(r))
+    const tagged = filteredRows.filter((r) => isBankTxTagged(r))
     return { needsTagging, tagged }
   }, [filteredRows])
 
@@ -324,7 +229,7 @@ export function useTransactions(userId) {
           if (error) throw error
         }
 
-        await loadTransactions()
+        await fetchTransactions()
         return true
       } catch (e) {
         setSaveError(e instanceof Error ? e.message : 'Save failed')
@@ -333,7 +238,7 @@ export function useTransactions(userId) {
         setSavingId(null)
       }
     },
-    [userId, loadTransactions],
+    [userId, fetchTransactions],
   )
 
   return {
@@ -353,6 +258,6 @@ export function useTransactions(userId) {
     saveError,
     setSaveError,
     savingId,
-    refresh: loadTransactions,
+    refresh: syncAndRefresh,
   }
 }

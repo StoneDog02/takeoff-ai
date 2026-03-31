@@ -132,7 +132,7 @@ export function FinancialsTransactions() {
           className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-800 dark:text-amber-200"
           role="status"
         >
-          Could not load saved transactions ({loadError}). Showing sample data until the connection is restored.
+          Could not load transactions ({loadError}). Check your connection and try again.
         </div>
       ) : null}
 

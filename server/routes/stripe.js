@@ -7,6 +7,10 @@ const express = require('express')
 const router = express.Router()
 const { requireAuth, getSupabaseForRequest } = require('../middleware/auth')
 const { supabase } = require('../db/supabase')
+const {
+  syncStripeBankTransactionsForUser,
+  findUserForFcAccount,
+} = require('../lib/syncStripeBankTransactions')
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -383,6 +387,60 @@ router.get('/financial-connections-status', requireAuth, async (req, res) => {
   }
 })
 
+const fcTxSyncLimiter = createRateLimiter({
+  name: 'stripe_fc_tx_sync',
+  windowMs: 60 * 1000,
+  max: 20,
+  keyFn: (req) => (req.user?.id ? String(req.user.id) : ipKey(req)),
+})
+
+/**
+ * POST /api/stripe/financial-connections-sync-transactions
+ * Subscribes linked FC accounts to transaction updates, requests refresh, pulls transactions into bank_transactions.
+ */
+router.post(
+  '/financial-connections-sync-transactions',
+  requireAuth,
+  fcTxSyncLimiter,
+  async (req, res) => {
+    if (!stripe) {
+      return res.status(503).json({
+        error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+      })
+    }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured on server.' })
+    }
+    const userId = req.user?.id
+    const email = req.user?.email
+    if (!userId || !email) return res.status(401).json({ error: 'Unauthorized' })
+    try {
+      const mappedCustomerId = await getStripeCustomerIdForUser(req)
+      const customer = mappedCustomerId
+        ? await stripe.customers.retrieve(mappedCustomerId)
+        : await getOrCreateStripeCustomerByEmail(email)
+      if (!customer || typeof customer !== 'object' || !customer.id) {
+        return res.status(500).json({ error: 'Could not resolve Stripe customer' })
+      }
+      const result = await syncStripeBankTransactionsForUser({
+        stripe,
+        supabase,
+        userId,
+        customerId: customer.id,
+      })
+      if (result.error) {
+        return res.status(500).json({ error: result.error })
+      }
+      return res.json({ synced: result.synced, accounts: result.accounts })
+    } catch (err) {
+      console.error('[stripe] financial-connections-sync-transactions:', err.message)
+      return res.status(500).json({
+        error: err.message || 'Failed to sync bank transactions',
+      })
+    }
+  }
+)
+
 /**
  * POST /api/stripe/create-subscription
  * Creates a Stripe subscription. Standard plan gets 14-day trial; other plans charge immediately.
@@ -685,6 +743,27 @@ async function handleWebhook(req, res) {
       }
       case 'invoice.created': {
         await handleInvoiceCreatedReferral(event)
+        break
+      }
+      case 'financial_connections.account.refreshed_transactions': {
+        const accountObj = event.data?.object
+        const fcAccountId = accountObj?.id
+        if (supabase && stripe && fcAccountId) {
+          try {
+            const mapping = await findUserForFcAccount(supabase, fcAccountId)
+            if (mapping) {
+              await syncStripeBankTransactionsForUser({
+                stripe,
+                supabase,
+                userId: mapping.userId,
+                customerId: mapping.customerId,
+                onlyAccountId: fcAccountId,
+              })
+            }
+          } catch (e) {
+            console.error('[stripe] webhook refreshed_transactions:', e?.message || e)
+          }
+        }
         break
       }
       default:
