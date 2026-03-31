@@ -7,6 +7,7 @@ import { api } from '@/api/client'
 import type { ScheduleItem } from '@/types/global'
 import type { ConversationListItem } from '@/api/client'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+import { ReferralDiscountBanner } from '@/components/ReferralDiscountBanner'
 
 // --- Icons (inline SVGs) ---
 function IconPlus({ className, style }: { className?: string; style?: React.CSSProperties }) {
@@ -518,6 +519,8 @@ export function DashboardPage() {
             </button>
           </div>
         </div>
+
+        <ReferralDiscountBanner className="mb-5" />
 
         {/* Needs Attention */}
         {!alertsLoading && visibleAlerts.length > 0 && (

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { getMe, type MeResponse } from '@/api/me'
+import { tryApplyStoredReferralCode } from '@/lib/referralCapture'
 
 interface AuthState {
   user: MeResponse['user']
@@ -82,8 +83,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refetch()
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      refetch()
+    } = supabase.auth.onAuthStateChange((event) => {
+      void (async () => {
+        if (event === 'SIGNED_IN') {
+          try {
+            await tryApplyStoredReferralCode()
+          } catch {
+            // never block auth
+          }
+        }
+        await refetch()
+      })()
     })
     return () => subscription.unsubscribe()
   }, [refetch])

@@ -37,7 +37,15 @@ For **webhooks** (to keep `public.subscriptions` in sync with Stripe):
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxx
 ```
 
-Get this from Stripe Dashboard → Developers → Webhooks → Add endpoint → `https://your-api.com/api/stripe/webhook` → select events: `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed` → reveal signing secret.
+Optional — **referral discount** on recurring subscription invoices (`invoice.created` handler uses `public.subscriptions` + Postgres `consume_referral_credit`):
+
+```env
+STRIPE_REFERRAL_COUPON_ID=coupon_xxxxxxxxxxxx
+```
+
+Get this from Stripe Dashboard → Developers → Webhooks → Add endpoint → `https://your-api.com/api/stripe/webhook` → select events: `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.created`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed` → reveal signing secret.
+
+Referral credits are awarded in `server/routes/stripe.js` from `invoice.paid` and/or `invoice.payment_succeeded` (same handler; idempotent if both fire), only when `invoice.billing_reason === 'subscription_cycle'`. Subscribe to both events if your Stripe Dashboard lists them.
 
 Add `.env` (and any file with real keys) to `.gitignore` so keys are never committed.
 

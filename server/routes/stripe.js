@@ -1,6 +1,7 @@
 /**
  * Stripe routes for signup/payment and webhooks.
  * Env: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (for webhook). Optional: STRIPE_SIGNUP_PRODUCT_ID.
+ * Referral discount on recurring invoices: STRIPE_REFERRAL_COUPON_ID (used by invoice.created handler).
  */
 const express = require('express')
 const router = express.Router()
@@ -464,6 +465,136 @@ router.post('/create-subscription', requireAuth, async (req, res) => {
 })
 
 /**
+ * invoice.created — apply referral discount when the user has a stored credit.
+ * Skips subscription_create (first invoice, including trial start) so no discount is applied before real billing.
+ * Resolves the app user via public.subscriptions.stripe_customer_id (set at checkout / subscription webhooks).
+ */
+async function handleInvoiceCreatedReferral(event) {
+  if (!supabase || !stripe) return
+  const invoice = event.data?.object
+  if (!invoice || typeof invoice.id !== 'string') return
+
+  const reason = invoice.billing_reason
+  if (reason === 'subscription_create') return
+  if (reason !== 'subscription_cycle' && reason !== 'subscription_update') return
+
+  const rawCustomer = invoice.customer
+  const customerId = typeof rawCustomer === 'string' ? rawCustomer : rawCustomer?.id
+  if (!customerId) return
+
+  const { data: subRow, error: subErr } = await supabase
+    .from('subscriptions')
+    .select('user_id')
+    .eq('stripe_customer_id', customerId)
+    .limit(1)
+    .maybeSingle()
+
+  if (subErr) {
+    console.error('[stripe] invoice.created referral: subscriptions lookup failed:', subErr.message)
+    return
+  }
+  const userId = subRow?.user_id
+  if (!userId) return
+
+  const { data: balanceRaw, error: consumeErr } = await supabase.rpc('consume_referral_credit', {
+    p_user_id: userId,
+  })
+  if (consumeErr) {
+    console.error('[stripe] invoice.created referral: consume_referral_credit failed:', consumeErr.message)
+    return
+  }
+  if (balanceRaw === null || balanceRaw === undefined) return
+  const balance = typeof balanceRaw === 'number' ? balanceRaw : Number(balanceRaw)
+  if (Number.isNaN(balance) || balance === -1) return
+
+  const couponId = (process.env.STRIPE_REFERRAL_COUPON_ID || '').trim()
+  if (!couponId) {
+    console.error('[stripe] invoice.created referral: STRIPE_REFERRAL_COUPON_ID missing; refunding credit')
+    await supabase.rpc('increment_referral_credits', { p_user_id: userId })
+    return
+  }
+
+  try {
+    await stripe.invoices.update(invoice.id, {
+      discounts: [{ coupon: couponId }],
+    })
+  } catch (err) {
+    console.error('[stripe] invoice.created referral: invoices.update failed:', err.message)
+    await supabase.rpc('increment_referral_credits', { p_user_id: userId })
+  }
+}
+
+/**
+ * Award referral credits only after Stripe confirms a real subscription payment (renewal cycle).
+ * Requires billing_reason === subscription_cycle; looks up user via public.subscriptions.stripe_customer_id.
+ */
+async function handleInvoicePaymentSucceededReferralCredits(event) {
+  if (!supabase) return
+  const invoice = event.data?.object
+  if (!invoice || invoice.billing_reason !== 'subscription_cycle') return
+
+  const rawCustomer = invoice.customer
+  const customerId = typeof rawCustomer === 'string' ? rawCustomer : rawCustomer?.id
+  if (!customerId) return
+
+  const { data: subRow, error: subErr } = await supabase
+    .from('subscriptions')
+    .select('user_id')
+    .eq('stripe_customer_id', customerId)
+    .limit(1)
+    .maybeSingle()
+
+  if (subErr) {
+    console.error('[stripe] invoice.payment_succeeded referral: subscriptions lookup failed:', subErr.message)
+    return
+  }
+  const refereeUserId = subRow?.user_id
+  if (!refereeUserId) return
+
+  const { data: pendingRows, error: qErr } = await supabase
+    .from('referrals')
+    .select('id, referrer_id')
+    .eq('referee_id', refereeUserId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(1)
+
+  if (qErr) {
+    console.error('[stripe] invoice.payment_succeeded referral: referrals query failed:', qErr.message)
+    return
+  }
+  const pendingRow = pendingRows?.[0]
+  if (!pendingRow?.id || !pendingRow.referrer_id) return
+
+  const { error: updErr } = await supabase
+    .from('referrals')
+    .update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', pendingRow.id)
+
+  if (updErr) {
+    console.error('[stripe] invoice.payment_succeeded referral: update failed:', updErr.message)
+    return
+  }
+
+  const { error: refErr } = await supabase.rpc('increment_referral_credits', {
+    p_user_id: pendingRow.referrer_id,
+  })
+  if (refErr) {
+    console.error('[stripe] invoice.payment_succeeded referral: increment referrer failed:', refErr.message)
+    return
+  }
+  const { error: refeErr } = await supabase.rpc('increment_referral_credits', {
+    p_user_id: refereeUserId,
+  })
+  if (refeErr) {
+    console.error('[stripe] invoice.payment_succeeded referral: increment referee failed:', refeErr.message)
+  }
+}
+
+/**
  * Webhook handler. Must be mounted with express.raw({ type: 'application/json' }) so body is raw.
  * Keeps public.subscriptions in sync with Stripe.
  */
@@ -522,19 +653,38 @@ async function handleWebhook(req, res) {
         break
       }
       case 'invoice.paid':
-      case 'invoice.payment_failed': {
+      case 'invoice.payment_succeeded': {
         const invoice = event.data.object
         const subIdFromInvoice = invoice.subscription
         if (supabase && subIdFromInvoice) {
-          const status = event.type === 'invoice.payment_failed' ? 'past_due' : 'active'
           await supabase
             .from('subscriptions')
             .update({
-              status,
+              status: 'active',
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_subscription_id', subIdFromInvoice)
         }
+        // Referral credits: idempotent if both events fire; gated inside by billing_reason === subscription_cycle
+        await handleInvoicePaymentSucceededReferralCredits(event)
+        break
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object
+        const subIdFromInvoice = invoice.subscription
+        if (supabase && subIdFromInvoice) {
+          await supabase
+            .from('subscriptions')
+            .update({
+              status: 'past_due',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('stripe_subscription_id', subIdFromInvoice)
+        }
+        break
+      }
+      case 'invoice.created': {
+        await handleInvoiceCreatedReferral(event)
         break
       }
       default:

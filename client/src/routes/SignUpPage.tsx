@@ -1,10 +1,19 @@
+import { useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AuthPageLayout } from '@/components/landing/AuthPageLayout'
 import SignupWizard, { type SignupWizardForm } from '@/components/landing/SignupWizard'
 import { supabase } from '@/lib/supabaseClient'
+import { persistReferralCodeFromUrl } from '@/lib/referralCapture'
 import { StripeElementsProvider } from '@/lib/stripe'
 import { API_BASE } from '@/api/config'
 
 export function SignUpPage() {
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    persistReferralCodeFromUrl(window.location.search)
+  }, [searchParams])
+
   async function handleSignUp(form: SignupWizardForm): Promise<string | undefined> {
     if (!supabase) {
       return 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.'

@@ -33,6 +33,7 @@ const adminRoutes = require('./routes/admin')
 const settingsRoutes = require('./routes/settings')
 const quickbooksRoutes = require('./routes/quickbooks')
 const stripeRoutes = require('./routes/stripe')
+const { router: referralsRouter, trackReferralEmailOpen } = require('./routes/referrals')
 const authRoutes = require('./routes/auth')
 const bidsRoutes = require('./routes/bids')
 const documentsRoutes = require('./routes/documents')
@@ -191,6 +192,9 @@ app.use('/api/support', requireAuth, supportRoutes)
 app.use('/api/settings', requireAuth, settingsRoutes)
 app.use('/api/quickbooks', quickbooksRoutes)
 app.use('/api/stripe', stripeRoutes)
+/** Public: referral invite email open pixel (must be before auth-mounted /api/referrals). */
+app.get('/api/referrals/track-email-open', trackReferralEmailOpen)
+app.use('/api/referrals', requireAuth, referralsRouter)
 
 // Unmatched API routes -> JSON 404 (avoids HTML "Cannot POST ...")
 app.use('/api', (req, res) => {

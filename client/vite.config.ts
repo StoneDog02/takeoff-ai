@@ -1,9 +1,13 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, path.resolve(__dirname, '..'), '')
+  const supabaseOrigin = (env.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '')
+
+  return {
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
@@ -29,6 +33,11 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
+          // Never cache Edge Functions (SW can break or mask failures; must always hit network).
+          {
+            urlPattern: /^https:\/\/[^/]+\.supabase\.co\/functions\/v1\//,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern:
               /^https:\/\/.*\.supabase\.co\/rest\/v1\/(projects|daily_logs|phases|employees)/,
@@ -86,6 +95,17 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      // Same-origin in dev so Edge Function calls avoid browser CORS "Failed to fetch"
+      ...(supabaseOrigin
+        ? {
+            '/functions/v1': {
+              target: supabaseOrigin,
+              changeOrigin: true,
+              secure: true,
+            },
+          }
+        : {}),
     },
   },
+  }
 })

@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Download,
   AlertTriangle,
+  Gift,
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react'
@@ -25,6 +26,7 @@ import { TaxComplianceSection } from '@/components/settings/TaxComplianceSection
 import { DataExportSection } from '@/components/settings/DataExportSection'
 import { DangerZoneSection } from '@/components/settings/DangerZoneSection'
 import { SettingsMobileNavContext } from '@/components/settings/SettingsMobileNavContext'
+import { ReferralWidget } from '@/components/ReferralWidget'
 
 export type SettingsSectionId =
   | 'company'
@@ -32,6 +34,7 @@ export type SettingsSectionId =
   | 'notifications'
   | 'geofence'
   | 'billing'
+  | 'referrals'
   | 'integrations'
   | 'branding'
   | 'tax'
@@ -50,6 +53,7 @@ const NAV: {
   { id: 'notifications', label: 'Notifications', Icon: Bell, desc: 'Alerts & channels' },
   { id: 'geofence', label: 'Geofence Defaults', Icon: MapPin, desc: 'GPS & boundaries' },
   { id: 'billing', label: 'Billing & Subscription', Icon: CreditCard, desc: 'Plan & usage' },
+  { id: 'referrals', label: 'Referrals', Icon: Gift, desc: 'Share your code & earn credits' },
   { id: 'integrations', label: 'Integrations', Icon: Link2, desc: 'Connected apps' },
   { id: 'branding', label: 'Branding', Icon: Palette, desc: 'Logo & colors' },
   { id: 'tax', label: 'Tax & Compliance', Icon: ClipboardList, desc: 'Rates & license' },
@@ -85,6 +89,16 @@ export default function SettingsPage() {
   }, [searchParams])
 
   useEffect(() => {
+    const section = searchParams.get('section') as SettingsSectionId | null
+    if (section && NAV.some((n) => n.id === section)) {
+      setActive(section)
+      if (window.matchMedia('(max-width: 767px)').matches) {
+        setMobilePanel('detail')
+      }
+    }
+  }, [searchParams])
+
+  useEffect(() => {
     if (!isMobile) setMobilePanel('list')
   }, [isMobile])
 
@@ -102,6 +116,7 @@ export default function SettingsPage() {
       {active === 'notifications' && <NotificationPreferencesSection />}
       {active === 'geofence' && <GeofenceDefaultsSection />}
       {active === 'billing' && <BillingSection />}
+      {active === 'referrals' && <ReferralWidget />}
       {active === 'integrations' && <IntegrationsSection />}
       {active === 'branding' && <BrandingSection />}
       {active === 'tax' && <TaxComplianceSection />}

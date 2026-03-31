@@ -1,3 +1,4 @@
+import { ReferralDiscountBanner } from '@/components/ReferralDiscountBanner'
 import { SectionHeader, Card, CardHeader, CardBody, Btn } from './SettingsPrimitives'
 
 export function BillingSection() {
@@ -7,6 +8,7 @@ export function BillingSection() {
   return (
     <>
       <SectionHeader title="Billing & Subscription" desc="Manage your plan and view usage." />
+      <ReferralDiscountBanner className="mb-5" />
       <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-4">
         <Card style={{ marginBottom: 0 }}>
           <CardHeader title="Current plan" />

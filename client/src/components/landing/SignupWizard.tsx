@@ -5,6 +5,12 @@ import { API_BASE } from "@/api/config";
 import { LinkBankAccountPanel } from "@/components/stripe/LinkBankAccountPanel";
 import { PricingCard } from "@/components/landing/PricingCard";
 import { getRecaptchaToken, isRecaptchaConfigured } from "@/lib/recaptcha";
+import {
+  REFERRAL_STORAGE_KEY,
+  clearReferralSignupIntent,
+  persistReferralCodeFromManualInput,
+  setReferralSignupIntent,
+} from "@/lib/referralCapture";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -71,6 +77,8 @@ export interface SignupWizardForm {
   email: string;
   password: string;
   confirmPassword: string;
+  /** Optional referral code (also captured from ?ref= into localStorage). */
+  referralCode: string;
   company: string;
   companySize: string;
   license: string;
@@ -218,6 +226,11 @@ function Step1({
   onClearError: (field: keyof Step1Errors) => void;
 }) {
   const [showPass, setShowPass] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
+
+  useEffect(() => {
+    if (form.referralCode?.trim()) setReferralOpen(true);
+  }, [form.referralCode]);
 
   return (
     <div>
@@ -295,6 +308,39 @@ function Step1({
           </button>
         </div>
       </Field>
+      <div style={{ marginTop: "8px", marginBottom: "8px" }}>
+        {!referralOpen ? (
+          <button
+            type="button"
+            onClick={() => setReferralOpen(true)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: "13px",
+              color: ACCENT,
+              fontFamily: "'DM Sans', sans-serif",
+              fontWeight: 600,
+              textDecoration: "underline",
+              textUnderlineOffset: "3px",
+            }}
+          >
+            Have a referral code? (optional)
+          </button>
+        ) : (
+          <Field label="Referral code (optional)">
+            <input
+              style={inputStyle}
+              placeholder="e.g. BRETTA4K2"
+              value={form.referralCode}
+              onChange={(e) => upd("referralCode", e.target.value.toUpperCase())}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </Field>
+        )}
+      </div>
       <p style={{ fontSize: "12px", color: "#aaa", marginTop: "-8px" }}>
         By continuing, you agree to our Terms of Service and Privacy Policy.
       </p>
@@ -733,6 +779,26 @@ function Step5({
 
 type Step6Errors = Partial<Record<"card", string>>;
 
+/** Referral code from form or ?ref= localStorage (same source as apply-referral after signup). */
+function getActiveReferralCode(form: SignupWizardForm): string {
+  const fromForm = form.referralCode?.trim() ?? "";
+  if (fromForm) return fromForm;
+  try {
+    return typeof window !== "undefined" ? (localStorage.getItem(REFERRAL_STORAGE_KEY) || "").trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/** 10% off first paid subscription invoice — estimate for display only. */
+function formatEstimatedFirstInvoiceAfterReferral(plan: SignupPlan): string {
+  const afterCents = Math.round(plan.amount * 0.9);
+  const sym = plan.currency?.toLowerCase() === "usd" ? "$" : "";
+  const amt = (afterCents / 100).toFixed(afterCents % 100 === 0 ? 0 : 2);
+  const suffix = plan.interval === "year" ? "/yr" : "/mo";
+  return `${sym}${amt}${suffix}`;
+}
+
 function Step6Payment({
   form,
   errors,
@@ -756,6 +822,8 @@ function Step6Payment({
   }, [stripe, elements, onStripeReady]);
 
   const selectedPlan = plans.find((p) => p.id === form.plan);
+  const referralCode = getActiveReferralCode(form);
+  const hasReferral = Boolean(referralCode);
 
   return (
     <div>
@@ -763,24 +831,69 @@ function Step6Payment({
 
       {/* Plan summary */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "12px 16px", borderRadius: "8px",
         background: "#fdf0ef", border: `1px solid ${ACCENT}`, marginBottom: "20px",
       }}>
-        <div>
-          <div style={{ fontSize: "11px", color: ACCENT, fontWeight: "600", marginBottom: "2px" }}>
-            SELECTED PLAN
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div>
+            <div style={{ fontSize: "11px", color: ACCENT, fontWeight: "600", marginBottom: "2px" }}>
+              SELECTED PLAN
+            </div>
+            <div style={{ fontWeight: "700", color: DARK, fontSize: "15px" }}>
+              {selectedPlan ? selectedPlan.name : "Plan"}
+            </div>
           </div>
-          <div style={{ fontWeight: "700", color: DARK, fontSize: "15px" }}>
-            {selectedPlan ? selectedPlan.name : "Plan"}
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>
+              {selectedPlan ? selectedPlan.formatted : form.plan ? "—" : "—"}
+            </div>
+            <div style={{ fontSize: "12px", color: "#888" }}>after 14-day trial</div>
           </div>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>
-            {selectedPlan ? selectedPlan.formatted : form.plan ? "—" : "—"}
+
+        {hasReferral && selectedPlan && (
+          <div
+            style={{
+              marginTop: "14px",
+              paddingTop: "14px",
+              borderTop: "1px solid rgba(192, 57, 43, 0.25)",
+            }}
+          >
+            <div style={{ fontSize: "11px", color: "#15803d", fontWeight: "700", letterSpacing: "0.04em", marginBottom: "6px" }}>
+              REFERRAL DISCOUNT
+            </div>
+            <p style={{ margin: "0 0 8px", fontSize: "13px", lineHeight: 1.45, color: DARK }}>
+              You&apos;re signing up with referral code{" "}
+              <strong style={{ fontFamily: "ui-monospace, monospace", letterSpacing: "0.02em" }}>{referralCode}</strong>.
+              You can get <strong>10% off</strong> your <strong>first paid subscription invoice</strong> after your trial
+              ends (when your plan bills — not the $0 trial).
+            </p>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: "8px",
+                padding: "10px 12px",
+                borderRadius: "6px",
+                background: "rgba(22, 163, 74, 0.08)",
+                border: "1px solid rgba(22, 163, 74, 0.35)",
+              }}
+            >
+              <span style={{ fontSize: "12px", color: "#166534", fontWeight: "600" }}>Estimated first paid invoice</span>
+              <span style={{ fontSize: "16px", fontWeight: "800", color: "#15803d" }}>
+                ~{formatEstimatedFirstInvoiceAfterReferral(selectedPlan)}{" "}
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#166534" }}>(after 10% off)</span>
+              </span>
+            </div>
+            <p style={{ margin: "8px 0 0", fontSize: "11px", lineHeight: 1.4, color: "#888" }}>
+              Actual discount is applied when your subscription invoice is created; you&apos;ll also see it on your Stripe invoice and in the app.
+            </p>
           </div>
-          <div style={{ fontSize: "12px", color: "#888" }}>after 14-day trial</div>
-        </div>
+        )}
       </div>
 
       <Field label="Card details" error={errors.card}>
@@ -940,6 +1053,7 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     email: "",
     password: "",
     confirmPassword: "",
+    referralCode: "",
     company: "",
     companySize: "",
     license: "",
@@ -953,6 +1067,17 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     expiry: "",
     cvc: "",
   });
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(REFERRAL_STORAGE_KEY)?.trim();
+      if (stored) {
+        setForm((f) => ({ ...f, referralCode: stored }));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1233,8 +1358,13 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
         }
       }
 
+      setReferralSignupIntent();
+      if (form.referralCode.trim()) {
+        persistReferralCodeFromManualInput(form.referralCode.trim());
+      }
       const err = await onSignUp(form);
       if (err) {
+        clearReferralSignupIntent();
         setError(err);
         setLoading(false);
         return;
