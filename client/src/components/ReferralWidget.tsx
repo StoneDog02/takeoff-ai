@@ -96,6 +96,7 @@ export function ReferralWidget() {
   const [deleteModalError, setDeleteModalError] = useState<string | null>(null)
   const [historyNotice, setHistoryNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const historyNoticeClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inviteMessageClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent
@@ -186,6 +187,10 @@ export function ReferralWidget() {
         clearTimeout(historyNoticeClearTimerRef.current)
         historyNoticeClearTimerRef.current = null
       }
+      if (inviteMessageClearTimerRef.current) {
+        clearTimeout(inviteMessageClearTimerRef.current)
+        inviteMessageClearTimerRef.current = null
+      }
     }
   }, [])
 
@@ -202,12 +207,20 @@ export function ReferralWidget() {
 
   const referralLink = code ? `${appBaseUrl()}/?ref=${encodeURIComponent(code)}` : ''
 
+  const clearInviteMessageTimer = () => {
+    if (inviteMessageClearTimerRef.current) {
+      clearTimeout(inviteMessageClearTimerRef.current)
+      inviteMessageClearTimerRef.current = null
+    }
+  }
+
   const copyToClipboard = async (which: 'code' | 'link', text: string) => {
     try {
       await navigator.clipboard.writeText(text)
       setCopyState(which)
       window.setTimeout(() => setCopyState(null), 2000)
     } catch {
+      clearInviteMessageTimer()
       setInviteMessage({ type: 'err', text: 'Could not copy to clipboard.' })
     }
   }
@@ -217,10 +230,12 @@ export function ReferralWidget() {
     if (!supabase) return
     const email = inviteEmail.trim().toLowerCase()
     if (!email.includes('@')) {
+      clearInviteMessageTimer()
       setInviteMessage({ type: 'err', text: 'Enter a valid email address.' })
       return
     }
     setInviteLoading(true)
+    clearInviteMessageTimer()
     setInviteMessage(null)
     try {
       const authHeaders = await getSessionAuthHeaders()
@@ -245,10 +260,15 @@ export function ReferralWidget() {
         return
       }
       if (body?.success) {
+        clearInviteMessageTimer()
         setInviteMessage({
           type: 'ok',
           text: body.message || 'We sent an email with a sign-up link that includes your referral.',
         })
+        inviteMessageClearTimerRef.current = setTimeout(() => {
+          setInviteMessage(null)
+          inviteMessageClearTimerRef.current = null
+        }, 3000)
         setInviteEmail('')
         await loadData({ silent: true })
       } else {
