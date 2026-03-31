@@ -34,7 +34,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export interface SettingsResponse {
   company: CompanyProfile | null
-  branding: { logoUrl?: string | null; primaryColor: string; invoiceTemplateStyle: string } | null
+  branding: {
+    logoUrl?: string | null
+    primaryColor: string
+    secondaryColor: string
+    invoiceTemplateStyle: string
+  } | null
   notification_preferences: { prefs: NotificationPreferences['newBids'] extends Record<string, boolean> ? Record<string, Record<string, boolean>> : Record<string, unknown> } | null
   geofence_defaults: { default_radius_meters: number; clock_out_tolerance_minutes: number } | null
   tax_compliance: {
@@ -62,7 +67,17 @@ export const settingsApi = {
     return handleResponse<CompanyProfile>(res)
   },
 
-  async updateBranding(data: { logoUrl?: string | null; primaryColor?: string; invoiceTemplateStyle?: string }): Promise<{ logoUrl: string | null; primaryColor: string; invoiceTemplateStyle: string }> {
+  async updateBranding(data: {
+    logoUrl?: string | null
+    primaryColor?: string
+    secondaryColor?: string
+    invoiceTemplateStyle?: string
+  }): Promise<{
+    logoUrl: string | null
+    primaryColor: string
+    secondaryColor: string
+    invoiceTemplateStyle: string
+  }> {
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/settings/branding`, {
       method: 'PUT',

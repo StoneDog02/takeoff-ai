@@ -110,11 +110,11 @@ export function AccountingPage() {
               {error || 'Link your QuickBooks account to view company info, invoices, and expenses here.'}
             </p>
             <Link
-              to="/settings"
+              to="/settings?section=integrations"
               className="inline-flex items-center gap-2 rounded-lg bg-[#b91c1c] text-white px-5 py-2.5 text-sm font-medium hover:opacity-90"
             >
               <Link2 className="w-4 h-4" />
-              Go to Settings → Integrations
+              Connect QuickBooks in Settings
             </Link>
           </div>
         </div>

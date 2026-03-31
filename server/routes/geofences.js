@@ -3,6 +3,27 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 
 const router = express.Router()
 
+async function getGeofenceDefaultsForUser(supabase, userId) {
+  const fallback = { default_radius_meters: 100, clock_out_tolerance_minutes: 5 }
+  if (!userId || !supabase) return fallback
+  const { data } = await supabase
+    .from('geofence_defaults')
+    .select('default_radius_meters, clock_out_tolerance_minutes')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (!data) return fallback
+  return {
+    default_radius_meters:
+      data.default_radius_meters != null && Number.isFinite(Number(data.default_radius_meters))
+        ? Number(data.default_radius_meters)
+        : fallback.default_radius_meters,
+    clock_out_tolerance_minutes:
+      data.clock_out_tolerance_minutes != null && Number.isFinite(Number(data.clock_out_tolerance_minutes))
+        ? Number(data.clock_out_tolerance_minutes)
+        : fallback.clock_out_tolerance_minutes,
+  }
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
@@ -70,8 +91,15 @@ router.post('/', async (req, res, next) => {
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
     const { job_id, center_lat, center_lng, radius_value, radius_unit } = req.body || {}
-    if (!job_id || center_lat == null || center_lng == null || radius_value == null || !radius_unit)
-      return res.status(400).json({ error: 'job_id, center_lat, center_lng, radius_value, radius_unit required' })
+    if (!job_id || center_lat == null || center_lng == null)
+      return res.status(400).json({ error: 'job_id, center_lat, center_lng required' })
+    const defs = await getGeofenceDefaultsForUser(supabase, req.user?.id)
+    let unit = radius_unit === 'feet' || radius_unit === 'meters' ? radius_unit : 'meters'
+    let rv = Number(radius_value)
+    if (!Number.isFinite(rv) || rv <= 0) {
+      rv = defs.default_radius_meters
+      unit = 'meters'
+    }
     const { data, error } = await supabase
       .from('job_geofences')
       .upsert(
@@ -80,8 +108,8 @@ router.post('/', async (req, res, next) => {
           user_id: req.user?.id,
           center_lat: Number(center_lat),
           center_lng: Number(center_lng),
-          radius_value: Number(radius_value),
-          radius_unit,
+          radius_value: rv,
+          radius_unit: unit,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'job_id' }

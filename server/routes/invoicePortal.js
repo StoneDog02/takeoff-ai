@@ -5,6 +5,9 @@
  */
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { fetchPublicCompanyProfile } = require('../lib/publicCompanyProfile')
+const { fetchInvoiceBranding } = require('../lib/invoiceBranding')
+const { notifyInvoiceStatusChange } = require('../lib/eventNotificationEmails')
 
 const router = express.Router()
 
@@ -101,7 +104,7 @@ router.get('/:token', async (req, res, next) => {
     const { data: inv, error: invErr } = await supabase
       .from('invoices')
       .select(
-        'id, estimate_id, job_id, status, total_amount, recipient_emails, due_date, paid_at, sent_at, created_at, schedule_snapshot, client_token'
+        'id, user_id, estimate_id, job_id, status, total_amount, recipient_emails, due_date, paid_at, sent_at, created_at, schedule_snapshot, client_token'
       )
       .eq('client_token', token)
       .maybeSingle()
@@ -132,6 +135,13 @@ router.get('/:token', async (req, res, next) => {
       ? [project.address_line_1, project.address_line_2, project.city, project.state, project.postal_code].filter(Boolean).join(', ')
       : ''
     const clientName = project?.assigned_to_name ? String(project.assigned_to_name).trim() : null
+
+    let gcName = 'Your contractor'
+    let company = null
+    if (inv.user_id) {
+      company = await fetchPublicCompanyProfile(supabase, inv.user_id)
+      if (company?.name) gcName = company.name
+    }
 
     const meta = estimate?.estimate_groups_meta && typeof estimate.estimate_groups_meta === 'object' && !Array.isArray(estimate.estimate_groups_meta)
       ? estimate.estimate_groups_meta
@@ -177,6 +187,8 @@ router.get('/:token', async (req, res, next) => {
       .filter((r) => r.status === 'due_now')
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
 
+    const branding = await fetchInvoiceBranding(supabase, inv.user_id)
+
     return res.json({
       invoice_id: inv.id,
       estimate_id: inv.estimate_id,
@@ -190,13 +202,14 @@ router.get('/:token', async (req, res, next) => {
       projectName: project?.name || estimate?.title || 'Invoice',
       address,
       clientName,
-      gcName: 'Your contractor',
-      company: null,
+      gcName,
+      company,
       invoice_kind: schedule_rows.length > 0 ? 'progress_series' : 'single',
       schedule_rows,
       line_items,
       notes: estimate?.client_notes != null && String(estimate.client_notes).trim() ? String(estimate.client_notes).trim() : null,
       terms: estimate?.client_terms != null && String(estimate.client_terms).trim() ? String(estimate.client_terms).trim() : null,
+      branding,
     })
   } catch (err) {
     next(err)
@@ -211,7 +224,7 @@ router.patch('/:token/viewed', async (req, res, next) => {
     const token = req.params.token
     const { data: inv, error } = await supabase
       .from('invoices')
-      .select('id, status')
+      .select('id, status, user_id, job_id')
       .eq('client_token', token)
       .maybeSingle()
     if (error) throw error
@@ -223,6 +236,19 @@ router.patch('/:token/viewed', async (req, res, next) => {
         .from('invoices')
         .update({ status: 'viewed', viewed_at: now, updated_at: now })
         .eq('id', inv.id)
+      if (inv.user_id) {
+        let projectName = null
+        if (inv.job_id) {
+          const { data: p } = await supabase.from('projects').select('name').eq('id', inv.job_id).maybeSingle()
+          projectName = p?.name || null
+        }
+        void notifyInvoiceStatusChange(supabase, {
+          userId: inv.user_id,
+          projectName,
+          oldStatus: 'sent',
+          newStatus: 'viewed',
+        })
+      }
     }
     res.status(204).send()
   } catch (err) {

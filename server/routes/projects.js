@@ -13,6 +13,7 @@ const {
   syncPaperTrailFromSubBid,
 } = require('../lib/paperTrailDocuments')
 const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
+const { budgetOverSummary, notifyBudgetThresholdCrossed } = require('../lib/eventNotificationEmails')
 const { isEmployeePortalRequest } = require('../middleware/auth')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
@@ -1445,9 +1446,15 @@ router.get('/:id/documents', loadProject, async (req, res, next) => {
 router.put('/:id/budget', loadProject, async (req, res, next) => {
   try {
     const supabase = req.supabase || defaultSupabase
+    const dbForNotif = defaultSupabase || supabase
     const { items } = req.body || {}
     if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' })
     const projectId = req.params.id
+    const { data: prevBudgetRows } = await supabase
+      .from('budget_line_items')
+      .select('predicted, actual')
+      .eq('project_id', projectId)
+    const prevBudgetSummary = await budgetOverSummary(dbForNotif, projectId, prevBudgetRows || [])
     const existing = await supabase.from('budget_line_items').select('id').eq('project_id', projectId)
     const existingIds = (existing.data || []).map((r) => r.id)
     const toDelete = existingIds.filter((id) => !items.some((i) => i.id === id))
@@ -1500,6 +1507,20 @@ router.put('/:id/budget', loadProject, async (req, res, next) => {
     const list = result
     const predicted_total = list.reduce((s, i) => s + Number(i.predicted || 0), 0)
     const actual_total = list.reduce((s, i) => s + Number(i.actual || 0), 0)
+    const nextBudgetSummary = await budgetOverSummary(dbForNotif, projectId, list)
+    if (!prevBudgetSummary.isOver && nextBudgetSummary.isOver) {
+      const { data: projRow } = await supabase.from('projects').select('user_id, name').eq('id', projectId).maybeSingle()
+      if (projRow?.user_id) {
+        void notifyBudgetThresholdCrossed(dbForNotif, {
+          projectUserId: projRow.user_id,
+          projectName: projRow.name,
+          predicted: nextBudgetSummary.predicted,
+          actual: nextBudgetSummary.actual,
+          revised: nextBudgetSummary.revised,
+          overBy: nextBudgetSummary.overBy,
+        })
+      }
+    }
     res.json({
       items: list,
       summary: { predicted_total, actual_total, profitability: predicted_total - actual_total },

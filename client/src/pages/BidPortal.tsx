@@ -131,6 +131,9 @@ function ActiveBidView({
         {/* Header card */}
         <div className="bid-portal-card bid-portal-card--header">
           <div className="bid-portal-card__body">
+            {data.company?.logoUrl ? (
+              <img src={data.company.logoUrl} alt="" className="portal-company-logo bid-portal-header__logo" />
+            ) : null}
             <h1 className="bid-portal-header__project">{data.projectName}</h1>
             {(data.address || data.project_address) && (
               <p className="bid-portal-header__address">{data.project_address || data.address}</p>

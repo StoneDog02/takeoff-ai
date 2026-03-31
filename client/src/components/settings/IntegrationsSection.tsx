@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BarChart2, CreditCard, PenTool, Map, Landmark } from 'lucide-react'
+import { BarChart2, CreditCard, PenTool, Map } from 'lucide-react'
 import type { Integration } from '@/types/global'
 import { settingsApi } from '@/api/settings'
 import { quickbooksApi } from '@/api/quickbooks'
-import { LinkBankAccountPanel } from '@/components/stripe/LinkBankAccountPanel'
 import { SectionHeader, Card, CardBody, Label, Input, Btn } from './SettingsPrimitives'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
@@ -74,27 +73,6 @@ export function IntegrationsSection() {
     <>
       {error && <div style={{ marginBottom: 16, padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 8 }}>{error}</div>}
       <SectionHeader title="Integrations" desc="Connect accounting, payments, e-sign, and maps." />
-      <Card style={{ marginBottom: 16 }}>
-        <CardBody>
-          <div className="mb-3 flex items-start gap-3.5">
-            <div
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f0ede8] dark:bg-[var(--bg-hover)]"
-              aria-hidden
-            >
-              <Landmark size={20} strokeWidth={1.75} className="text-[#374151] dark:text-[var(--text-muted)]" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[15px] font-bold text-[#111] dark:text-[var(--text-primary)]">
-                Bank account (transactions)
-              </div>
-              <div className="text-[12px] text-[#9ca3af]">
-                Stripe Financial Connections · Read-only transaction import
-              </div>
-            </div>
-          </div>
-          <LinkBankAccountPanel variant="settings" />
-        </CardBody>
-      </Card>
       <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-4">
         {INTEGRATIONS.map((item) => (
           <Card key={item.id} style={{ marginBottom: 0 }}>

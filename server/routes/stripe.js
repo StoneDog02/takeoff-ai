@@ -11,6 +11,7 @@ const {
   syncStripeBankTransactionsForUser,
   findUserForFcAccount,
 } = require('../lib/syncStripeBankTransactions')
+const { buildBillingSummary } = require('../lib/billingSummary')
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -202,19 +203,110 @@ async function getOrCreateStripeCustomerByEmail(email) {
   return stripe.customers.create({ email: trimmed })
 }
 
+/** Stripe customer id from DB: Financial Connections row first, then latest subscriptions row. */
+async function getStripeCustomerIdFromDb(userId) {
+  if (!userId || !supabase) return null
+  const { data: fc } = await supabase
+    .from('user_financial_connections')
+    .select('stripe_customer_id')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (fc?.stripe_customer_id) return fc.stripe_customer_id
+  const { data: subRow } = await supabase
+    .from('subscriptions')
+    .select('stripe_customer_id')
+    .eq('user_id', userId)
+    .not('stripe_customer_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (subRow?.stripe_customer_id) return subRow.stripe_customer_id
+  return null
+}
+
 async function getStripeCustomerIdForUser(req) {
-  const userId = req.user?.id
-  if (!userId) return null
-  // Prefer DB mapping when present (prevents any email-based ambiguity)
+  return getStripeCustomerIdFromDb(req.user?.id)
+}
+
+/**
+ * Ensure the user has a Stripe customer id persisted on user_financial_connections (or reuse existing from DB).
+ */
+async function ensureStripeCustomerForBilling(userId, email) {
+  if (!stripe || !userId || !email || typeof email !== 'string' || !email.trim()) return null
+  const existing = await getStripeCustomerIdFromDb(userId)
+  if (existing) return existing
+  const customer = await getOrCreateStripeCustomerByEmail(email)
+  if (!customer?.id) return null
   if (supabase) {
-    const { data } = await supabase
+    const { data: row } = await supabase
       .from('user_financial_connections')
-      .select('stripe_customer_id')
+      .select('account_ids')
       .eq('user_id', userId)
       .maybeSingle()
-    if (data?.stripe_customer_id) return data.stripe_customer_id
+    const accountIds = Array.isArray(row?.account_ids) ? row.account_ids : []
+    await supabase.from('user_financial_connections').upsert(
+      {
+        user_id: userId,
+        stripe_customer_id: customer.id,
+        account_ids: accountIds,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
   }
-  return null
+  return customer.id
+}
+
+/** Set default invoice PM from first card if missing; return whether a default exists. */
+async function ensureCustomerHasDefaultPaymentMethod(customerId) {
+  if (!stripe || !customerId) return false
+  const customer = await stripe.customers.retrieve(customerId, {
+    expand: ['invoice_settings.default_payment_method'],
+  })
+  let dpm = customer.invoice_settings?.default_payment_method
+  if (dpm && typeof dpm === 'object' && dpm.id) return true
+  if (typeof dpm === 'string' && dpm.length > 0) return true
+  const pms = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 5 })
+  const first = pms.data?.[0]
+  if (first?.id) {
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: first.id },
+    })
+    return true
+  }
+  return false
+}
+
+async function trialDaysForPriceId(priceId) {
+  if (!stripe || !priceId) return undefined
+  try {
+    const price = await stripe.prices.retrieve(priceId, { expand: ['product'] })
+    const product = price.product
+    const productName = typeof product === 'object' && product?.name ? product.name : ''
+    if (productName.toLowerCase() === 'standard') return 14
+  } catch {
+    // ignore
+  }
+  return undefined
+}
+
+function subscriptionRowForDb(userId, customerId, sub, priceId) {
+  const status = sub.status === 'trialing' ? 'trialing' : sub.status
+  return {
+    user_id: userId,
+    stripe_customer_id: customerId,
+    stripe_subscription_id: sub.id,
+    stripe_price_id: priceId,
+    status,
+    current_period_start: sub.current_period_start
+      ? new Date(sub.current_period_start * 1000).toISOString()
+      : null,
+    current_period_end: sub.current_period_end
+      ? new Date(sub.current_period_end * 1000).toISOString()
+      : null,
+    cancel_at_period_end: !!sub.cancel_at_period_end,
+    updated_at: new Date().toISOString(),
+  }
 }
 
 /**
@@ -441,6 +533,242 @@ router.post(
   }
 )
 
+const billingSetupIntentLimiter = createRateLimiter({
+  name: 'stripe_billing_setup_intent',
+  windowMs: 10 * 60 * 1000,
+  max: 15,
+  keyFn: (req) => (req.user?.id ? String(req.user.id) : ipKey(req)),
+})
+
+/**
+ * POST /api/stripe/billing-setup-intent
+ * Authenticated SetupIntent to add/replace a card on the user's Stripe customer.
+ */
+router.post('/billing-setup-intent', requireAuth, billingSetupIntentLimiter, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  const userId = req.user?.id
+  const email = req.user?.email
+  if (!userId || !email) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const customerId = await ensureStripeCustomerForBilling(userId, email)
+    if (!customerId) return res.status(500).json({ error: 'Could not resolve billing customer' })
+    const setupIntent = await stripe.setupIntents.create({
+      payment_method_types: ['card'],
+      customer: customerId,
+    })
+    return res.json({ client_secret: setupIntent.client_secret })
+  } catch (err) {
+    console.error('[stripe] billing-setup-intent error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to create setup intent',
+    })
+  }
+})
+
+/**
+ * POST /api/stripe/set-default-payment-method
+ * Sets invoice default PM after client confirms SetupIntent (must belong to user's customer).
+ */
+router.post('/set-default-payment-method', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  const userId = req.user?.id
+  const email = req.user?.email
+  const { payment_method_id } = req.body || {}
+  if (!userId || !email) return res.status(401).json({ error: 'Unauthorized' })
+  if (!payment_method_id || typeof payment_method_id !== 'string') {
+    return res.status(400).json({ error: 'payment_method_id is required' })
+  }
+  try {
+    const customerId = await ensureStripeCustomerForBilling(userId, email)
+    if (!customerId) return res.status(500).json({ error: 'Could not resolve billing customer' })
+    const pm = await stripe.paymentMethods.retrieve(payment_method_id)
+    if (pm.customer !== customerId) {
+      return res.status(403).json({ error: 'Invalid payment method for this account' })
+    }
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: payment_method_id },
+    })
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error('[stripe] set-default-payment-method error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to update payment method',
+    })
+  }
+})
+
+/**
+ * GET /api/stripe/payment-method
+ * Default card on file for the signed-in user (if any).
+ */
+router.get('/payment-method', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  const userId = req.user?.id
+  const email = req.user?.email?.trim()
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    let customerId = await getStripeCustomerIdFromDb(userId)
+    if (!customerId && email) {
+      const list = await stripe.customers.list({ email, limit: 1 })
+      customerId = list.data?.[0]?.id ?? null
+    }
+    if (!customerId) return res.json({ payment_method: null })
+    const customer = await stripe.customers.retrieve(customerId, {
+      expand: ['invoice_settings.default_payment_method'],
+    })
+    let pm = customer.invoice_settings?.default_payment_method
+    if (typeof pm === 'string' && pm) pm = await stripe.paymentMethods.retrieve(pm)
+    if (!pm || typeof pm === 'string') {
+      const pms = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 })
+      pm = pms.data?.[0] ?? null
+    }
+    if (!pm || pm.type !== 'card' || !pm.card) return res.json({ payment_method: null })
+    return res.json({
+      payment_method: {
+        id: pm.id,
+        brand: pm.card.brand || 'card',
+        last4: pm.card.last4 || '',
+        exp_month: pm.card.exp_month ?? null,
+        exp_year: pm.card.exp_year ?? null,
+      },
+    })
+  } catch (err) {
+    console.error('[stripe] payment-method error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to load payment method',
+    })
+  }
+})
+
+/**
+ * GET /api/stripe/subscription-invoices
+ * Paid/open subscription invoices for billing history UI.
+ */
+router.get('/subscription-invoices', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  const userId = req.user?.id
+  const email = req.user?.email?.trim()
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    let customerId = await getStripeCustomerIdFromDb(userId)
+    if (!customerId && email) {
+      const list = await stripe.customers.list({ email, limit: 1 })
+      customerId = list.data?.[0]?.id ?? null
+    }
+    if (!customerId) return res.json({ invoices: [] })
+    const invoices = await stripe.invoices.list({ customer: customerId, limit: 100 })
+    const out = (invoices.data || [])
+      .filter((inv) => inv.subscription != null && inv.status === 'paid')
+      .map((inv) => ({
+        id: inv.id,
+        number: inv.number,
+        amount_paid: inv.amount_paid,
+        currency: inv.currency,
+        status: inv.status,
+        created: inv.created,
+        hosted_invoice_url: inv.hosted_invoice_url,
+        invoice_pdf: inv.invoice_pdf,
+      }))
+    return res.json({ invoices: out })
+  } catch (err) {
+    console.error('[stripe] subscription-invoices error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to load invoices',
+    })
+  }
+})
+
+/**
+ * POST /api/stripe/subscribe-plan
+ * New subscription or change existing plan (proration). Requires a card on file.
+ * Body: { price_id }
+ */
+router.post('/subscribe-plan', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured on server.' })
+  }
+  const userId = req.user?.id
+  const email = req.user?.email
+  const { price_id } = req.body || {}
+  if (!userId || !email) return res.status(401).json({ error: 'Unauthorized' })
+  if (!price_id || typeof price_id !== 'string') {
+    return res.status(400).json({ error: 'price_id is required' })
+  }
+  try {
+    const customerId = await ensureStripeCustomerForBilling(userId, email)
+    if (!customerId) return res.status(500).json({ error: 'Could not resolve billing customer' })
+    const hasPm = await ensureCustomerHasDefaultPaymentMethod(customerId)
+    if (!hasPm) {
+      return res.status(400).json({
+        error: 'Add a payment method before choosing a plan.',
+        code: 'NO_PAYMENT_METHOD',
+      })
+    }
+    const { data: subRows } = await supabase
+      .from('subscriptions')
+      .select('stripe_subscription_id, status')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+    const activeSub = subRows?.find(
+      (s) =>
+        ['active', 'trialing', 'past_due'].includes(s.status) && s.stripe_subscription_id
+    )
+    if (activeSub?.stripe_subscription_id) {
+      const stripeSub = await stripe.subscriptions.retrieve(activeSub.stripe_subscription_id)
+      const itemId = stripeSub.items?.data?.[0]?.id
+      if (!itemId) return res.status(500).json({ error: 'Invalid subscription state' })
+      const updated = await stripe.subscriptions.update(activeSub.stripe_subscription_id, {
+        items: [{ id: itemId, price: price_id }],
+        proration_behavior: 'create_prorations',
+        metadata: { ...(stripeSub.metadata || {}), user_id: String(userId) },
+      })
+      await supabase.from('subscriptions').upsert(
+        subscriptionRowForDb(userId, customerId, updated, price_id),
+        { onConflict: 'stripe_subscription_id' }
+      )
+      return res.json({ subscription_id: updated.id, updated: true })
+    }
+    const trialDays = await trialDaysForPriceId(price_id)
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: price_id }],
+      ...(trialDays ? { trial_period_days: trialDays } : {}),
+      metadata: { user_id: userId },
+    })
+    await supabase.from('subscriptions').upsert(
+      subscriptionRowForDb(userId, customerId, subscription, price_id),
+      { onConflict: 'stripe_subscription_id' }
+    )
+    return res.json({ subscription_id: subscription.id, updated: false })
+  } catch (err) {
+    console.error('[stripe] subscribe-plan error:', err.message)
+    return res.status(500).json({
+      error: err.message || 'Failed to update subscription',
+    })
+  }
+})
+
 /**
  * POST /api/stripe/create-subscription
  * Creates a Stripe subscription. Standard plan gets 14-day trial; other plans charge immediately.
@@ -453,72 +781,62 @@ router.post('/create-subscription', requireAuth, async (req, res) => {
       error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
     })
   }
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured on server.' })
+  }
   const userId = req.user?.id
   if (!userId) return res.status(401).json({ error: 'Unauthorized' })
   const { email, price_id } = req.body || {}
-  if (!email || typeof email !== 'string' || !email.trim()) {
+  const resolvedEmail =
+    email && typeof email === 'string' && email.trim() ? email.trim() : req.user?.email
+  if (!resolvedEmail) {
     return res.status(400).json({ error: 'email is required' })
   }
   if (!price_id || typeof price_id !== 'string') {
     return res.status(400).json({ error: 'price_id is required' })
   }
   try {
-    const customers = await stripe.customers.list({ email: email.trim(), limit: 1 })
-    const customer = customers.data?.[0]
-    if (!customer) {
+    const customerId = await ensureStripeCustomerForBilling(userId, resolvedEmail)
+    if (!customerId) {
+      return res.status(400).json({ error: 'Could not resolve Stripe customer. Complete the payment step first.' })
+    }
+    const hasPm = await ensureCustomerHasDefaultPaymentMethod(customerId)
+    if (!hasPm) {
       return res.status(400).json({ error: 'No payment method on file. Complete the payment step first.' })
     }
-    const pms = await stripe.paymentMethods.list({ customer: customer.id, type: 'card' })
-    const pm = pms.data?.[0]
-    if (pm) {
-      await stripe.customers.update(customer.id, {
-        invoice_settings: { default_payment_method: pm.id },
-      })
-    }
-    // 14-day trial only for Standard plan; other plans charge immediately
-    let trialDays
-    try {
-      const price = await stripe.prices.retrieve(price_id, { expand: ['product'] })
-      const product = price.product
-      const productName = typeof product === 'object' && product?.name ? product.name : ''
-      if (productName.toLowerCase() === 'standard') trialDays = 14
-    } catch {
-      // If we can't resolve the product, skip trial
-    }
+    const trialDays = await trialDaysForPriceId(price_id)
     const subscription = await stripe.subscriptions.create({
-      customer: customer.id,
+      customer: customerId,
       items: [{ price: price_id }],
       ...(trialDays ? { trial_period_days: trialDays } : {}),
       metadata: { user_id: userId },
     })
     const sub = subscription
-    const status = sub.status === 'trialing' ? 'trialing' : sub.status
-    if (supabase) {
-      await supabase.from('subscriptions').upsert(
-        {
-          user_id: userId,
-          stripe_customer_id: customer.id,
-          stripe_subscription_id: sub.id,
-          stripe_price_id: price_id,
-          status,
-          current_period_start: sub.current_period_start
-            ? new Date(sub.current_period_start * 1000).toISOString()
-            : null,
-          current_period_end: sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
-            : null,
-          cancel_at_period_end: !!sub.cancel_at_period_end,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'stripe_subscription_id' }
-      )
-    }
+    await supabase.from('subscriptions').upsert(
+      subscriptionRowForDb(userId, customerId, sub, price_id),
+      { onConflict: 'stripe_subscription_id' }
+    )
     return res.json({ subscription_id: sub.id })
   } catch (err) {
     console.error('[stripe] create-subscription error:', err.message)
     return res.status(500).json({
       error: err.message || 'Failed to create subscription',
     })
+  }
+})
+
+/**
+ * GET /api/stripe/billing
+ * Same payload as GET /api/settings/billing (alias for older clients).
+ */
+router.get('/billing', requireAuth, async (req, res) => {
+  try {
+    const summary = await buildBillingSummary(req.user.id, req.supabase)
+    res.json(summary)
+  } catch (err) {
+    if (err.statusCode === 401) return res.status(401).json({ error: 'Unauthorized' })
+    console.error('[stripe] billing error:', err.message)
+    res.status(500).json({ error: err.message || 'Failed to load billing' })
   }
 })
 

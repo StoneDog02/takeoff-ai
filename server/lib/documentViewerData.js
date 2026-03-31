@@ -2,6 +2,8 @@
  * Build authenticated document viewer payloads (mirrors public portal shapes where applicable).
  */
 const { isChangeOrderEstimateTitle } = require('./estimatePortalKind')
+const { fetchPublicCompanyProfile, companyRowToPublic } = require('./publicCompanyProfile')
+const { fetchInvoiceBranding } = require('./invoiceBranding')
 
 const COMPLETION_LABELS = {
   on_phase_completion: 'Due when phase completes',
@@ -221,6 +223,11 @@ async function buildEstimateViewer(supabase, userId, estimateId) {
     .order('id')
 
   const payload = estimatePayloadFromRows(est, project, lineItems)
+  const company = await fetchPublicCompanyProfile(supabase, est.user_id)
+  if (company) {
+    payload.company = company
+    payload.gcName = company.name || 'Your contractor'
+  }
   let change_order_reference = null
   if (est.source_change_order_id && est.job_id) {
     const { data: co } = await supabase
@@ -320,6 +327,9 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
 
   const amount_due_now = schedule_rows.filter((r) => r.status === 'due_now').reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
 
+  const company = await fetchPublicCompanyProfile(supabase, inv.user_id)
+  const branding = await fetchInvoiceBranding(supabase, inv.user_id)
+
   const payload = {
     invoice_id: inv.id,
     estimate_id: inv.estimate_id,
@@ -333,8 +343,8 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
     projectName: project?.name || estimate?.title || 'Invoice',
     address,
     clientName,
-    gcName: 'Your contractor',
-    company: null,
+    gcName: company?.name || 'Your contractor',
+    company,
     invoice_kind: schedule_rows.length > 0 ? 'progress_series' : 'single',
     schedule_rows,
     line_items,
@@ -342,6 +352,7 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
       estimate?.client_notes != null && String(estimate.client_notes).trim() ? String(estimate.client_notes).trim() : null,
     terms:
       estimate?.client_terms != null && String(estimate.client_terms).trim() ? String(estimate.client_terms).trim() : null,
+    branding,
   }
 
   const overdue_days = (() => {
@@ -398,7 +409,13 @@ async function buildBidViewer(supabase, userId, subBidId) {
           .maybeSingle()
       : Promise.resolve({ data: null }),
     proj.user_id
-      ? supabase.from('company_settings').select('name, email').eq('user_id', proj.user_id).maybeSingle()
+      ? supabase
+          .from('company_settings')
+          .select(
+            'name, logo_url, phone, email, website, license_number, address_line_1, address_line_2, city, state, postal_code'
+          )
+          .eq('user_id', proj.user_id)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
   ])
 
@@ -412,7 +429,8 @@ async function buildBidViewer(supabase, userId, subBidId) {
     : ''
   const scope = Array.isArray(pkg?.line_items) ? pkg.line_items : []
   const project_name = proj?.name || ''
-  const gc_name = (companyRes?.data?.name && String(companyRes.data.name).trim()) || ''
+  const company = companyRowToPublic(companyRes?.data)
+  const gc_name = (company?.name && String(company.name).trim()) || ''
   const gc_email_raw = companyRes?.data?.email != null ? String(companyRes.data.email).trim() : ''
   const gc_email = gc_email_raw && /^[^\s@]+@[^\s@]+\.[^\s@]+/.test(gc_email_raw) ? gc_email_raw : ''
   const sub_name = sub?.name || ''
@@ -426,6 +444,7 @@ async function buildBidViewer(supabase, userId, subBidId) {
     project_address,
     gc_name: gc_name || null,
     gc_email: gc_email || null,
+    company,
     trade_name: tradeName,
     sub_name,
     dispatched_at,

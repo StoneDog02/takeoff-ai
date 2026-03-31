@@ -1,31 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
+import { settingsApi } from '@/api/settings'
 import type { Employee, JobGeofence, TimeEntry } from '@/types/global'
 import { dayjs, formatDateTime } from '@/lib/date'
-
-/** Haversine distance in meters between two lat/lng points */
-function distanceMeters(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
-): number {
-  const R = 6371000
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
-function feetToMeters(feet: number) {
-  return feet * 0.3048
-}
+import {
+  createOutsideBoundaryTracker,
+  DEFAULT_CLOCK_OUT_TOLERANCE_MINUTES,
+  distanceMeters,
+  geofenceRadiusMeters,
+  isOutsideJobGeofence,
+} from '@/lib/geofenceAutoClockOut'
 
 export function ClockInView() {
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -38,6 +22,7 @@ export function ClockInView() {
   const [locationError, setLocationError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [clockOutToleranceMin, setClockOutToleranceMin] = useState(DEFAULT_CLOCK_OUT_TOLERANCE_MINUTES)
   const watchIdRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -46,11 +31,30 @@ export function ClockInView() {
   }, [])
 
   useEffect(() => {
+    settingsApi
+      .getSettings()
+      .then((r) => {
+        const t = r.geofence_defaults?.clock_out_tolerance_minutes
+        if (t != null && Number.isFinite(Number(t))) setClockOutToleranceMin(Number(t))
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     if (!selectedJob) return
     teamsApi.geofences.getByJob(selectedJob).then((g) => {
       if (g) setGeofenceByJob((prev) => ({ ...prev, [selectedJob]: g }))
     }).catch(() => {})
   }, [selectedJob])
+
+  /** Open time entry may be on a different job than the dropdown — always load that job's geofence. */
+  useEffect(() => {
+    const jid = activeEntry?.job_id
+    if (!jid) return
+    teamsApi.geofences.getByJob(jid).then((g) => {
+      if (g) setGeofenceByJob((prev) => ({ ...prev, [jid]: g }))
+    }).catch(() => {})
+  }, [activeEntry?.job_id])
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -78,62 +82,72 @@ export function ClockInView() {
   }, [selectedEmployee])
 
   useEffect(() => {
-    if (!activeEntry || !selectedJob) return
-    const geofence = geofenceByJob[selectedJob]
+    if (!activeEntry?.job_id || !navigator.geolocation) return
+    const geofence = geofenceByJob[activeEntry.job_id]
     if (!geofence) return
-    const radiusM =
-      geofence.radius_unit === 'meters'
-        ? geofence.radius_value
-        : feetToMeters(geofence.radius_value)
-    const checkPosition = (lat: number, lng: number) => {
-      const dist = distanceMeters(
-        geofence.center_lat,
-        geofence.center_lng,
-        lat,
-        lng
-      )
-      if (dist > radiusM) {
+
+    const entryRef = { current: activeEntry }
+    entryRef.current = activeEntry
+    const geofenceRef = { current: geofence }
+    geofenceRef.current = geofence
+
+    const tracker = createOutsideBoundaryTracker({
+      toleranceMinutes: clockOutToleranceMin,
+      onFirstOutside: () => {
+        if (clockOutToleranceMin > 0) {
+          setMessage(`Outside jobsite — auto clock-out after ${clockOutToleranceMin} min.`)
+        }
+      },
+      onBackInside: () => setMessage(null),
+      onTrigger: (lat, lng) => {
+        const e = entryRef.current
+        const g = geofenceRef.current
+        if (!e?.id || !g?.id) return
         setMessage('Exited jobsite boundary — clocking out.')
         teamsApi.gpsClockOut
           .create({
-            employee_id: activeEntry.employee_id,
-            time_entry_id: activeEntry.id,
-            job_id: activeEntry.job_id,
+            employee_id: e.employee_id,
+            time_entry_id: e.id,
+            job_id: e.job_id,
             lat,
             lng,
+            geofence_id: g.id,
           })
           .then(() => {
             setActiveEntry(null)
             setMessage(null)
           })
-          .catch(() => setMessage('Failed to clock out.'))
-      }
-    }
+          .catch(() => {
+            setMessage('Failed to clock out.')
+            tracker.reset()
+          })
+      },
+    })
+
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => checkPosition(pos.coords.latitude, pos.coords.longitude),
+      (pos) => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        const g = geofenceRef.current
+        if (!g) return
+        tracker.onPosition(lat, lng, isOutsideJobGeofence(lat, lng, g))
+      },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 30000 }
+      { enableHighAccuracy: true, maximumAge: 10000 }
     )
     return () => {
+      tracker.reset()
       if (watchIdRef.current != null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
         watchIdRef.current = null
       }
     }
-  }, [activeEntry?.id, selectedJob, geofenceByJob])
+  }, [activeEntry?.id, activeEntry?.job_id, geofenceByJob, clockOutToleranceMin])
 
   const geofence = selectedJob ? geofenceByJob[selectedJob] : null
   const isInsideGeofence =
     location && geofence
-      ? distanceMeters(
-          geofence.center_lat,
-          geofence.center_lng,
-          location.lat,
-          location.lng
-        ) <=
-        (geofence.radius_unit === 'meters'
-          ? geofence.radius_value
-          : feetToMeters(geofence.radius_value))
+      ? distanceMeters(geofence.center_lat, geofence.center_lng, location.lat, location.lng) <= geofenceRadiusMeters(geofence)
       : null
 
   const handleClockIn = async () => {
@@ -248,7 +262,8 @@ export function ClockInView() {
           )}
           {activeEntry && (
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              Clocked in at {formatDateTime(activeEntry.clock_in)}. GPS auto clock-out is active when a geofence is set for this job.
+              Clocked in at {formatDateTime(activeEntry.clock_in)}. GPS auto clock-out runs when you leave the jobsite boundary
+              {clockOutToleranceMin > 0 ? ` for ${clockOutToleranceMin} min` : ''} (see Geofence Defaults in Settings).
             </p>
           )}
         </div>

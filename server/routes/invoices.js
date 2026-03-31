@@ -3,6 +3,7 @@ const express = require('express')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { recordInvoiceSentPaperTrail } = require('../lib/paperTrailDocuments')
+const { notifyInvoiceStatusChange } = require('../lib/eventNotificationEmails')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -68,6 +69,13 @@ router.patch('/:id', async (req, res) => {
       paid_at,
       schedule_snapshot,
     } = req.body
+    const { data: before, error: loadErr } = await supabase
+      .from('invoices')
+      .select('id, status, user_id, job_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (loadErr) throw loadErr
+    if (!before) return res.status(404).json({ error: 'Not found' })
     const updates = { updated_at: new Date().toISOString() }
     if (status !== undefined) updates.status = status
     if (total_amount !== undefined) updates.total_amount = Number(total_amount)
@@ -84,6 +92,27 @@ router.patch('/:id', async (req, res) => {
       .single()
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Not found' })
+    if (status !== undefined) {
+      const oldS = String(before.status || '')
+      const newS = String(status || '')
+      if (oldS.toLowerCase() !== newS.toLowerCase()) {
+        const userId = data.user_id || before.user_id || req.user?.id
+        let projectName = null
+        if (data.job_id || before.job_id) {
+          const jid = data.job_id || before.job_id
+          const { data: p } = await supabase.from('projects').select('name').eq('id', jid).maybeSingle()
+          projectName = p?.name || null
+        }
+        if (userId) {
+          void notifyInvoiceStatusChange(supabase, {
+            userId,
+            projectName,
+            oldStatus: oldS,
+            newStatus: newS,
+          })
+        }
+      }
+    }
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Invoice update error:', err)
@@ -115,7 +144,7 @@ router.post('/:id/send', async (req, res) => {
     const { recipient_emails } = req.body
     const { data: existingSend } = await supabase
       .from('invoices')
-      .select('client_token')
+      .select('client_token, status, user_id, job_id')
       .eq('id', id)
       .maybeSingle()
     const clientToken =
@@ -148,6 +177,22 @@ router.post('/:id/send', async (req, res) => {
     }
     const ownerId = data.user_id || req.user?.id
     if (ownerId) recordInvoiceSentPaperTrail(supabase, ownerId, data)
+    const notifyUserId = data.user_id || existingSend?.user_id || req.user?.id
+    const prevSt = String(existingSend?.status || '').toLowerCase()
+    if (notifyUserId && prevSt !== 'sent') {
+      let projectName = null
+      if (data.job_id || existingSend?.job_id) {
+        const jid = data.job_id || existingSend?.job_id
+        const { data: p } = await supabase.from('projects').select('name').eq('id', jid).maybeSingle()
+        projectName = p?.name || null
+      }
+      void notifyInvoiceStatusChange(supabase, {
+        userId: notifyUserId,
+        projectName,
+        oldStatus: existingSend?.status || 'draft',
+        newStatus: 'sent',
+      })
+    }
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Invoice send error:', err)

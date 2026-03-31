@@ -72,7 +72,7 @@ export function SignUpPage() {
           },
         })
       } catch {
-        // Linked banks remain on the Stripe customer; user can open Settings → Integrations to sync.
+        // Linked banks remain on the Stripe customer; user can open Settings → Billing & Subscription to sync.
       }
     }
 

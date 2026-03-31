@@ -2,6 +2,8 @@ const express = require('express')
 const multer = require('multer')
 const { PDFDocument } = require('pdf-lib')
 const { supabase: defaultSupabase } = require('../db/supabase')
+const { buildBillingSummary } = require('../lib/billingSummary')
+const { cancelStripeSubscriptionsForUser } = require('../lib/cancelStripeSubscriptionsForUser')
 
 const SETTINGS_ASSETS_BUCKET = 'settings-assets'
 const router = express.Router()
@@ -41,7 +43,15 @@ router.get('/', async (req, res, next) => {
       ? rowToCompany(companyRes.data)
       : null
     const branding = brandingRes.data
-      ? { logoUrl: brandingRes.data.logo_url, primaryColor: brandingRes.data.primary_color || '#b91c1c', invoiceTemplateStyle: brandingRes.data.invoice_template_style || 'standard' }
+      ? {
+          logoUrl: brandingRes.data.logo_url,
+          primaryColor: brandingRes.data.primary_color || '#b91c1c',
+          secondaryColor:
+            brandingRes.data.secondary_color != null && String(brandingRes.data.secondary_color).trim()
+              ? String(brandingRes.data.secondary_color).trim()
+              : '#1e293b',
+          invoiceTemplateStyle: brandingRes.data.invoice_template_style || 'standard',
+        }
       : null
     const notification_preferences = notifRes.data
       ? { prefs: notifRes.data.prefs || {} }
@@ -72,6 +82,20 @@ router.get('/', async (req, res, next) => {
       tax_compliance,
       integrations,
     })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** GET /api/settings/billing — subscription, usage, optional Customer Portal URL (Settings → Billing). */
+router.get('/billing', async (req, res, next) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+    const db = getDb(req)
+    if (!db) return res.status(503).json({ error: 'Database not configured' })
+    const summary = await buildBillingSummary(userId, db)
+    res.json(summary)
   } catch (err) {
     next(err)
   }
@@ -166,12 +190,34 @@ router.put('/branding', async (req, res, next) => {
     const userId = req.user?.id
     if (!userId) return res.status(401).json({ error: 'Unauthorized' })
 
-    const { logoUrl, primaryColor, invoiceTemplateStyle } = req.body || {}
+    const body = req.body || {}
+    const { logoUrl, primaryColor, secondaryColor, invoiceTemplateStyle } = body
     const style = ['standard', 'minimal', 'detailed'].includes(invoiceTemplateStyle) ? invoiceTemplateStyle : 'standard'
+    const hasLogoKey = Object.prototype.hasOwnProperty.call(body, 'logoUrl')
+    const hasSecondaryKey = Object.prototype.hasOwnProperty.call(body, 'secondaryColor')
+    let preservedLogo = null
+    let preservedSecondary = null
+    if (!hasLogoKey || !hasSecondaryKey) {
+      const { data: existingBranding } = await db
+        .from('branding_settings')
+        .select('logo_url, secondary_color')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (!hasLogoKey) preservedLogo = existingBranding?.logo_url ?? null
+      if (!hasSecondaryKey) preservedSecondary = existingBranding?.secondary_color ?? null
+    }
+    const secondaryResolved = hasSecondaryKey
+      ? secondaryColor != null && String(secondaryColor).trim()
+        ? String(secondaryColor).trim()
+        : '#1e293b'
+      : preservedSecondary != null && String(preservedSecondary).trim()
+        ? String(preservedSecondary).trim()
+        : '#1e293b'
     const row = {
       user_id: userId,
-      logo_url: logoUrl ?? null,
+      logo_url: hasLogoKey ? logoUrl ?? null : preservedLogo,
       primary_color: primaryColor || '#b91c1c',
+      secondary_color: secondaryResolved,
       invoice_template_style: style,
       updated_at: new Date().toISOString(),
     }
@@ -181,7 +227,12 @@ router.put('/branding', async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
-    res.json({ logoUrl: data.logo_url, primaryColor: data.primary_color, invoiceTemplateStyle: data.invoice_template_style })
+    res.json({
+      logoUrl: data.logo_url,
+      primaryColor: data.primary_color,
+      secondaryColor: data.secondary_color,
+      invoiceTemplateStyle: data.invoice_template_style,
+    })
   } catch (err) {
     next(err)
   }
@@ -538,6 +589,8 @@ router.post('/delete-account', async (req, res, next) => {
     const userId = req.user?.id
     if (!userId) return res.status(401).json({ error: 'Unauthorized' })
     if (req.body?.confirm !== true) return res.status(400).json({ error: 'Confirmation required. Send { confirm: true }.' })
+
+    await cancelStripeSubscriptionsForUser(userId, db)
 
     // Wipe all user data first (reuse same order as wipe-data)
     const { data: projects } = await db.from('projects').select('id').eq('user_id', userId)

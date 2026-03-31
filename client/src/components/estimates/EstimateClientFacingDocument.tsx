@@ -1,4 +1,5 @@
 import React from 'react'
+import type { PortalCompanyInfo } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { budgetCategoryKeyFromEstimateSection } from '@/lib/budgetCategoryFromEstimateSection'
 import {
@@ -179,6 +180,8 @@ export type ClientSectionNote = {
 
 export type EstimateClientFacingDocumentProps = {
   companyDisplayName: string
+  /** When set, shows logo and contact line from Company Profile (public portals / viewer). */
+  company?: PortalCompanyInfo | null
   estimateNumber?: string | null
   dateIssued: string | null
   expiryDate?: string | null
@@ -271,6 +274,7 @@ function sectionHeaderPresentation(
  */
 export function EstimateClientFacingDocument({
   companyDisplayName,
+  company = null,
   estimateNumber,
   dateIssued,
   expiryDate,
@@ -358,15 +362,31 @@ export function EstimateClientFacingDocument({
   }
 
   const isChangeOrder = portalDocumentKind === 'change_order'
-  const heroHeadline = isChangeOrder ? 'New Change Order' : companyDisplayName
+  const nameFromProfile = company?.name?.trim()
+  const heroHeadline = isChangeOrder ? 'New Change Order' : nameFromProfile || companyDisplayName
+  const heroContactLine = (() => {
+    if (!company) return null
+    const parts = [
+      company.phone,
+      company.email,
+      company.licenseNumber ? `LIC #${company.licenseNumber}` : null,
+    ].filter(Boolean) as string[]
+    return parts.length ? parts.join(' · ') : null
+  })()
 
   return (
     <div className="estimate-portal-doc estimate-doc--elevated">
       <div className="estimate-doc__hero">
         <div className="estimate-doc__hero-left">
+          {company?.logoUrl ? (
+            <img src={company.logoUrl} alt="" className="portal-company-logo" />
+          ) : null}
           <h1 className="estimate-doc__company-name estimate-portal-doc__company-name">
             {heroHeadline}
           </h1>
+          {heroContactLine ? (
+            <div className="estimate-doc__hero-contact">{heroContactLine}</div>
+          ) : null}
         </div>
         <div className="estimate-doc__hero-right">
           <span className="estimate-doc__status-badge">{isChangeOrder ? 'CHANGE ORDER' : 'ESTIMATE'}</span>

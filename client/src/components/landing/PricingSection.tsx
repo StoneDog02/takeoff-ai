@@ -3,7 +3,7 @@ import { API_BASE } from '@/api/config'
 import { PricingCard } from '@/components/landing/PricingCard'
 
 /** Flat plan from API (one price per entry). */
-interface FlatPlan {
+export interface FlatPlan {
   id: string
   name: string
   amount: number
@@ -28,7 +28,7 @@ export interface StripeProductPlan {
 }
 
 /** Build product list from flat plans when API returns only plans (e.g. older server). */
-function plansToProducts(plans: FlatPlan[]): StripeProductPlan[] {
+export function plansToProducts(plans: FlatPlan[]): StripeProductPlan[] {
   const byName = new Map<string, FlatPlan[]>()
   for (const p of plans) {
     const list = byName.get(p.name) ?? []
@@ -50,7 +50,7 @@ function plansToProducts(plans: FlatPlan[]): StripeProductPlan[] {
   }))
 }
 
-const DEFAULT_FEATURES = [
+export const DEFAULT_FEATURES = [
   'Full project management suite',
   'Estimates, takeoffs & invoicing',
   'Crew & payroll management',
@@ -58,7 +58,7 @@ const DEFAULT_FEATURES = [
   'Subcontractor bid collection',
 ]
 
-function parseFeatures(metadata: Record<string, string>): string[] {
+export function parseFeatures(metadata: Record<string, string>): string[] {
   const raw = metadata?.features
   if (!raw || typeof raw !== 'string') return []
   const trimmed = raw.trim()

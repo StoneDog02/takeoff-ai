@@ -1,6 +1,7 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { syncAttendanceFromTimeEntry } = require('../lib/syncAttendanceFromTimeEntry')
+const { notifyClockInOut } = require('../lib/eventNotificationEmails')
 
 /** Validate work type belongs to job (service client; avoids trusting client). */
 async function assertWorkTypeForJob(supabase, jobId, projectWorkTypeId) {
@@ -117,6 +118,24 @@ router.post('/', async (req, res, next) => {
     if (row.clock_out) {
       await syncAttendanceFromTimeEntry(rw, row)
     }
+    const svc = defaultSupabase || supabase
+    if (svc && row.job_id && row.employee_id) {
+      const [{ data: proj }, { data: emp }] = await Promise.all([
+        svc.from('projects').select('user_id, name').eq('id', row.job_id).maybeSingle(),
+        svc.from('employees').select('name').eq('id', row.employee_id).maybeSingle(),
+      ])
+      if (proj?.user_id) {
+        const kind = row.clock_out ? 'session' : 'in'
+        void notifyClockInOut(svc, {
+          projectUserId: proj.user_id,
+          projectName: proj.name,
+          employeeName: emp?.name,
+          kind,
+          clockIn: row.clock_in,
+          clockOut: row.clock_out || null,
+        })
+      }
+    }
     res.status(201).json(row)
   } catch (err) {
     next(err)
@@ -155,6 +174,23 @@ router.patch('/:id/clock-out', async (req, res, next) => {
     if (error) throw error
     const row = { ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) }
     await syncAttendanceFromTimeEntry(rw, row)
+    const svc = defaultSupabase || supabase
+    if (svc && !entry.clock_out && row.job_id && row.employee_id) {
+      const [{ data: proj }, { data: emp }] = await Promise.all([
+        svc.from('projects').select('user_id, name').eq('id', row.job_id).maybeSingle(),
+        svc.from('employees').select('name').eq('id', row.employee_id).maybeSingle(),
+      ])
+      if (proj?.user_id) {
+        void notifyClockInOut(svc, {
+          projectUserId: proj.user_id,
+          projectName: proj.name,
+          employeeName: emp?.name,
+          kind: 'out',
+          clockIn: row.clock_in,
+          clockOut: row.clock_out,
+        })
+      }
+    }
     res.json(row)
   } catch (err) {
     next(err)

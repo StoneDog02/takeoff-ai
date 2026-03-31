@@ -282,6 +282,11 @@ interface EstimateBuilderModalProps {
   initialBudgetLineItems?: BudgetLineItem[] | null
   /** Takeoff materials for “From takeoff” add-line picker (when project has takeoff). */
   takeoffPickItems?: TakeoffPickItem[] | null
+  /**
+   * Seeds per-group markup on first paint (e.g. Company Profile “Default estimation markup”).
+   * When omitted, falls back to app default until settings load inside the modal.
+   */
+  initialMarkupPctSeed?: number | null
 }
 
 function defaultWizardData(prefill?: PrefillClientInfo | null): WizardData {
@@ -446,7 +451,16 @@ function parseGroupsFromMeta(raw: unknown): LineItemGroup[] | null {
   }
 }
 
-const DEFAULT_MARKUP_PCT = 15
+/** App fallback when company default is not set (matches Company Profile copy). */
+export const ESTIMATE_BUILDER_APP_DEFAULT_MARKUP_PCT = 15
+const DEFAULT_MARKUP_PCT = ESTIMATE_BUILDER_APP_DEFAULT_MARKUP_PCT
+
+function resolveMarkupSeed(seed: number | null | undefined): number {
+  if (seed != null && Number.isFinite(Number(seed))) {
+    return Math.min(500, Math.max(0, Number(seed)))
+  }
+  return DEFAULT_MARKUP_PCT
+}
 
 /** Aligns with Budget tab / `budget_line_items.category` and server `sectionToBudgetCategory`. */
 const ESTIMATE_BUDGET_CATEGORY_LABELS: Record<string, EstimateGroupBudgetCategory> = {
@@ -771,6 +785,7 @@ export function EstimateBuilderModal({
   prefillLineItems,
   initialBudgetLineItems,
   takeoffPickItems,
+  initialMarkupPctSeed,
 }: EstimateBuilderModalProps) {
   const isReviseMode = projectId != null && estimateId != null
   const isBuildMode =
@@ -786,12 +801,13 @@ export function EstimateBuilderModal({
   const [createdProjectName, setCreatedProjectName] = useState('')
   const [savedEstimateId, setSavedEstimateId] = useState<string | null>(null)
   const [data, setData] = useState<WizardData>(() => defaultWizardData(prefillClientInfo))
-  const [defaultMarkupBaseline, setDefaultMarkupBaseline] = useState(DEFAULT_MARKUP_PCT)
+  const [defaultMarkupBaseline, setDefaultMarkupBaseline] = useState(() => resolveMarkupSeed(initialMarkupPctSeed))
   const [lineItemGroups, setLineItemGroups] = useState<LineItemGroup[]>(() => {
     if (isReviseMode) return []
+    const seed = resolveMarkupSeed(initialMarkupPctSeed)
     if (initialBudgetLineItems?.length)
-      return lineItemGroupsFromBudgetLineItems(initialBudgetLineItems)
-    return lineItemGroupsFromPrefill(prefillLineItems, DEFAULT_MARKUP_PCT)
+      return lineItemGroupsFromBudgetLineItems(initialBudgetLineItems, seed)
+    return lineItemGroupsFromPrefill(prefillLineItems, seed)
   })
   /** Revise mode: line item ids from loaded estimate (for delete-before-re-add on save). */
   const [loadedLineItemIds, setLoadedLineItemIds] = useState<string[]>([])

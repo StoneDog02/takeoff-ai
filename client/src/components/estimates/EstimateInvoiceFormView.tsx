@@ -89,6 +89,9 @@ export function EstimateInvoiceFormView({
         {/* Dark hero: company (left) + doc title + status badge (right) */}
         <header className="estimate-doc__hero">
           <div className="estimate-doc__hero-left">
+            {company?.logoUrl ? (
+              <img src={company.logoUrl} alt="" className="portal-company-logo" />
+            ) : null}
             <h1 className="estimate-doc__company-name">
               {company?.name ?? 'Your Company'}
             </h1>

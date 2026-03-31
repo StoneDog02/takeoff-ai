@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { api, type BidPortalResponse, type DocumentViewerResponse, type InvoicePortalResponse } from '@/api/client'
+import { api, type BidPortalResponse, type DocumentViewerResponse } from '@/api/client'
 import type { PaperTrailDocument } from '@/types/global'
 import {
   EstimateClientFacingDocument,
@@ -14,20 +14,10 @@ import {
   statusBadgeClass,
   statusDisplayLabel,
 } from '@/lib/paperTrailDocumentUi'
-
-function invoiceStatusBadgeClass(status: string): string {
-  const s = String(status).toLowerCase()
-  if (s === 'paid') return 'invoice-portal-badge invoice-portal-badge--paid'
-  if (s === 'due_now') return 'invoice-portal-badge invoice-portal-badge--due'
-  return 'invoice-portal-badge invoice-portal-badge--upcoming'
-}
-
-function invoiceStatusLabel(status: string): string {
-  const s = String(status).toLowerCase()
-  if (s === 'paid') return 'Paid'
-  if (s === 'due_now') return 'Due Now'
-  return 'Upcoming'
-}
+import {
+  InvoiceClientFacing,
+  invoicePortalShellClassAndStyle,
+} from '@/components/invoices/InvoiceClientFacing'
 
 function formatPortalDateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -41,144 +31,6 @@ function receiptMediaKind(url: string): 'pdf' | 'image' | 'other' {
   if (u.includes('.pdf') || u.includes('type=application%2Fpdf')) return 'pdf'
   if (/\.(png|jpe?g|gif|webp|bmp)(\?|#|$)/i.test(u)) return 'image'
   return 'other'
-}
-
-function DocumentViewerInvoiceReadOnly({
-  data,
-  overdueDays,
-}: {
-  data: InvoicePortalResponse
-  overdueDays?: number | null
-}) {
-  const st = data ? String(data.status).toLowerCase() : ''
-  const invoicePaid = st === 'paid'
-  const showProgress = data?.invoice_kind === 'progress_series' && (data.schedule_rows?.length ?? 0) > 0
-
-  return (
-    <div className="invoice-portal-body">
-      <div className="invoice-portal-summary">
-        <div className="invoice-portal-summary__row">
-          <span>Status</span>
-          <span className="invoice-portal-summary__value">
-            {invoicePaid ? 'Paid' : st === 'sent' || st === 'viewed' ? 'Open' : st}
-          </span>
-        </div>
-        {showProgress ? (
-          <>
-            <div className="invoice-portal-summary__row">
-              <span>Payment schedule</span>
-              <span className="invoice-portal-summary__value">{data.schedule_rows.length} milestones</span>
-            </div>
-            {!invoicePaid && (data.amount_due_now ?? 0) > 0 && (
-              <div className="invoice-portal-summary__row invoice-portal-summary__row--emph">
-                <span>Due now</span>
-                <span className="invoice-portal-summary__value">{formatPortalCurrency(data.amount_due_now ?? 0)}</span>
-              </div>
-            )}
-            <div className="invoice-portal-summary__row">
-              <span>Invoice total</span>
-              <span className="invoice-portal-summary__value">{formatPortalCurrency(data.total_amount)}</span>
-            </div>
-          </>
-        ) : (
-          <div className="invoice-portal-summary__row invoice-portal-summary__row--emph">
-            <span>Amount due</span>
-            <span className="invoice-portal-summary__value">{formatPortalCurrency(data.total_amount)}</span>
-          </div>
-        )}
-        {data.due_date && !showProgress && (
-          <div className="invoice-portal-summary__row">
-            <span>Due date</span>
-            <span className="invoice-portal-summary__value">{data.due_date}</span>
-          </div>
-        )}
-        {overdueDays != null && overdueDays > 0 && !invoicePaid ? (
-          <div className="invoice-portal-summary__row">
-            <span>Days past due</span>
-            <span className="invoice-portal-summary__value tabular-nums">{overdueDays}</span>
-          </div>
-        ) : null}
-      </div>
-
-      {showProgress && (
-        <section className="invoice-portal-schedule" aria-labelledby="docviewer-invoice-schedule">
-          <h2 id="docviewer-invoice-schedule" className="invoice-portal-schedule__title">
-            Payment schedule
-          </h2>
-          <div className="invoice-portal-schedule-table document-viewer-invoice-schedule--readonly" role="table">
-            <div className="invoice-portal-schedule-table__head document-viewer-invoice-schedule__head" role="row">
-              <span role="columnheader">Phase</span>
-              <span role="columnheader">Amount</span>
-              <span role="columnheader">Due</span>
-              <span role="columnheader">Status</span>
-            </div>
-            {data.schedule_rows.map((row) => {
-              const muted = row.status === 'upcoming' && !invoicePaid
-              return (
-                <div
-                  key={`${row.milestone_id}-${row.label}`}
-                  className={`invoice-portal-schedule-table__row ${muted ? 'invoice-portal-schedule-table__row--muted' : ''}`}
-                  role="row"
-                >
-                  <span className="invoice-portal-schedule-table__cell" role="cell">
-                    {row.label}
-                  </span>
-                  <span className="invoice-portal-schedule-table__cell" role="cell">
-                    {formatPortalCurrency(row.amount)}
-                  </span>
-                  <span className="invoice-portal-schedule-table__cell invoice-portal-schedule-table__due" role="cell">
-                    {row.due_display}
-                  </span>
-                  <span className="invoice-portal-schedule-table__cell" role="cell">
-                    <span className={invoiceStatusBadgeClass(row.status)}>{invoiceStatusLabel(row.status)}</span>
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {!showProgress && data.line_items.length > 0 && (
-        <section className="invoice-portal-lines" aria-labelledby="docviewer-invoice-lines">
-          <h2 id="docviewer-invoice-lines" className="invoice-portal-schedule__title">
-            Line items
-          </h2>
-          <div className="invoice-portal-lines-table">
-            {data.line_items.map((li) => (
-              <div key={li.id} className="invoice-portal-lines-table__row">
-                <div>
-                  <div className="invoice-portal-lines-table__desc">{li.description}</div>
-                  <div className="invoice-portal-lines-table__meta">
-                    {li.quantity} × {formatPortalCurrency(li.unit_price)} {li.unit}
-                    {li.section ? ` · ${li.section}` : ''}
-                  </div>
-                </div>
-                <div className="invoice-portal-lines-table__total">{formatPortalCurrency(li.total)}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {!showProgress && data.line_items.length === 0 && (
-        <p className="invoice-portal-empty-lines">No line items on file for this invoice.</p>
-      )}
-
-      {data.notes ? (
-        <section className="invoice-portal-notes">
-          <h3 className="invoice-portal-notes__title">Notes</h3>
-          <p className="invoice-portal-notes__body">{data.notes}</p>
-        </section>
-      ) : null}
-      {data.terms ? (
-        <section className="invoice-portal-notes">
-          <h3 className="invoice-portal-notes__title">Terms</h3>
-          <p className="invoice-portal-notes__body">{data.terms}</p>
-        </section>
-      ) : null}
-    </div>
-  )
 }
 
 function formatBidPortalDate(iso: string | null | undefined): string | null {
@@ -199,6 +51,9 @@ function DocumentViewerBidReadOnly({ data }: { data: BidPortalResponse }) {
       <div className="bid-portal-cards__main">
         <div className="bid-portal-card bid-portal-card--header">
           <div className="bid-portal-card__body">
+            {data.company?.logoUrl ? (
+              <img src={data.company.logoUrl} alt="" className="portal-company-logo bid-portal-header__logo" />
+            ) : null}
             <h1 className="bid-portal-header__project">{data.projectName}</h1>
             {(data.address || data.project_address) && (
               <p className="bid-portal-header__address">{data.project_address || data.address}</p>
@@ -558,7 +413,8 @@ export function DocumentViewer({
               ) : null}
               <div className="estimate-portal__inner">
                 <EstimateClientFacingDocument
-                  companyDisplayName={viewer.data.company?.trim() || 'Your Estimate'}
+                  company={viewer.data.company}
+                  companyDisplayName={viewer.data.company?.name?.trim() || viewer.data.gcName || 'Your Estimate'}
                   portalDocumentKind={viewer.data.portal_document_kind ?? 'estimate'}
                   estimateNumber={viewer.data.estimate_number}
                   dateIssued={viewer.data.date_issued ?? viewer.data.sent_at}
@@ -580,8 +436,13 @@ export function DocumentViewer({
             </div>
           )}
 
-          {viewer && !loading && viewer.type === 'invoice' && (
-            <div className="estimate-portal estimate-portal--page invoice-portal document-viewer-portal-page">
+          {viewer && !loading && viewer.type === 'invoice' && (() => {
+            const invShell = invoicePortalShellClassAndStyle(viewer.data)
+            return (
+            <div
+              className={`estimate-portal estimate-portal--page invoice-portal document-viewer-portal-page ${invShell.className}`}
+              style={invShell.style}
+            >
               {banners.map((b) => (
                 <div key={b.key} className={b.className} role="status">
                   {b.text}
@@ -605,16 +466,15 @@ export function DocumentViewer({
               </div>
               {resendNote ? <p className="documents-viewer-inline-note">{resendNote}</p> : null}
               <div className="estimate-portal__inner">
-                <header className="invoice-portal-header">
-                  <p className="invoice-portal-header__eyebrow">Invoice</p>
-                  <h1 className="invoice-portal-header__title">{viewer.data.projectName ?? 'Invoice'}</h1>
-                  {viewer.data.address ? <p className="invoice-portal-header__address">{viewer.data.address}</p> : null}
-                  {viewer.data.clientName ? <p className="invoice-portal-header__client">{viewer.data.clientName}</p> : null}
-                </header>
-                <DocumentViewerInvoiceReadOnly data={viewer.data} overdueDays={viewer.overdue_days} />
+                <InvoiceClientFacing
+                  data={viewer.data}
+                  overdueDays={viewer.overdue_days}
+                  interactiveSchedule={false}
+                />
               </div>
             </div>
-          )}
+            )
+          })()}
 
           {viewer && !loading && viewer.type === 'bid_package' && (
             <div className="bid-portal bid-portal--page document-viewer-bid-wrap">

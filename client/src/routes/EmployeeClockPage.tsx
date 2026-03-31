@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { MapPin, Clock, AlertTriangle, ChevronRight, LogOut, Calendar } from 'lucide-react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import { api } from '@/api/client'
+import { settingsApi } from '@/api/settings'
 import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
 import type { JobGeofence, TimeEntry } from '@/types/global'
@@ -9,24 +10,13 @@ import type { Project, ProjectWorkType } from '@/types/global'
 import { WorkTypeIcon } from '@/components/projects/WorkTypeIcon'
 import { getWorkTypeStyle } from '@/components/projects/CustomWorkTypeColorPicker'
 import { dayjs } from '@/lib/date'
-
-function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
-function feetToMeters(feet: number) {
-  return feet * 0.3048
-}
+import {
+  createOutsideBoundaryTracker,
+  DEFAULT_CLOCK_OUT_TOLERANCE_MINUTES,
+  distanceMeters,
+  geofenceRadiusMeters,
+  isOutsideJobGeofence,
+} from '@/lib/geofenceAutoClockOut'
 
 function formatJobAddress(p: Project): string {
   const parts = [p.address_line_1, p.address_line_2, [p.city, p.state, p.postal_code].filter(Boolean).join(', ')].filter(Boolean)
@@ -73,6 +63,7 @@ export function EmployeeClockPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [workTypesList, setWorkTypesList] = useState<ProjectWorkType[]>([])
   const [workTypesLoading, setWorkTypesLoading] = useState(false)
+  const [clockOutToleranceMin, setClockOutToleranceMin] = useState(DEFAULT_CLOCK_OUT_TOLERANCE_MINUTES)
   const watchIdRef = useRef<number | null>(null)
 
   const displayName = employeeName ?? authEmployee?.name ?? 'Employee'
@@ -82,8 +73,7 @@ export function EmployeeClockPage() {
   const geofence = selectedJobId != null ? geofenceByJob[selectedJobId] ?? null : null
   const isInsideGeofence =
     location != null && geofence != null
-      ? distanceMeters(geofence.center_lat, geofence.center_lng, location.lat, location.lng) <=
-        (geofence.radius_unit === 'meters' ? geofence.radius_value : feetToMeters(geofence.radius_value))
+      ? distanceMeters(geofence.center_lat, geofence.center_lng, location.lat, location.lng) <= geofenceRadiusMeters(geofence)
       : null
 
   const clockedIn = !!activeEntry
@@ -116,6 +106,16 @@ export function EmployeeClockPage() {
       () => {},
       { enableHighAccuracy: true }
     )
+  }, [])
+
+  useEffect(() => {
+    settingsApi
+      .getSettings()
+      .then((r) => {
+        const t = r.geofence_defaults?.clock_out_tolerance_minutes
+        if (t != null && Number.isFinite(Number(t))) setClockOutToleranceMin(Number(t))
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -227,20 +227,36 @@ export function EmployeeClockPage() {
   }, [selectedJobId, step])
 
   useEffect(() => {
-    if (!activeEntry || !selectedJobId) return
-    const g = geofenceByJob[selectedJobId]
+    if (!activeEntry?.job_id || !navigator.geolocation) return
+    const g = geofenceByJob[activeEntry.job_id]
     if (!g) return
-    const radiusM = g.radius_unit === 'meters' ? g.radius_value : feetToMeters(g.radius_value)
-    const check = (lat: number, lng: number) => {
-      if (distanceMeters(g.center_lat, g.center_lng, lat, lng) > radiusM) {
+
+    const entryRef = { current: activeEntry }
+    entryRef.current = activeEntry
+    const geofenceRef = { current: g }
+    geofenceRef.current = g
+
+    const tracker = createOutsideBoundaryTracker({
+      toleranceMinutes: clockOutToleranceMin,
+      onFirstOutside: () => {
+        if (clockOutToleranceMin > 0) {
+          setMessage(`Outside jobsite — auto clock-out after ${clockOutToleranceMin} min.`)
+        }
+      },
+      onBackInside: () => setMessage(null),
+      onTrigger: (lat, lng) => {
+        const e = entryRef.current
+        const gf = geofenceRef.current
+        if (!e?.id || !gf?.id) return
         setMessage('Exited jobsite boundary — clocking out.')
         teamsApi.gpsClockOut
           .create({
-            employee_id: activeEntry.employee_id,
-            time_entry_id: activeEntry.id,
-            job_id: activeEntry.job_id,
+            employee_id: e.employee_id,
+            time_entry_id: e.id,
+            job_id: e.job_id,
             lat,
             lng,
+            geofence_id: gf.id,
           })
           .then(() => {
             setActiveEntry(null)
@@ -249,21 +265,32 @@ export function EmployeeClockPage() {
             setStep('jobs')
             setMessage(null)
           })
-          .catch(() => setMessage('Failed to clock out.'))
-      }
-    }
+          .catch(() => {
+            setMessage('Failed to clock out.')
+            tracker.reset()
+          })
+      },
+    })
+
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => check(pos.coords.latitude, pos.coords.longitude),
+      (pos) => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        const gf = geofenceRef.current
+        if (!gf) return
+        tracker.onPosition(lat, lng, isOutsideJobGeofence(lat, lng, gf))
+      },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 30000 }
+      { enableHighAccuracy: true, maximumAge: 10000 }
     )
     return () => {
+      tracker.reset()
       if (watchIdRef.current != null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
         watchIdRef.current = null
       }
     }
-  }, [activeEntry?.id, selectedJobId, geofenceByJob])
+  }, [activeEntry?.id, activeEntry?.job_id, geofenceByJob, clockOutToleranceMin])
 
   const handleSelectJob = (jobId: string) => {
     setSelectedJobId(jobId)

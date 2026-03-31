@@ -175,7 +175,8 @@ function ActiveReviewView({
   return (
     <>
       <EstimateClientFacingDocument
-        companyDisplayName={data.company?.trim() || 'Your Estimate'}
+        company={data.company}
+        companyDisplayName={data.company?.name?.trim() || data.gcName || 'Your Estimate'}
         portalDocumentKind={portalKind}
         estimateNumber={data.estimate_number}
         dateIssued={data.date_issued ?? data.sent_at}

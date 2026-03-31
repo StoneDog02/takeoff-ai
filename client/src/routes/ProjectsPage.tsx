@@ -43,10 +43,12 @@ import { formatDate, dayjs, formatRelative } from '@/lib/date'
 import { SetupWizard, SetupBanner, wizardStateFromProject } from '@/components/projects/NewProjectWizard'
 import {
   EstimateBuilderModal,
+  ESTIMATE_BUILDER_APP_DEFAULT_MARKUP_PCT,
   type PrefillClientInfo,
   type LineItem,
   type TakeoffPickItem,
 } from '@/components/estimates/EstimateBuilderModal'
+import { settingsApi } from '@/api/settings'
 import { CustomProductLibrary } from '@/components/estimates/CustomProductLibrary'
 import { type InitialEstimateLine } from '@/components/estimates/EstimateBuilder'
 import { estimatesApi, type EstimateWithLines } from '@/api/estimates'
@@ -330,6 +332,8 @@ export function ProjectsPage() {
   const [buildEstimateBidSheetFetched, setBuildEstimateBidSheetFetched] = useState(false)
   /** When set, Build Estimate opens in revise mode so saved lines load from the API (not bid-sheet prefill only). */
   const [buildEstimateLinkedEstimateId, setBuildEstimateLinkedEstimateId] = useState<string | null>(null)
+  /** Company Profile default markup % — loaded with bid sheet before Build Estimate modal mounts. */
+  const [buildEstimateMarkupSeed, setBuildEstimateMarkupSeed] = useState(ESTIMATE_BUILDER_APP_DEFAULT_MARKUP_PCT)
   const [showProductLibrary, setShowProductLibrary] = useState(false)
   /** Bid sheet for EstimatingWorkspace when project status is estimating (overview). */
   const [workspaceBidSheet, setWorkspaceBidSheet] = useState<BidSheet | null | undefined>(undefined)
@@ -861,18 +865,21 @@ export function ProjectsPage() {
     const emptySummary = { predicted_total: 0, actual_total: 0, profitability: 0 }
     let cancelled = false
     ;(async () => {
+      let markupSeed = ESTIMATE_BUILDER_APP_DEFAULT_MARKUP_PCT
       try {
         const results = await Promise.allSettled([
           api.projects.get(id),
           api.projects.getBidSheet(id),
           api.projects.getBudget(id),
           estimatesApi.getEstimates(id),
+          settingsApi.getSettings(),
         ])
         if (cancelled) return
         const projRes = results[0]
         const sheetRes = results[1]
         const budRes = results[2]
         const estRes = results[3]
+        const settingsRes = results[4]
         if (projRes.status === 'fulfilled' && projRes.value) {
           setProject(projRes.value)
         }
@@ -884,8 +891,17 @@ export function ProjectsPage() {
         if (estRes.status === 'fulfilled' && Array.isArray(estRes.value)) {
           setBuildEstimateLinkedEstimateId(pickPrimaryEstimateIdForBuild(estRes.value))
         }
+        if (settingsRes.status === 'fulfilled' && settingsRes.value?.company?.defaultEstimateMarkupPct != null) {
+          const m = Number(settingsRes.value.company.defaultEstimateMarkupPct)
+          if (Number.isFinite(m)) {
+            markupSeed = Math.min(500, Math.max(0, m))
+          }
+        }
       } finally {
-        if (!cancelled) setBuildEstimateBidSheetFetched(true)
+        if (!cancelled) {
+          setBuildEstimateMarkupSeed(markupSeed)
+          setBuildEstimateBidSheetFetched(true)
+        }
       }
     })()
     return () => {
@@ -4085,6 +4101,7 @@ export function ProjectsPage() {
           jobs={[]}
           projectId={project.id}
           prefillClientInfo={buildEstimatePrefillClientInfo ?? undefined}
+          initialMarkupPctSeed={buildEstimateMarkupSeed}
           initialBudgetLineItems={
             buildEstimateBlankMode || !(budget?.items && budget.items.length > 0)
               ? undefined

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
+import { settingsApi } from '@/api/settings'
 import { geofenceRadiusMeters } from '@/lib/geofenceUnits'
 import type { JobGeofence } from '@/types/global'
 import { AddressAutocompleteField } from './AddressAutocompleteField'
@@ -35,6 +36,20 @@ export function GeofenceConfig(props: GeofenceConfigProps = {}) {
   const [addressMessage, setAddressMessage] = useState<string | null>(null)
   /** When true, map allows dragging/clicking the pin; otherwise pan/zoom only until user chooses "Change pin location". */
   const [pinPlacementMode, setPinPlacementMode] = useState(false)
+  /** Account default from Settings → Geofence (meters); pre-fills new per-job geofence radius. */
+  const [defaultRadiusMeters, setDefaultRadiusMeters] = useState(100)
+
+  useEffect(() => {
+    settingsApi
+      .getSettings()
+      .then((res) => {
+        const m = res.geofence_defaults?.default_radius_meters
+        if (m != null && Number.isFinite(Number(m)) && Number(m) > 0) {
+          setDefaultRadiusMeters(Number(m))
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (projectId) {
@@ -80,12 +95,22 @@ export function GeofenceConfig(props: GeofenceConfigProps = {}) {
         center_lat: '',
         center_lng: '',
         radius_value: '',
-        radius_unit: 'feet',
+        radius_unit: 'meters',
       })
     }
     setAddressMessage(null)
     setPinPlacementMode(false)
   }, [selectedJobId, current?.id, jobs])
+
+  /** Apply account default radius when creating a new geofence (after settings load, without wiping pin). */
+  useEffect(() => {
+    if (current || !selectedJobId) return
+    setForm((f) => {
+      const rv = parseFloat(f.radius_value)
+      if (Number.isFinite(rv) && rv > 0) return f
+      return { ...f, radius_value: String(defaultRadiusMeters), radius_unit: 'meters' }
+    })
+  }, [defaultRadiusMeters, selectedJobId, current?.id])
 
   const hasCenter =
     Number.isFinite(parseFloat(form.center_lat)) && Number.isFinite(parseFloat(form.center_lng))
@@ -266,7 +291,7 @@ export function GeofenceConfig(props: GeofenceConfigProps = {}) {
           )}
           {hasCenter && !hasValidRadius && selectedJobId && (
             <p className="text-sm" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>
-              Enter a <strong>radius</strong> to save the geofence.
+              Enter a <strong>radius</strong> to save the geofence (default from Settings is pre-filled for new jobsites).
             </p>
           )}
           {current && (

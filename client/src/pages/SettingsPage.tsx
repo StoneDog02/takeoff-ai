@@ -6,9 +6,7 @@ import {
   Bell,
   MapPin,
   CreditCard,
-  Link2,
   Palette,
-  ClipboardList,
   Download,
   AlertTriangle,
   Gift,
@@ -20,6 +18,7 @@ import { UserRoleManagementSection } from '@/components/settings/UserRoleManagem
 import { NotificationPreferencesSection } from '@/components/settings/NotificationPreferencesSection'
 import { GeofenceDefaultsSection } from '@/components/settings/GeofenceDefaultsSection'
 import { BillingSection } from '@/components/settings/BillingSection'
+import { StripeElementsProvider } from '@/lib/stripe'
 import { IntegrationsSection } from '@/components/settings/IntegrationsSection'
 import { BrandingSection } from '@/components/settings/BrandingSection'
 import { TaxComplianceSection } from '@/components/settings/TaxComplianceSection'
@@ -54,12 +53,13 @@ const NAV: {
   { id: 'geofence', label: 'Geofence Defaults', Icon: MapPin, desc: 'GPS & boundaries' },
   { id: 'billing', label: 'Billing & Subscription', Icon: CreditCard, desc: 'Plan & usage' },
   { id: 'referrals', label: 'Referrals', Icon: Gift, desc: 'Share your code & earn credits' },
-  { id: 'integrations', label: 'Integrations', Icon: Link2, desc: 'Connected apps' },
   { id: 'branding', label: 'Branding', Icon: Palette, desc: 'Logo & colors' },
-  { id: 'tax', label: 'Tax & Compliance', Icon: ClipboardList, desc: 'Rates & license' },
   { id: 'export', label: 'Data & Export', Icon: Download, desc: 'Export your data' },
   { id: 'danger', label: 'Danger Zone', Icon: AlertTriangle, desc: 'Irreversible actions', danger: true },
 ]
+
+/** Sections not listed in the sidebar; still reachable via ?section= (e.g. integrations OAuth return, tax while WIP). */
+const SETTINGS_SECTION_IDS_HIDDEN_FROM_NAV: SettingsSectionId[] = ['integrations', 'tax']
 
 type MobileSettingsPanel = 'list' | 'detail'
 
@@ -90,7 +90,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const section = searchParams.get('section') as SettingsSectionId | null
-    if (section && NAV.some((n) => n.id === section)) {
+    const inNav = section && NAV.some((n) => n.id === section)
+    const hiddenOk = section && SETTINGS_SECTION_IDS_HIDDEN_FROM_NAV.includes(section)
+    if (section && (inNav || hiddenOk)) {
       setActive(section)
       if (window.matchMedia('(max-width: 767px)').matches) {
         setMobilePanel('detail')
@@ -115,7 +117,11 @@ export default function SettingsPage() {
       {active === 'users' && <UserRoleManagementSection />}
       {active === 'notifications' && <NotificationPreferencesSection />}
       {active === 'geofence' && <GeofenceDefaultsSection />}
-      {active === 'billing' && <BillingSection />}
+      {active === 'billing' && (
+        <StripeElementsProvider>
+          <BillingSection />
+        </StripeElementsProvider>
+      )}
       {active === 'referrals' && <ReferralWidget />}
       {active === 'integrations' && <IntegrationsSection />}
       {active === 'branding' && <BrandingSection />}
@@ -190,7 +196,7 @@ export default function SettingsPage() {
       {isMobile && mobilePanel === 'detail' && (
         <SettingsMobileNavContext.Provider value={{ onBack: backToList }}>
           {/* Single scroll: parent .content-wrap scrolls — avoid nested overflow + min-h-screen (100vh) which causes extra rubber-band past content on mobile */}
-          <div className="w-full px-4 py-5 md:hidden">{sectionContent}</div>
+          <div className="w-full min-w-0 px-4 py-5 md:hidden">{sectionContent}</div>
         </SettingsMobileNavContext.Provider>
       )}
 
@@ -294,7 +300,7 @@ export default function SettingsPage() {
           </aside>
 
           <div
-            className="min-h-0 flex-1 overflow-y-auto"
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto"
             style={{
               padding: '36px 48px',
             }}

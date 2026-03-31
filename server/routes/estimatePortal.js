@@ -12,6 +12,7 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 const { syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
+const { fetchPublicCompanyProfile } = require('../lib/publicCompanyProfile')
 
 /** When an estimate was created from “send change order”, mark that CO Approved (matches project). */
 async function markLinkedChangeOrderApproved(supabase, { estimateId, jobId, sourceChangeOrderId }) {
@@ -114,7 +115,12 @@ router.get('/:token', async (req, res, next) => {
       ? [project.address_line_1, project.address_line_2, project.city, project.state, project.postal_code].filter(Boolean).join(', ')
       : ''
     const clientName = (project && project.assigned_to_name) ? String(project.assigned_to_name).trim() : null
-    const gcName = 'Your contractor'
+    let gcName = 'Your contractor'
+    let company = null
+    if (est.user_id) {
+      company = await fetchPublicCompanyProfile(supabase, est.user_id)
+      if (company?.name) gcName = company.name
+    }
     const milestones = []
     if (Number(est.invoiced_amount) > 0) {
       milestones.push({ label: 'Invoiced to date', amount: Number(est.invoiced_amount) })
@@ -181,7 +187,7 @@ router.get('/:token', async (req, res, next) => {
       clientName,
       clientAddress: address,
       gcName,
-      company: null,
+      company,
       line_items: lineItems || [],
       total: totalAmount,
       invoiced_amount: Number(est.invoiced_amount) || 0,

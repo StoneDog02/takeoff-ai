@@ -21,6 +21,7 @@ import type {
   DailyLogRow,
   Employee,
   JobAssignment,
+  PortalCompanyInfo,
 } from '@/types/global'
 import { API_BASE } from '@/api/config'
 import { getSessionAuthHeaders } from '@/api/authHeaders'
@@ -1251,6 +1252,13 @@ export interface InvoicePortalScheduleRow {
   status: InvoicePortalScheduleStatus
 }
 
+export interface InvoicePortalBranding {
+  primaryColor: string
+  /** Section titles, eyebrow, notes headings; defaults to slate if omitted. */
+  secondaryColor?: string
+  invoiceTemplateStyle: 'standard' | 'minimal' | 'detailed'
+}
+
 export interface InvoicePortalResponse {
   invoice_id: string
   estimate_id?: string | null
@@ -1266,7 +1274,7 @@ export interface InvoicePortalResponse {
   address: string
   clientName: string | null
   gcName: string
-  company: string | null
+  company: PortalCompanyInfo | null
   invoice_kind: 'progress_series' | 'single'
   schedule_rows: InvoicePortalScheduleRow[]
   line_items: {
@@ -1280,6 +1288,8 @@ export interface InvoicePortalResponse {
   }[]
   notes: string | null
   terms: string | null
+  /** Saved in Settings → Branding; drives layout and accent on this page. */
+  branding?: InvoicePortalBranding | null
 }
 
 export interface EstimatePortalResponse {
@@ -1294,7 +1304,7 @@ export interface EstimatePortalResponse {
   clientName: string | null
   clientAddress?: string
   gcName: string
-  company: string | null
+  company: PortalCompanyInfo | null
   line_items: { id: string; description: string; quantity: number; unit: string; unit_price: number; total: number; section?: string | null }[]
   total: number
   invoiced_amount: number
@@ -1381,6 +1391,8 @@ export interface BidPortalResponse {
   gc_name: string | null
   /** Company contact email for scope questions (mailto); null if not configured */
   gc_email?: string | null
+  /** Logo + contact from Company Profile (same GC as gc_name) */
+  company?: PortalCompanyInfo | null
   trade_name: string
   sub_name: string
   dispatched_at: string | null

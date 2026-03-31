@@ -156,22 +156,39 @@ export function Btn({
   )
 }
 
-export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({
+  checked,
+  onChange,
+  disabled,
+  title,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  disabled?: boolean
+  /** Native tooltip (e.g. explain disabled state). */
+  title?: string
+}) {
   return (
     <div
-      onClick={() => onChange(!checked)}
+      title={title}
+      onClick={() => {
+        if (disabled) return
+        onChange(!checked)
+      }}
       style={{
         width: 40,
         height: 22,
         borderRadius: 11,
         background: checked ? '#b91c1c' : '#e2ddd6',
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
         position: 'relative',
         transition: 'background 0.2s',
         flexShrink: 0,
       }}
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled || undefined}
     >
       <div
         style={{

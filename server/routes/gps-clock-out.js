@@ -1,6 +1,7 @@
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { syncAttendanceFromTimeEntry } = require('../lib/syncAttendanceFromTimeEntry')
+const { notifyGpsClockOut } = require('../lib/eventNotificationEmails')
 
 const router = express.Router()
 
@@ -71,6 +72,21 @@ router.post('/', async (req, res, next) => {
         ...updatedEntry,
         hours: updatedEntry.hours ?? hours,
       })
+    }
+    const svc = defaultSupabase || supabase
+    if (svc && job_id && effectiveEmployeeId) {
+      const [{ data: proj }, { data: emp }] = await Promise.all([
+        svc.from('projects').select('user_id, name').eq('id', job_id).maybeSingle(),
+        svc.from('employees').select('name').eq('id', effectiveEmployeeId).maybeSingle(),
+      ])
+      if (proj?.user_id) {
+        void notifyGpsClockOut(svc, {
+          projectUserId: proj.user_id,
+          projectName: proj.name,
+          employeeName: emp?.name,
+          exitedAt: exitedAt,
+        })
+      }
     }
     res.status(201).json(log)
   } catch (err) {

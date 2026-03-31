@@ -10,6 +10,8 @@ const express = require('express')
 const multer = require('multer')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { syncPaperTrailFromSubBid } = require('../lib/paperTrailDocuments')
+const { companyRowToPublic } = require('../lib/publicCompanyProfile')
+const { notifyNewBidReceived } = require('../lib/eventNotificationEmails')
 
 const router = express.Router()
 
@@ -157,7 +159,13 @@ router.get('/portal/:token', async (req, res, next) => {
             .maybeSingle()
         : Promise.resolve({ data: null }),
       proj?.user_id
-        ? supabase.from('company_settings').select('name, email').eq('user_id', proj.user_id).maybeSingle()
+        ? supabase
+            .from('company_settings')
+            .select(
+              'name, logo_url, phone, email, website, license_number, address_line_1, address_line_2, city, state, postal_code'
+            )
+            .eq('user_id', proj.user_id)
+            .maybeSingle()
         : Promise.resolve({ data: null }),
     ])
 
@@ -173,7 +181,8 @@ router.get('/portal/:token', async (req, res, next) => {
       : ''
     const scope = Array.isArray(pkg?.line_items) ? pkg.line_items : []
     const project_name = proj?.name || ''
-    const gc_name = (companyRes?.data?.name && String(companyRes.data.name).trim()) || ''
+    const company = companyRowToPublic(companyRes?.data)
+    const gc_name = (company?.name && String(company.name).trim()) || ''
     const gc_email_raw = companyRes?.data?.email != null ? String(companyRes.data.email).trim() : ''
     const gc_email =
       gc_email_raw && /^[^\s@]+@[^\s@]+\.[^\s@]+/.test(gc_email_raw) ? gc_email_raw : ''
@@ -186,6 +195,7 @@ router.get('/portal/:token', async (req, res, next) => {
       project_address,
       gc_name: gc_name || null,
       gc_email: gc_email || null,
+      company,
       trade_name: tradeName,
       sub_name,
       dispatched_at,
@@ -301,6 +311,27 @@ async function handleRespond(req, res, next) {
     if (updateErr) throw updateErr
     const { data: updated } = await supabase.from('sub_bids').select('*').eq('id', bid.id).single()
     await syncPaperTrailFromSubBid(supabase, bid.id)
+    if (updated?.trade_package_id) {
+      const [{ data: pkg }, { data: sub }] = await Promise.all([
+        supabase.from('trade_packages').select('project_id, trade_tag').eq('id', updated.trade_package_id).maybeSingle(),
+        updated.subcontractor_id
+          ? supabase.from('subcontractors').select('name').eq('id', updated.subcontractor_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ])
+      const projectId = pkg?.project_id
+      if (projectId) {
+        const { data: proj } = await supabase.from('projects').select('user_id, name').eq('id', projectId).maybeSingle()
+        if (proj?.user_id) {
+          void notifyNewBidReceived(supabase, {
+            projectUserId: proj.user_id,
+            projectName: proj.name,
+            tradeName: pkg?.trade_tag,
+            subName: sub?.name,
+            bidAmount: bidAmount,
+          })
+        }
+      }
+    }
     return res.status(200).json(updated)
   } catch (err) {
     next(err)

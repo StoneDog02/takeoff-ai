@@ -498,6 +498,17 @@ export interface CompanyProfile {
   defaultEstimateMarkupPct?: number | null
 }
 
+/** Company branding returned by public token portals and document viewer (from Company Profile settings). */
+export interface PortalCompanyInfo {
+  name: string | null
+  logoUrl?: string | null
+  phone?: string | null
+  email?: string | null
+  website?: string | null
+  licenseNumber?: string | null
+  addressLine?: string | null
+}
+
 export type UserRole =
   | 'admin'
   | 'project_manager'
@@ -546,6 +557,8 @@ export type InvoiceTemplateStyle = 'standard' | 'minimal' | 'detailed'
 export interface Branding {
   logoUrl?: string
   primaryColor: string
+  /** Headings / typography accents on invoices (e.g. section titles). */
+  secondaryColor: string
   invoiceTemplateStyle: InvoiceTemplateStyle
 }
 
