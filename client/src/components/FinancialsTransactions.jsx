@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { getFinancialConnectionsStatus } from '@/api/financialConnections'
 import { useTransactions, EXPENSE_TYPES } from '@/hooks/useTransactions'
 import { formatCurrency } from '@/lib/pipeline'
 import { formatDate } from '@/lib/date'
+import { isStripeConfigured } from '@/lib/stripe'
 import { supabase } from '@/lib/supabaseClient'
 
 function maskAccount(accountId) {
@@ -29,6 +32,7 @@ const FILTER_TABS = [
 export function FinancialsTransactions() {
   const { user } = useAuth()
   const {
+    transactions,
     loading,
     loadError,
     jobs,
@@ -44,6 +48,48 @@ export function FinancialsTransactions() {
     setSaveError,
     savingId,
   } = useTransactions(user?.id)
+
+  const [bankLinkLoading, setBankLinkLoading] = useState(true)
+  const [hasLinkedBank, setHasLinkedBank] = useState(false)
+
+  const loadBankLinkStatus = useCallback(async () => {
+    if (!user || !supabase) {
+      setBankLinkLoading(false)
+      setHasLinkedBank(false)
+      return
+    }
+    setBankLinkLoading(true)
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        setHasLinkedBank(false)
+        return
+      }
+      const { accounts } = await getFinancialConnectionsStatus(session.access_token)
+      setHasLinkedBank((accounts?.length ?? 0) > 0)
+    } catch {
+      setHasLinkedBank(false)
+    } finally {
+      setBankLinkLoading(false)
+    }
+  }, [user])
+
+  useEffect(() => {
+    loadBankLinkStatus()
+  }, [loadBankLinkStatus])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') loadBankLinkStatus()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [loadBankLinkStatus])
+
+  const showLinkBankPrompt =
+    isStripeConfigured && !bankLinkLoading && !hasLinkedBank
 
   const [expandedId, setExpandedId] = useState(null)
   const [draft, setDraft] = useState({
@@ -133,6 +179,33 @@ export function FinancialsTransactions() {
           role="status"
         >
           Could not load transactions ({loadError}). Check your connection and try again.
+        </div>
+      ) : null}
+
+      {showLinkBankPrompt ? (
+        <div
+          className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--bg-raised)]/50 px-4 py-4 sm:px-5 sm:py-4"
+          role="region"
+          aria-label="Connect bank account"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
+                No bank linked yet
+              </h2>
+              <p className="mt-1.5 text-sm text-[var(--text-muted)] leading-relaxed">
+                {transactions.length === 0
+                  ? 'You don’t have any transaction data here yet. Link a business bank account to import transactions and track spending on this page.'
+                  : 'Link a business bank account to import new transactions automatically. You can still tag and manage entries already in Proj-X.'}
+              </p>
+            </div>
+            <Link
+              to="/settings?section=integrations"
+              className="shrink-0 inline-flex items-center justify-center rounded-lg bg-[var(--red)] hover:opacity-95 text-white text-sm font-medium px-4 py-2.5 whitespace-nowrap"
+            >
+              Link bank in Settings
+            </Link>
+          </div>
         </div>
       ) : null}
 
