@@ -33,7 +33,11 @@ export async function callEdgeFunctionJson<T = unknown>(
 ): Promise<{ data: T | null; errorMessage: string | null; httpStatus: number }> {
   const base = functionsBaseUrl()
   const anon = anonKey()
-  if ((!base && !import.meta.env.DEV) || !anon) {
+  // Same-origin `/functions/v1` (dev proxy or Netlify _redirects) uses empty `base`; only direct
+  // cross-origin calls need `VITE_SUPABASE_URL` for the request URL.
+  const sameOriginFunctions =
+    import.meta.env.DEV || import.meta.env.VITE_EDGE_FUNCTIONS_RELATIVE === 'true'
+  if (!anon || (!sameOriginFunctions && !projectUrl())) {
     return { data: null, errorMessage: 'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY', httpStatus: 0 }
   }
   if (!supabase) {
