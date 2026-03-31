@@ -4,9 +4,15 @@ function projectUrl(): string {
   return (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/$/, '') ?? ''
 }
 
-/** In Vite dev, use same-origin `/functions/v1/...` so the dev server can proxy to Supabase (avoids CORS "Failed to fetch"). */
+/**
+ * Base URL for Edge Function fetch calls.
+ * - Dev: same-origin `/functions/v1/...` (Vite proxy → Supabase).
+ * - Prod (Netlify): same-origin when `VITE_EDGE_FUNCTIONS_RELATIVE` is true — `dist/_redirects` proxies to Supabase (avoids CORS / SW "Failed to fetch").
+ * - Otherwise: direct `https://<project>.supabase.co` (requires browser → Supabase CORS to succeed).
+ */
 function functionsBaseUrl(): string {
   if (import.meta.env.DEV) return ''
+  if (import.meta.env.VITE_EDGE_FUNCTIONS_RELATIVE === 'true') return ''
   return projectUrl()
 }
 

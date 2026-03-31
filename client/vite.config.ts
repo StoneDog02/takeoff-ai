@@ -2,12 +2,20 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import fs from 'fs'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '')
   const supabaseOrigin = (env.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '')
+  /** Same-origin /functions/v1 + Netlify _redirects proxy (avoids prod CORS/SW "Failed to fetch"). */
+  const edgeFunctionsRelative =
+    env.VITE_EDGE_FUNCTIONS_RELATIVE === 'true' ||
+    (process.env.NETLIFY === 'true' && env.VITE_EDGE_FUNCTIONS_RELATIVE !== 'false')
 
   return {
+  define: {
+    'import.meta.env.VITE_EDGE_FUNCTIONS_RELATIVE': JSON.stringify(edgeFunctionsRelative ? 'true' : 'false'),
+  },
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
@@ -34,8 +42,9 @@ export default defineConfig(({ mode }) => {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           // Never cache Edge Functions (SW can break or mask failures; must always hit network).
+          // Matches both direct Supabase URLs and same-origin /functions/v1 (Netlify proxy).
           {
-            urlPattern: /^https:\/\/[^/]+\.supabase\.co\/functions\/v1\//,
+            urlPattern: /^https?:\/\/[^/]+\/functions\/v1\//,
             handler: 'NetworkOnly',
           },
           {
@@ -81,6 +90,29 @@ export default defineConfig(({ mode }) => {
         ],
       },
     }),
+    {
+      name: 'netlify-edge-functions-redirect',
+      closeBundle() {
+        if (mode !== 'production' || !supabaseOrigin) return
+        if (!edgeFunctionsRelative) return
+        const distDir = path.resolve(__dirname, 'dist')
+        const line = `/functions/v1/*  ${supabaseOrigin}/functions/v1/:splat  200\n`
+        const dest = path.join(distDir, '_redirects')
+        let existing = ''
+        try {
+          if (fs.existsSync(dest)) existing = fs.readFileSync(dest, 'utf8')
+        } catch (e) {
+          console.warn('[vite] Could not read dist/_redirects:', e)
+          return
+        }
+        if (existing.includes('/functions/v1/*')) return
+        try {
+          fs.writeFileSync(dest, line + existing, 'utf8')
+        } catch (e) {
+          console.warn('[vite] Could not write dist/_redirects for Edge Functions proxy:', e)
+        }
+      },
+    },
   ],
   envDir: path.resolve(__dirname, '..'),
   resolve: {
