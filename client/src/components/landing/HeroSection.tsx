@@ -125,16 +125,19 @@ export function HeroSection() {
           Trusted by 500+ Contractors
         </div>
         <h1 className="font-sora text-4xl md:text-6xl lg:text-7xl font-extrabold leading-none tracking-tight text-landing-white mb-6 animate-[fadeUp_0.8s_0.1s_ease_both]">
-          Construction management software
+          Build Smarter
           <br />
-          for GCs who build with{' '}
           <em className="not-italic text-accent-hover relative inline-block">
-            Proj-X
+            with Proj-X
             <span
               className="absolute bottom-1 left-0 right-0 h-0.5 rounded-sm opacity-40 bg-accent-hover"
               aria-hidden
             />
           </em>
+          <span className="sr-only">
+            {' '}
+            — construction management software for general contractors.
+          </span>
         </h1>
         <p className="text-lg font-light text-white-dim leading-relaxed max-w-[500px] mx-auto mb-12 animate-[fadeUp_0.8s_0.2s_ease_both]">
           From takeoffs to payroll, bids to job tracking — everything your crew needs to run jobs and grow revenue, without the chaos.
