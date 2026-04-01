@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs, formatDateTime } from '@/lib/date'
 import { TeamsAvatar, getInitials } from './TeamsAvatar'
+import { EditTimeEntryModal } from '@/components/teams/EditTimeEntryModal'
 
 interface ManHoursTabProps {
   onSelectEmployee?: (emp: Employee) => void
@@ -17,6 +18,9 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
   const [monthHoursByEmployee, setMonthHoursByEmployee] = useState<Record<string, number>>({})
   const [detailEntries, setDetailEntries] = useState<TimeEntry[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
+  const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
+  const [addForEmployeeId, setAddForEmployeeId] = useState<string | null>(null)
+  const [hoursRefreshKey, setHoursRefreshKey] = useState(0)
 
   const weekStart = dayjs().startOf('week').toISOString()
   const weekEnd = dayjs().endOf('week').toISOString()
@@ -51,7 +55,7 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [hoursRefreshKey])
 
   const selectedEmployee = selectedIndex !== null ? employees[selectedIndex] : null
 
@@ -68,7 +72,18 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
       .then(setDetailEntries)
       .catch(() => setDetailEntries([]))
       .finally(() => setDetailLoading(false))
-  }, [selectedEmployee?.id])
+  }, [selectedEmployee?.id, hoursRefreshKey])
+
+  const closeTimeEntryModal = useCallback(() => {
+    setEditEntry(null)
+    setAddForEmployeeId(null)
+  }, [])
+  const onTimeEntrySaved = useCallback(() => setHoursRefreshKey((k) => k + 1), [])
+  const openAddTimeEntry = useCallback(() => {
+    if (!selectedEmployee) return
+    setEditEntry(null)
+    setAddForEmployeeId(selectedEmployee.id)
+  }, [selectedEmployee])
 
   const totalWeek = Object.values(weekHoursByEmployee).reduce((s, h) => s + h, 0)
   const totalMonth = Object.values(monthHoursByEmployee).reduce((s, h) => s + h, 0)
@@ -134,16 +149,26 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
                     {(weekHoursByEmployee[selectedEmployee.id] ?? 0).toFixed(1)} hrs this week · YTD —
                   </div>
                 </div>
-                {onSelectEmployee && (
+                <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                   <button
                     type="button"
-                    className="teams-btn teams-btn-ghost"
-                    style={{ marginLeft: 'auto', fontSize: 11, padding: '7px 14px' }}
-                    onClick={() => onSelectEmployee(selectedEmployee)}
+                    className="teams-btn teams-btn-primary"
+                    style={{ fontSize: 11, padding: '7px 14px' }}
+                    onClick={openAddTimeEntry}
                   >
-                    Full Profile →
+                    Add time entry
                   </button>
-                )}
+                  {onSelectEmployee && (
+                    <button
+                      type="button"
+                      className="teams-btn teams-btn-ghost"
+                      style={{ fontSize: 11, padding: '7px 14px' }}
+                      onClick={() => onSelectEmployee(selectedEmployee)}
+                    >
+                      Full Profile →
+                    </button>
+                  )}
+                </div>
               </div>
               <table>
                 <thead>
@@ -153,13 +178,21 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
                     <th>Clock In</th>
                     <th>Clock Out</th>
                     <th>Hours</th>
+                    <th aria-label="Edit" />
                   </tr>
                 </thead>
                 <tbody>
                   {detailLoading ? (
-                    <tr><td colSpan={5} className="teams-cell-muted" style={{ padding: 24 }}>Loading…</td></tr>
+                    <tr><td colSpan={6} className="teams-cell-muted" style={{ padding: 24 }}>Loading…</td></tr>
                   ) : detailEntries.length === 0 ? (
-                    <tr><td colSpan={5} className="teams-cell-muted" style={{ padding: 24 }}>No entries this period.</td></tr>
+                    <tr>
+                      <td colSpan={6} className="teams-cell-muted" style={{ padding: 24 }}>
+                        <div style={{ marginBottom: 12 }}>No clock-ins in the last 7 days for this employee.</div>
+                        <button type="button" className="teams-btn teams-btn-primary" style={{ fontSize: 12 }} onClick={openAddTimeEntry}>
+                          Add time entry
+                        </button>
+                      </td>
+                    </tr>
                   ) : (
                     detailEntries.map((entry) => (
                       <tr key={entry.id}>
@@ -168,6 +201,19 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
                         <td><span className="teams-cell-muted">{formatDateTime(entry.clock_in)}</span></td>
                         <td><span className="teams-cell-muted">{entry.clock_out ? formatDateTime(entry.clock_out) : '—'}</span></td>
                         <td><span className="teams-cell-value">{entry.hours != null ? entry.hours : '—'}</span></td>
+                        <td>
+                          <button
+                            type="button"
+                            className="teams-btn teams-btn-ghost"
+                            style={{ fontSize: 11, padding: '6px 10px' }}
+                            onClick={() => {
+                              setAddForEmployeeId(null)
+                              setEditEntry(entry)
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -181,6 +227,19 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
           )}
         </div>
       </div>
+
+      <EditTimeEntryModal
+        entry={editEntry}
+        addForEmployeeId={addForEmployeeId}
+        employeeName={
+          selectedEmployee?.name ??
+          (editEntry ? (employees.find((e) => e.id === editEntry.employee_id)?.name ?? editEntry.employee_id) : '')
+        }
+        jobName={editEntry ? (jobMap.get(editEntry.job_id) ?? editEntry.job_id) : ''}
+        jobs={jobs}
+        onClose={closeTimeEntryModal}
+        onSaved={onTimeEntrySaved}
+      />
     </div>
   )
 }

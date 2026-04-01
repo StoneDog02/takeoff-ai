@@ -2,6 +2,7 @@ const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { syncAttendanceFromTimeEntry } = require('../lib/syncAttendanceFromTimeEntry')
 const { notifyClockInOut } = require('../lib/eventNotificationEmails')
+const { isEmployeePortalRequest } = require('../middleware/auth')
 
 /** Validate work type belongs to job (service client; avoids trusting client). */
 async function assertWorkTypeForJob(supabase, jobId, projectWorkTypeId) {
@@ -41,6 +42,16 @@ function computeHours(clockIn, clockOut) {
   const a = new Date(clockIn).getTime()
   const b = new Date(clockOut).getTime()
   return Math.round(((b - a) / (1000 * 60 * 60)) * 100) / 100
+}
+
+/** Attendance rows created by syncAttendanceFromTimeEntry match on employee_id + clock_in. */
+async function removeAttendanceMirroredFromEntry(supabase, entry) {
+  if (!supabase || !entry?.employee_id || !entry?.clock_in || !entry?.clock_out) return
+  await supabase
+    .from('attendance_records')
+    .delete()
+    .eq('employee_id', entry.employee_id)
+    .eq('clock_in', entry.clock_in)
 }
 
 router.get('/', async (req, res, next) => {
@@ -141,6 +152,86 @@ router.post('/', async (req, res, next) => {
     next(err)
   }
 })
+
+/**
+ * Contractor (PM/GC) adjusts clock in/out on an existing entry, including reopening a session
+ * (clock_out null) or closing it. Not available to employee-portal sessions.
+ * PUT is an alias of PATCH for environments that mishandle PATCH on /:id.
+ */
+async function patchOrPutTimeEntryById(req, res, next) {
+  try {
+    if (isEmployeePortalRequest(req)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const rw = req.supabase || defaultSupabase
+    if (!rw) return res.status(503).json({ error: 'Database not configured' })
+    const { clock_in, clock_out, source, project_work_type_id } = req.body || {}
+    const hasIn = clock_in !== undefined
+    const hasOut = clock_out !== undefined
+    if (!hasIn && !hasOut && project_work_type_id === undefined && source === undefined) {
+      return res.status(400).json({ error: 'No updates (clock_in, clock_out, source, or project_work_type_id)' })
+    }
+
+    const { data: entry, error: fetchErr } = await rw
+      .from('time_entries')
+      .select('*')
+      .eq('id', req.params.id)
+      .single()
+    if (fetchErr || !entry) return res.status(404).json({ error: 'Time entry not found' })
+
+    const nextClockIn = hasIn ? clock_in : entry.clock_in
+    let nextClockOut = hasOut ? clock_out : entry.clock_out
+    if (nextClockOut === '') nextClockOut = null
+
+    if (nextClockOut != null && new Date(nextClockOut) <= new Date(nextClockIn)) {
+      return res.status(400).json({ error: 'clock_out must be after clock_in' })
+    }
+
+    let resolvedWtId = entry.project_work_type_id
+    if (project_work_type_id !== undefined) {
+      if (project_work_type_id === null || project_work_type_id === '') {
+        resolvedWtId = null
+      } else {
+        try {
+          resolvedWtId = await assertWorkTypeForJob(rw, entry.job_id, project_work_type_id)
+        } catch (e) {
+          if (e.statusCode === 400) return res.status(400).json({ error: e.message })
+          throw e
+        }
+      }
+    }
+
+    const timesChanged = hasIn || hasOut
+    if (entry.clock_out && timesChanged) {
+      await removeAttendanceMirroredFromEntry(rw, entry)
+    }
+
+    const updates = {}
+    if (hasIn) updates.clock_in = nextClockIn
+    if (hasOut) updates.clock_out = nextClockOut
+    if (timesChanged) {
+      updates.hours = nextClockOut ? computeHours(nextClockIn, nextClockOut) : null
+      if (hasOut && nextClockOut == null) updates.gps_clock_out_log_id = null
+    }
+    if (source !== undefined) updates.source = source
+    if (project_work_type_id !== undefined) updates.project_work_type_id = resolvedWtId
+
+    const { data, error } = await rw.from('time_entries').update(updates).eq('id', req.params.id).select().single()
+    if (error) throw error
+    const row = { ...data, hours: data.hours ?? computeHours(data.clock_in, data.clock_out) }
+
+    if (row.clock_out && timesChanged) {
+      await syncAttendanceFromTimeEntry(rw, row)
+    }
+
+    res.json(row)
+  } catch (err) {
+    next(err)
+  }
+}
+
+router.patch('/:id', patchOrPutTimeEntryById)
+router.put('/:id', patchOrPutTimeEntryById)
 
 router.patch('/:id/clock-out', async (req, res, next) => {
   try {

@@ -6509,8 +6509,23 @@ body {
   font-family: inherit;
   transition: border-color 0.15s;
 }
+/* Time entry modal: .dashboard-app is only for form tokens; do not stretch to full viewport */
+.dashboard-app.time-entry-modal-panel {
+  min-height: 0;
+  max-height: min(90dvh, calc(100vh - 32px));
+  overflow-y: auto;
+  align-self: center;
+  background: var(--bg-surface);
+}
+
 .dashboard-app .teams-input:focus,
 .dashboard-app .teams-select:focus { outline: none; border-color: var(--red-border); }
+.dashboard-app .teams-input[type="datetime-local"],
+.dashboard-app .teams-input[type="date"],
+.dashboard-app .teams-input[type="time"] {
+  min-height: 40px;
+  box-sizing: border-box;
+}
 .dashboard-app .teams-btn { padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; border: 1px solid transparent; transition: all 0.12s; }
 .dashboard-app .teams-btn-primary { background: var(--red); color: #fff; }
 .dashboard-app .teams-btn-primary:hover { background: var(--red-mid); }

@@ -3,6 +3,7 @@ import { teamsApi } from '@/api/teams'
 import { api } from '@/api/client'
 import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs, formatDateTime } from '@/lib/date'
+import { EditTimeEntryModal } from '@/components/teams/EditTimeEntryModal'
 
 export function ManHoursLog() {
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -16,6 +17,7 @@ export function ManHoursLog() {
     clock_out: '',
   })
   const [submitting, setSubmitting] = useState(false)
+  const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -131,11 +133,12 @@ export function ManHoursLog() {
               <th>Clock out</th>
               <th>Hours</th>
               <th>Source</th>
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="timeline-val">Loading…</td></tr>
+              <tr><td colSpan={7} className="timeline-val">Loading…</td></tr>
             ) : (
               entries.map((entry) => (
                 <tr key={entry.id}>
@@ -145,6 +148,11 @@ export function ManHoursLog() {
                   <td className="timeline-val">{entry.clock_out ? formatDateTime(entry.clock_out) : '—'}</td>
                   <td className="budget-val">{entry.hours != null ? `${entry.hours} hrs` : '—'}</td>
                   <td className="timeline-val">{entry.source}</td>
+                  <td>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditEntry(entry)}>
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -154,6 +162,15 @@ export function ManHoursLog() {
           <p style={{ padding: 16, color: 'var(--text-muted)' }}>No time entries yet.</p>
         )}
       </div>
+
+      <EditTimeEntryModal
+        entry={editEntry}
+        employeeName={editEntry ? (employeeMap.get(editEntry.employee_id)?.name ?? editEntry.employee_id) : ''}
+        jobName={editEntry ? (jobMap.get(editEntry.job_id)?.name ?? editEntry.job_id) : ''}
+        jobs={jobs}
+        onClose={() => setEditEntry(null)}
+        onSaved={load}
+      />
     </div>
   )
 }

@@ -180,6 +180,25 @@ export const teamsApi = {
       })
       return handleResponse<TimeEntry>(res)
     },
+    /** Contractor portal: adjust clock in/out, reopen session (clock_out null), or close an open entry. */
+    async update(
+      id: string,
+      body: {
+        clock_in?: string
+        clock_out?: string | null
+        source?: TimeEntry['source']
+        project_work_type_id?: string | null
+      }
+    ): Promise<TimeEntry> {
+      const headers = await getAuthHeaders()
+      // PUT matches PATCH on server; some deployments only had older routes without PATCH /:id
+      const res = await fetch(`${API_BASE}/time-entries/${id}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      return handleResponse<TimeEntry>(res)
+    },
   },
 
   attendance: {
