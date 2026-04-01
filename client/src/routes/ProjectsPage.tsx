@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/api/client'
@@ -35,6 +35,7 @@ import { EstimatingWorkspace } from '@/components/projects/EstimatingWorkspace'
 import { WorkTypesTab } from '@/components/projects/WorkTypesTab'
 import { ProjectCrewTab } from '@/components/projects/ProjectCrewTab'
 import { DailyLogTab } from '@/components/projects/DailyLogTab'
+import { GeofenceTab } from '@/components/teams/GeofenceTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
 import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeleteProjectModal'
 import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
@@ -61,6 +62,11 @@ import {
   isPhasePaymentPromptDismissed,
   formatPhasePaymentUsd,
 } from '@/lib/phasePaymentRequest'
+import { ViewportTooltip } from '@/components/settings/ViewportTooltip'
+
+/** Shown on hover for project detail tabs that are locked until the estimate is accepted / job exists. */
+const PROJECT_TAB_LOCKED_ESTIMATE_TOOLTIP =
+  'Unavailable until the estimate is accepted and the project is activated as a job.'
 
 const OVERVIEW_ESTIMATE_KEY_TO_LABEL: Record<string, string> = {
   labor: 'Labor',
@@ -152,12 +158,12 @@ export interface NewProjectFormData {
   assigned_to_name?: string
 }
 
-const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'geofence', 'budget', 'schedule', 'takeoff', 'bidsheet', 'documents'] as const
+const DETAIL_TAB_IDS = ['overview', 'worktypes', 'crew', 'dailylog', 'geofence', 'budget', 'schedule', 'takeoff', 'bidsheet', 'documents'] as const
 type DetailTabId = (typeof DETAIL_TAB_IDS)[number]
 const DETAIL_TAB_GROUP_STORAGE_KEY = 'projects:detail-tab-group'
 /** Office group includes takeoff/documents for URL/state sync; tab bar only shows `officeTabs` (no dedicated Takeoff tab). */
 const OFFICE_TAB_IDS: DetailTabId[] = ['overview', 'budget', 'schedule', 'worktypes', 'takeoff', 'documents']
-const FIELD_TAB_IDS: DetailTabId[] = ['geofence', 'crew', 'bidsheet']
+const FIELD_TAB_IDS: DetailTabId[] = ['dailylog', 'geofence', 'crew', 'bidsheet']
 
 const PIPELINE_COLUMNS = [
   { key: 'estimating', label: 'Estimating', dotColor: '#6b7280', barColor: '#6b7280' },
@@ -2283,7 +2289,8 @@ export function ProjectsPage() {
     { id: 'worktypes' as const, label: 'Work Types & Pay' },
   ]
   const fieldTabs = [
-    { id: 'geofence' as const, label: 'Daily Log' },
+    { id: 'dailylog' as const, label: 'Daily Log' },
+    { id: 'geofence' as const, label: 'Geofence' },
     { id: 'crew' as const, label: 'Crew' },
     { id: 'bidsheet' as const, label: 'Bid Sheet' },
   ]
@@ -2637,16 +2644,24 @@ export function ProjectsPage() {
             {tabs.map((tab) => {
               const isEstimating = project?.status === 'estimating'
               const tabDisabledWhenEstimating = isEstimating && ['worktypes', 'crew', 'budget', 'schedule'].includes(tab.id)
-              return (
+              const tabButton = (
                 <button
-                  key={tab.id}
                   type="button"
+                  aria-disabled={tabDisabledWhenEstimating}
                   onClick={() => { if (!tabDisabledWhenEstimating) setActiveTab(tab.id) }}
                   className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''} ${tabDisabledWhenEstimating ? 'project-overview-tab--disabled' : ''}`}
-                  title={tabDisabledWhenEstimating ? 'Available after job is created' : undefined}
                 >
                   {tab.label}
                 </button>
+              )
+              return (
+                <Fragment key={tab.id}>
+                  {tabDisabledWhenEstimating ? (
+                    <ViewportTooltip label={PROJECT_TAB_LOCKED_ESTIMATE_TOOLTIP}>{tabButton}</ViewportTooltip>
+                  ) : (
+                    tabButton
+                  )}
+                </Fragment>
               )
             })}
           </nav>
@@ -2940,16 +2955,24 @@ export function ProjectsPage() {
           {tabs.map((tab) => {
             const isEstimating = project?.status === 'estimating'
             const tabDisabledWhenEstimating = isEstimating && ['worktypes', 'crew', 'budget', 'schedule'].includes(tab.id)
-            return (
+            const tabButton = (
               <button
-                key={tab.id}
                 type="button"
+                aria-disabled={tabDisabledWhenEstimating}
                 onClick={() => { if (!tabDisabledWhenEstimating) setActiveTab(tab.id) }}
                 className={`project-overview-tab ${activeTab === tab.id ? 'active' : ''} ${tabDisabledWhenEstimating ? 'project-overview-tab--disabled' : ''}`}
-                title={tabDisabledWhenEstimating ? 'Available after job is created' : undefined}
               >
                 {tab.label}
               </button>
+            )
+            return (
+              <Fragment key={tab.id}>
+                {tabDisabledWhenEstimating ? (
+                  <ViewportTooltip label={PROJECT_TAB_LOCKED_ESTIMATE_TOOLTIP}>{tabButton}</ViewportTooltip>
+                ) : (
+                  tabButton
+                )}
+              </Fragment>
             )
           })}
         </nav>
@@ -3151,16 +3174,31 @@ export function ProjectsPage() {
             <div className="project-overview-card">
               <div className="flex justify-between items-start mb-0">
                 <div className="project-overview-card-title">Budget vs Actual</div>
-                <button
-                  type="button"
-                  className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
-                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
-                  disabled={project.status === 'estimating'}
-                  title={project.status === 'estimating' ? 'Available after job is created' : 'Open Change Orders'}
-                  onClick={() => { if (project.status !== 'estimating') setActiveTab('budget') }}
-                >
-                  Full breakdown →
-                </button>
+                {project.status === 'estimating' ? (
+                  <ViewportTooltip label={PROJECT_TAB_LOCKED_ESTIMATE_TOOLTIP}>
+                    <span style={{ display: 'inline-flex' }}>
+                      <button
+                        type="button"
+                        className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+                        disabled
+                        aria-disabled
+                      >
+                        Full breakdown →
+                      </button>
+                    </span>
+                  </ViewportTooltip>
+                ) : (
+                  <button
+                    type="button"
+                    className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                    style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+                    title="Open Change Orders"
+                    onClick={() => { setActiveTab('budget') }}
+                  >
+                    Full breakdown →
+                  </button>
+                )}
               </div>
               <div className="flex justify-between items-center mb-4">
                 <div>
@@ -3427,16 +3465,31 @@ export function ProjectsPage() {
             <div className="project-overview-card w-full min-w-0">
               <div className="project-overview-card-header">
                 <span className="project-overview-card-header-title">Budget vs actual</span>
-                <button
-                  type="button"
-                  className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
-                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
-                  disabled={project.status === 'estimating'}
-                  title={project.status === 'estimating' ? 'Available after job is created' : 'Open Change Orders'}
-                  onClick={() => { if (project.status !== 'estimating') setActiveTab('budget') }}
-                >
-                  Full breakdown →
-                </button>
+                {project.status === 'estimating' ? (
+                  <ViewportTooltip label={PROJECT_TAB_LOCKED_ESTIMATE_TOOLTIP}>
+                    <span style={{ display: 'inline-flex' }}>
+                      <button
+                        type="button"
+                        className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+                        disabled
+                        aria-disabled
+                      >
+                        Full breakdown →
+                      </button>
+                    </span>
+                  </ViewportTooltip>
+                ) : (
+                  <button
+                    type="button"
+                    className="project-overview-card-action shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+                    style={{ background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+                    title="Open Change Orders"
+                    onClick={() => { setActiveTab('budget') }}
+                  >
+                    Full breakdown →
+                  </button>
+                )}
               </div>
               <div className="project-overview-card-body">
               <div className="flex justify-between items-center mb-4">
@@ -3777,9 +3830,25 @@ export function ProjectsPage() {
         </section>
       )}
 
-      {activeTab === 'geofence' && project && (
+      {activeTab === 'dailylog' && project && (
         <section className="w-full min-w-0 px-8 py-6">
           <DailyLogTab projectId={project.id} projectName={project.name} phases={phases} />
+        </section>
+      )}
+
+      {activeTab === 'geofence' && project && (
+        <section className="w-full min-w-0 px-8 py-6">
+          <GeofenceTab
+            projectId={project.id}
+            projectName={project.name}
+            projectAddress={[
+              project.address_line_1,
+              project.address_line_2,
+              [project.city, project.state, project.postal_code].filter(Boolean).join(' '),
+            ]
+              .filter(Boolean)
+              .join(', ')}
+          />
         </section>
       )}
 
