@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RootLayout } from '@/components/Layout'
 import { AdminGuard } from '@/components/AdminGuard'
+import { RouteErrorPage } from '@/components/RouteErrorPage'
 
 /** Code-split: one async chunk per layout / page to keep the entry bundle small. */
 const PortalLayout = lazy(() =>
@@ -101,6 +102,7 @@ const MessagesPage = lazy(() =>
 export const router = createBrowserRouter([
   {
     element: <PortalLayout />,
+    errorElement: <RouteErrorPage />,
     children: [
       { path: '/bid/:token', element: <BidPortal /> },
       { path: '/estimate/:token', element: <EstimatePortal /> },
@@ -110,6 +112,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <RootLayout />,
+    errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <LandingPage /> },
       { path: 'landing', element: <LandingPage /> },
