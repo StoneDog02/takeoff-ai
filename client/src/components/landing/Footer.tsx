@@ -36,8 +36,9 @@ export function Footer() {
               Proj-X
             </span>
           </Link>
-          <p className="text-sm text-white-dim leading-relaxed mt-3.5 max-w-[220px]">
-            Upload plans. Get material lists. Build with confidence. Trusted by 500+ contractors.
+          <p className="text-sm text-white-dim leading-relaxed mt-3.5 max-w-[260px]">
+            The construction software built for how GCs actually work. Upload plans, run jobs, and grow with
+            confidence — trusted by 500+ contractors.
           </p>
           <div className="flex gap-2 mt-5">
             {['f', '𝕏', 'in', '▶'].map((c) => (

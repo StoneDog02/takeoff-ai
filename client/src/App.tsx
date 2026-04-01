@@ -117,6 +117,9 @@ export const router = createBrowserRouter([
       { path: 'terms', element: <TermsPage /> },
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'signup', element: <Navigate to="/sign-up" replace /> },
+      { path: 'features', element: <Navigate to={{ pathname: '/', hash: 'features' }} replace /> },
+      { path: 'pricing', element: <Navigate to={{ pathname: '/', hash: 'pricing' }} replace /> },
       { path: 'auth/callback', element: <AuthCallbackPage /> },
       { path: 'accept-invite', element: <AcceptInvitePage /> },
       {

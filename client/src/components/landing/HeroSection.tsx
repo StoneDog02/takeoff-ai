@@ -125,10 +125,11 @@ export function HeroSection() {
           Trusted by 500+ Contractors
         </div>
         <h1 className="font-sora text-4xl md:text-6xl lg:text-7xl font-extrabold leading-none tracking-tight text-landing-white mb-6 animate-[fadeUp_0.8s_0.1s_ease_both]">
-          Build Smarter
+          Construction management software
           <br />
+          for GCs who build with{' '}
           <em className="not-italic text-accent-hover relative inline-block">
-            with Proj-X
+            Proj-X
             <span
               className="absolute bottom-1 left-0 right-0 h-0.5 rounded-sm opacity-40 bg-accent-hover"
               aria-hidden

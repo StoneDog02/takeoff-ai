@@ -6,6 +6,7 @@ import { LandingNav } from '@/components/landing/LandingNav'
 import { HeroSection } from '@/components/landing/HeroSection'
 import { TrustedBySection } from '@/components/landing/TrustedBySection'
 import { InstantTakeoffSection } from '@/components/landing/InstantTakeoffSection'
+import { FeaturesSection } from '@/components/landing/FeaturesSection'
 import { StatsSection } from '@/components/landing/StatsSection'
 import { PricingSection } from '@/components/landing/PricingSection'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
@@ -28,6 +29,7 @@ export function LandingPage() {
       <HeroSection />
       <TrustedBySection />
       <InstantTakeoffSection />
+      <FeaturesSection />
       <StatsSection />
       <PricingSection />
       <TestimonialsSection />

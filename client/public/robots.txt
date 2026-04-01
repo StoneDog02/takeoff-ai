@@ -1,0 +1,28 @@
+User-agent: *
+Allow: /
+
+Disallow: /dashboard
+Disallow: /projects
+Disallow: /settings
+Disallow: /financials
+Disallow: /accounting
+Disallow: /documents
+Disallow: /payroll
+Disallow: /teams
+Disallow: /directory
+Disallow: /takeoff
+Disallow: /build-lists
+Disallow: /employee
+Disallow: /admin
+Disallow: /auth/
+Disallow: /accept-invite
+Disallow: /bid/
+Disallow: /estimate/
+Disallow: /invoice/
+Disallow: /revenue
+Disallow: /contractors
+Disallow: /messages
+Disallow: /estimates
+Disallow: /api/
+
+Sitemap: https://projxmanager.com/sitemap.xml

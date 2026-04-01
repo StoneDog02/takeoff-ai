@@ -5,7 +5,7 @@ export function FeaturesSection() {
       featured: true,
       icon: '📋',
       title: 'Material Takeoffs',
-      desc: 'Upload your plans and get an accurate, itemized material list in minutes. No more manual counting or costly estimation errors—focus on building, not spreadsheets.',
+      desc: 'Upload your plans and get accurate construction estimates and an itemized material list in minutes. No more manual counting or costly estimation errors—focus on building, not spreadsheets.',
       extra: (
         <div className="mt-5 flex flex-col gap-1.5">
           {[
@@ -30,7 +30,7 @@ export function FeaturesSection() {
       featured: false,
       icon: '📄',
       title: 'Bid Sheet Builder',
-      desc: 'Generate professional cost breakdowns from your takeoff list. Present clear, itemized proposals to homeowners in minutes—no more back-and-forth.',
+      desc: 'Generate professional cost breakdowns from your takeoff list and line them up with project invoicing. Present clear, itemized proposals to homeowners in minutes—no more back-and-forth.',
       revealDelay: 'reveal-delay-1',
     },
     {
@@ -38,7 +38,7 @@ export function FeaturesSection() {
       featured: false,
       icon: '📤',
       title: 'Sub Bids',
-      desc: 'Keep your subcontractor list in one place. Send plans out for bids simultaneously—all automated from your takeoff so subs get what they need fast.',
+      desc: 'Subcontractor bid management in one place: keep your sub list organized, send plans out for bids simultaneously, and automate packages from your takeoff so subs get what they need fast.',
       revealDelay: 'reveal-delay-2',
     },
     {
@@ -46,7 +46,7 @@ export function FeaturesSection() {
       featured: false,
       icon: '💬',
       title: 'Communication Portal',
-      desc: 'One hub for GC-to-homeowner and GC-to-subcontractor communication. Keep every conversation in context so nothing gets lost in email or texts.',
+      desc: 'One hub for GC-to-homeowner and GC-to-sub communication, daily logs, and field reporting. Keep every conversation and site note in context so nothing gets lost in email or texts.',
       revealDelay: '',
     },
     {
@@ -54,7 +54,7 @@ export function FeaturesSection() {
       featured: false,
       icon: '📊',
       title: 'Job Tracking & Profitability',
-      desc: 'See all active jobs at a glance with status, timelines, and key details. Track job profitability in real time—estimated vs. actual costs and margins—so you know where you stand on every project.',
+      desc: 'See all active jobs at a glance with crew management, status, and timelines. Track job profitability in real time—estimated vs. actual costs and margins—so you know where you stand on every project.',
       extra: (
         <div className="mt-5 flex flex-col gap-1.5">
           <div className="flex items-center justify-between py-2 px-3 bg-light-bg-2 rounded-md text-xs">
@@ -72,7 +72,7 @@ export function FeaturesSection() {
   ]
 
   return (
-    <section id="features" className="w-full bg-light-bg py-[120px] px-6 md:px-12">
+    <section id="platform-capabilities" className="w-full bg-light-bg py-[120px] px-6 md:px-12">
       <div className="max-w-[1200px] mx-auto">
         <div className="mb-16 reveal">
           <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-accent block mb-3">

@@ -1,19 +1,13 @@
-/** Shown after an em dash or middle dot in tab titles: "Dashboard · Proj-X" */
-export const APP_TAB_NAME = 'Proj-X'
-
-/** Landing / marketing pages — short, scannable (avoid long em-dash taglines in every tab). */
-export const LANDING_DOCUMENT_TITLE = 'Proj-X · Takeoffs & job management'
-
-const SEP = ' · '
+/** Appended to every route-specific tab title after a pipe. */
+export const DOCUMENT_TITLE_SUFFIX = ' | Proj-X – Construction Management Software'
 
 /**
- * Browser tab title for the current path. Pattern: "{context} · Proj-X" so tabs stay
- * distinct and support metadata (e.g. support page_title) stays readable.
+ * Browser tab title: "[Page Name] | Proj-X – Construction Management Software"
  */
 export function getDocumentTitle(pathname: string, _search: string = ''): string {
   const p = pathname.replace(/\/$/, '') || '/'
 
-  if (p === '/' || p === '/landing') return LANDING_DOCUMENT_TITLE
+  if (p === '/' || p === '/landing') return `Home${DOCUMENT_TITLE_SUFFIX}`
 
   const map: Record<string, string> = {
     '/privacy': 'Privacy',
@@ -43,17 +37,18 @@ export function getDocumentTitle(pathname: string, _search: string = ''): string
     '/employee/clock': 'Clock',
     '/employee/hours': 'My hours',
     '/employee/jobs': 'My jobs',
+    '/employee/daily-logs': 'Daily logs',
     '/employee/messages': 'Messages',
     '/employee/profile': 'Profile',
   }
 
-  if (map[p]) return `${map[p]}${SEP}${APP_TAB_NAME}`
+  if (map[p]) return `${map[p]}${DOCUMENT_TITLE_SUFFIX}`
 
-  if (p.startsWith('/projects/')) return `Project${SEP}${APP_TAB_NAME}`
-  if (p.startsWith('/build-lists/')) return `Build list${SEP}${APP_TAB_NAME}`
-  if (p.startsWith('/bid/')) return `Bid portal${SEP}${APP_TAB_NAME}`
-  if (p.startsWith('/estimate/')) return `Estimate${SEP}${APP_TAB_NAME}`
-  if (p.startsWith('/invoice/')) return `Invoice${SEP}${APP_TAB_NAME}`
+  if (p.startsWith('/projects/')) return `Project${DOCUMENT_TITLE_SUFFIX}`
+  if (p.startsWith('/build-lists/')) return `Build list${DOCUMENT_TITLE_SUFFIX}`
+  if (p.startsWith('/bid/')) return `Bid portal${DOCUMENT_TITLE_SUFFIX}`
+  if (p.startsWith('/estimate/')) return `Estimate${DOCUMENT_TITLE_SUFFIX}`
+  if (p.startsWith('/invoice/')) return `Invoice${DOCUMENT_TITLE_SUFFIX}`
 
-  return APP_TAB_NAME
+  return `App${DOCUMENT_TITLE_SUFFIX}`
 }

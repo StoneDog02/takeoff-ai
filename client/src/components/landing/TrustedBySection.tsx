@@ -21,6 +21,10 @@ export function TrustedBySection() {
           title="Trusted by teams at"
           items={DEFAULT_COMPANIES}
         />
+        <p className="mt-10 max-w-[720px] mx-auto text-center text-[15px] md:text-base text-white-dim leading-relaxed">
+          Proj-X is a Buildertrend alternative, Procore alternative, and Raken alternative built for modern
+          general contractors.
+        </p>
       </div>
     </section>
   )

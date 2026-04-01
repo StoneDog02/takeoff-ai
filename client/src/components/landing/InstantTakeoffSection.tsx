@@ -145,7 +145,9 @@ export function InstantTakeoffSection() {
           in <em>Minutes.</em>
         </h2>
         <p className="takeoff-section-copy-body">
-          Proj-X reads your blueprints and generates a complete, itemized material list automatically. No more days lost to manual counting. No more costly estimate errors. Just accurate takeoffs, fast.
+          Proj-X reads your blueprints and turns them into construction estimates and a complete, itemized material
+          list automatically. No more days lost to manual counting. No more costly estimate errors. Just accurate
+          takeoffs, fast.
         </p>
         <div className="takeoff-section-stats-row">
           <div className="takeoff-section-stat">
