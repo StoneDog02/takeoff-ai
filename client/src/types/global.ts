@@ -279,6 +279,8 @@ export interface SubBid {
   availability?: string | null
   /** PDF or file URL from portal bid submission. */
   quote_url?: string | null
+  /** Required portal uploads: W-9, license, workers comp, liability, contingency — public URLs. */
+  compliance_documents?: Record<string, string> | null
   awarded?: boolean
   /** Set when bid is dispatched; used for sub portal link /bid/[token]. */
   portal_token?: string | null

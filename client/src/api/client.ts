@@ -1180,12 +1180,30 @@ export const api = {
       const res = await fetch(`${API_BASE}/bids/portal/${encodeURIComponent(token)}/viewed`, { method: 'PATCH' })
       if (!res.ok) throw new Error(res.status === 404 ? 'Invalid or expired link' : 'Request failed')
     },
-    async submitBid(token: string, payload: { amount: number; notes?: string; availability?: string; quoteFile?: File }): Promise<void> {
+    async submitBid(
+      token: string,
+      payload: {
+        amount: number
+        notes?: string
+        availability?: string
+        quoteFile?: File
+        w9File: File
+        licenseFile: File
+        workersCompFile: File
+        liabilityInsuranceFile: File
+        contingencyFile: File
+      }
+    ): Promise<void> {
       const form = new FormData()
       form.append('amount', String(payload.amount))
       if (payload.notes != null) form.append('notes', payload.notes)
       if (payload.availability != null) form.append('availability', payload.availability)
       if (payload.quoteFile) form.append('quoteFile', payload.quoteFile)
+      form.append('w9File', payload.w9File)
+      form.append('licenseFile', payload.licenseFile)
+      form.append('workersCompFile', payload.workersCompFile)
+      form.append('liabilityInsuranceFile', payload.liabilityInsuranceFile)
+      form.append('contingencyFile', payload.contingencyFile)
       const res = await fetch(`${API_BASE}/bids/portal/${encodeURIComponent(token)}/respond`, {
         method: 'POST',
         body: form,
@@ -1412,6 +1430,8 @@ export interface BidPortalResponse {
   notes: string | null
   availability?: string | null
   attachment_url?: string | null
+  /** Submitted compliance file URLs when bid already received (same shape as DB). */
+  compliance_documents?: Record<string, string>
   responded_at?: string | null
   /** In-app viewer: project was cancelled (public portal would 410) */
   project_cancelled?: boolean

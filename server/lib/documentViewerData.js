@@ -374,7 +374,7 @@ async function buildBidViewer(supabase, userId, subBidId) {
   const { data: bid, error: bidErr } = await supabase
     .from('sub_bids')
     .select(
-      'id, trade_package_id, subcontractor_id, amount, notes, availability, quote_url, awarded, response_status, responded_at, dispatched_at, response_deadline, portal_token'
+      'id, trade_package_id, subcontractor_id, amount, notes, availability, quote_url, compliance_documents, awarded, response_status, responded_at, dispatched_at, response_deadline, portal_token'
     )
     .eq('id', subBidId)
     .maybeSingle()
@@ -460,6 +460,8 @@ async function buildBidViewer(supabase, userId, subBidId) {
     notes: bid.notes || null,
     availability: bid.availability || null,
     attachment_url: bid.quote_url || null,
+    compliance_documents:
+      bid.compliance_documents && typeof bid.compliance_documents === 'object' ? bid.compliance_documents : {},
     responded_at: bid.responded_at || null,
     project_cancelled,
   }

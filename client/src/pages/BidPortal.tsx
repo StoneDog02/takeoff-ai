@@ -4,6 +4,16 @@ import { api, type BidPortalResponse } from '@/api/client'
 
 const RESPONDED_STATUSES = ['bid_received', 'awarded', 'declined'] as const
 
+const BID_PORTAL_FILE_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp'
+
+const COMPLIANCE_UPLOAD_FIELDS = [
+  { stateKey: 'w9' as const, formField: 'w9File' as const, label: 'W-9', hint: 'For the GC’s tax records (IRS Form W-9).' },
+  { stateKey: 'license' as const, formField: 'licenseFile' as const, label: 'Contractor license', hint: 'Your trade / contractor license.' },
+  { stateKey: 'workersComp' as const, formField: 'workersCompFile' as const, label: "Workers' compensation", hint: 'COI, waiver, or other workers’ comp documentation.' },
+  { stateKey: 'liabilityInsurance' as const, formField: 'liabilityInsuranceFile' as const, label: 'Liability / insurance', hint: 'General liability or other coverage documents.' },
+  { stateKey: 'contingency' as const, formField: 'contingencyFile' as const, label: 'Contingency-related documents', hint: 'Allowances, alternates, or other contingency items.' },
+]
+
 function formatPortalDate(iso: string | null | undefined): string | null {
   if (!iso) return null
   const d = new Date(iso)
@@ -73,6 +83,11 @@ function ActiveBidView({
   const [notes, setNotes] = useState('')
   const [availability, setAvailability] = useState('')
   const [quoteFile, setQuoteFile] = useState<File | null>(null)
+  const [w9File, setW9File] = useState<File | null>(null)
+  const [licenseFile, setLicenseFile] = useState<File | null>(null)
+  const [workersCompFile, setWorkersCompFile] = useState<File | null>(null)
+  const [liabilityInsuranceFile, setLiabilityInsuranceFile] = useState<File | null>(null)
+  const [contingencyFile, setContingencyFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [declining, setDeclining] = useState(false)
   const [showDeclineConfirm, setShowDeclineConfirm] = useState(false)
@@ -92,6 +107,12 @@ function ActiveBidView({
       setFormError('Please enter a valid bid amount.')
       return
     }
+    if (!w9File || !licenseFile || !workersCompFile || !liabilityInsuranceFile || !contingencyFile) {
+      setFormError(
+        'Please attach all required documents: W-9, license, workers’ compensation, liability/insurance, and contingency-related files.'
+      )
+      return
+    }
     setSubmitting(true)
     try {
       await api.bids.submitBid(token, {
@@ -99,6 +120,11 @@ function ActiveBidView({
         notes: notes.trim() || undefined,
         availability: availability.trim() || undefined,
         quoteFile: quoteFile || undefined,
+        w9File,
+        licenseFile,
+        workersCompFile,
+        liabilityInsuranceFile,
+        contingencyFile,
       })
       onSubmitted()
     } catch (err) {
@@ -287,11 +313,52 @@ function ActiveBidView({
                 rows={4}
               />
             </label>
+            <p className="bid-portal-form__section-title">Compliance &amp; insurance</p>
+            <p className="bid-portal-form__hint bid-portal-form__hint--block">
+              The general contractor needs the following for every bid. PDF or image (JPG, PNG, WebP), up to 10 MB each.
+            </p>
+            {COMPLIANCE_UPLOAD_FIELDS.map((row) => {
+              const setter =
+                row.stateKey === 'w9'
+                  ? setW9File
+                  : row.stateKey === 'license'
+                    ? setLicenseFile
+                    : row.stateKey === 'workersComp'
+                      ? setWorkersCompFile
+                      : row.stateKey === 'liabilityInsurance'
+                        ? setLiabilityInsuranceFile
+                        : setContingencyFile
+              const file =
+                row.stateKey === 'w9'
+                  ? w9File
+                  : row.stateKey === 'license'
+                    ? licenseFile
+                    : row.stateKey === 'workersComp'
+                      ? workersCompFile
+                      : row.stateKey === 'liabilityInsurance'
+                        ? liabilityInsuranceFile
+                        : contingencyFile
+              return (
+                <label key={row.formField} className="bid-portal-form__label">
+                  {row.label} <span className="bid-portal-form__required">*</span>
+                  <span className="bid-portal-form__hint">{row.hint}</span>
+                  <input
+                    type="file"
+                    accept={BID_PORTAL_FILE_ACCEPT}
+                    required
+                    onChange={(e) => setter(e.target.files?.[0] ?? null)}
+                    className="bid-portal-form__file"
+                  />
+                  {file && <span className="bid-portal-form__file-name">{file.name}</span>}
+                </label>
+              )
+            })}
             <label className="bid-portal-form__label">
-              Attach quote PDF
+              Attach quote (optional)
+              <span className="bid-portal-form__hint">Formal quote or proposal PDF or image</span>
               <input
                 type="file"
-                accept=".pdf,application/pdf"
+                accept={BID_PORTAL_FILE_ACCEPT}
                 onChange={(e) => setQuoteFile(e.target.files?.[0] ?? null)}
                 className="bid-portal-form__file"
               />

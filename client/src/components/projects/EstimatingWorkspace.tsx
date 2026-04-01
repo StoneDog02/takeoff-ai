@@ -86,6 +86,14 @@ function getBidStatus(bid: SubBid): { key: BidStatusKey; label: string; subtitle
   return { key: 'pending', label: 'Pending' }
 }
 
+const BID_COMPLIANCE_DOC_ROWS: { key: string; label: string }[] = [
+  { key: 'w9', label: 'W-9 (tax)' },
+  { key: 'license', label: 'Contractor license' },
+  { key: 'workers_comp', label: "Workers' compensation" },
+  { key: 'liability_insurance', label: 'Liability / insurance' },
+  { key: 'contingency', label: 'Contingency-related documents' },
+]
+
 export type TakeoffItem = {
   id: string
   material_list: MaterialList
@@ -1076,7 +1084,7 @@ export function EstimatingWorkspace({
                           </div>
                         </div>
                         <div className="ew-view-bid-field ew-view-bid-field--full">
-                          <span className="ew-view-bid-label">Quote PDF</span>
+                          <span className="ew-view-bid-label">Quote (optional)</span>
                           {viewBidModal.quote_url ? (
                             <a
                               href={viewBidModal.quote_url}
@@ -1085,12 +1093,37 @@ export function EstimatingWorkspace({
                               download
                               className="ew-view-bid-attach ew-view-bid-attach--pdf"
                             >
-                              Download quote PDF
+                              Open quote file
                             </a>
                           ) : (
-                            <span className="ew-view-bid-muted">No file attached</span>
+                            <span className="ew-view-bid-muted">No quote attached</span>
                           )}
                         </div>
+                        {BID_COMPLIANCE_DOC_ROWS.map((row) => {
+                          const url =
+                            viewBidModal.compliance_documents &&
+                            typeof viewBidModal.compliance_documents === 'object'
+                              ? (viewBidModal.compliance_documents[row.key] as string | undefined)
+                              : undefined
+                          return (
+                            <div key={row.key} className="ew-view-bid-field ew-view-bid-field--full">
+                              <span className="ew-view-bid-label">{row.label}</span>
+                              {url?.trim() ? (
+                                <a
+                                  href={url.trim()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  download
+                                  className="ew-view-bid-attach ew-view-bid-attach--pdf"
+                                >
+                                  Open file
+                                </a>
+                              ) : (
+                                <span className="ew-view-bid-muted">—</span>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
 
                       <div className="ew-view-bid-actions ew-view-bid-actions--split">

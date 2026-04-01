@@ -21281,6 +21281,16 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   color: var(--color-muted);
   font-size: 0.75rem;
 }
+.bid-portal-form__hint--block {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+.bid-portal-form__section-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin: 1rem 0 0.25rem;
+  color: inherit;
+}
 .bid-portal-form__input,
 .bid-portal-form__textarea {
   padding: 0.5rem 0.75rem;

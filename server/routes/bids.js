@@ -2,7 +2,7 @@
  * Public bid portal API — token-gated, no auth.
  * GET /api/bids/portal/:token — project info, trade, scope, status. 404 if not found, 410 if project cancelled.
  * PATCH /api/bids/portal/:token/viewed — viewed_at = now(), status = 'viewed' if pending. Idempotent.
- * POST /api/bids/portal/:token/respond — JSON { bid_amount, notes, attachment_url, availability }. Sets bid_received, responded_at. Returns updated record.
+ * POST /api/bids/portal/:token/respond — multipart (amount, notes, availability, quoteFile optional, w9File, licenseFile, workersCompFile, liabilityInsuranceFile, contingencyFile required) or JSON with bid_amount + compliance_documents { w9, license, workers_comp, liability_insurance, contingency } URLs. Sets bid_received, responded_at.
  * POST /api/bids/portal/:token/decline — status = declined, responded_at. Returns confirmation.
  * Rate limited: 10 requests per IP per hour.
  */
@@ -48,16 +48,50 @@ function rateLimitBids(req, res, next) {
 
 router.use(rateLimitBids)
 
-const upload = multer({
+function bidPortalMimeOk(mimetype) {
+  if (!mimetype) return true
+  const m = String(mimetype).toLowerCase()
+  return (
+    m === 'application/pdf' ||
+    m === 'image/jpeg' ||
+    m === 'image/png' ||
+    m === 'image/webp'
+  )
+}
+
+const BID_PORTAL_UPLOAD_FIELDS = [
+  { name: 'quoteFile', maxCount: 1 },
+  { name: 'w9File', maxCount: 1 },
+  { name: 'licenseFile', maxCount: 1 },
+  { name: 'workersCompFile', maxCount: 1 },
+  { name: 'liabilityInsuranceFile', maxCount: 1 },
+  { name: 'contingencyFile', maxCount: 1 },
+]
+
+const uploadBidPortal = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const ok = !file.mimetype || file.mimetype === 'application/pdf'
-    cb(null, ok)
+    cb(null, bidPortalMimeOk(file.mimetype))
   },
-})
+}).fields(BID_PORTAL_UPLOAD_FIELDS)
 
 const BID_QUOTES_PREFIX = 'bid-quotes'
+
+const COMPLIANCE_KEYS = ['w9', 'license', 'workers_comp', 'liability_insurance', 'contingency']
+
+async function uploadPortalFileToBucket(supabase, bidId, file, slug) {
+  const bucket = 'job-walk-media'
+  const safeBase = (file.originalname || slug).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120)
+  const objectPath = `${BID_QUOTES_PREFIX}/${bidId}/${slug}-${Date.now()}-${safeBase}`
+  const { error: upErr } = await supabase.storage.from(bucket).upload(objectPath, file.buffer, {
+    contentType: file.mimetype || 'application/octet-stream',
+    upsert: false,
+  })
+  if (upErr) throw upErr
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(objectPath)
+  return urlData?.publicUrl || objectPath
+}
 
 function normStatus(s) {
   return (s || '').toLowerCase().trim()
@@ -122,7 +156,7 @@ router.get('/portal/:token', async (req, res, next) => {
     const { data: bid, error: bidErr } = await supabase
       .from('sub_bids')
       .select(
-        'id, trade_package_id, subcontractor_id, amount, notes, availability, quote_url, awarded, response_status, responded_at, dispatched_at, response_deadline'
+        'id, trade_package_id, subcontractor_id, amount, notes, availability, quote_url, compliance_documents, awarded, response_status, responded_at, dispatched_at, response_deadline'
       )
       .eq('portal_token', token)
       .maybeSingle()
@@ -211,6 +245,7 @@ router.get('/portal/:token', async (req, res, next) => {
       notes: bid.notes || null,
       availability: bid.availability || null,
       attachment_url: bid.quote_url || null,
+      compliance_documents: bid.compliance_documents && typeof bid.compliance_documents === 'object' ? bid.compliance_documents : {},
       responded_at: bid.responded_at || null,
     })
   } catch (err) {
@@ -251,12 +286,12 @@ router.patch('/portal/:token/viewed', async (req, res, next) => {
 function parseRespondBody(req, res, next) {
   const ct = (req.headers['content-type'] || '').toLowerCase()
   if (ct.includes('multipart/form-data')) {
-    return upload.single('quoteFile')(req, res, next)
+    return uploadBidPortal(req, res, next)
   }
   return express.json()(req, res, next)
 }
 
-/** POST /api/bids/portal/:token/respond — JSON { bid_amount, notes, attachment_url, availability } or multipart (amount, notes, availability, quoteFile). Sets status = bid_received, responded_at. Returns updated record. */
+/** POST /api/bids/portal/:token/respond — JSON or multipart; compliance documents are required (5 URLs or 5 files). */
 async function handleRespond(req, res, next) {
   try {
     const supabase = defaultSupabase
@@ -275,24 +310,76 @@ async function handleRespond(req, res, next) {
 
     const { data: bid, error: bidErr } = await supabase
       .from('sub_bids')
-      .select('id, quote_url')
+      .select('id, quote_url, compliance_documents')
       .eq('portal_token', token)
       .maybeSingle()
     if (bidErr) throw bidErr
     if (!bid) return res.status(404).json({ error: 'Invalid or expired link' })
 
     let attachmentUrl = isJson && body.attachment_url != null ? String(body.attachment_url).trim() || null : null
-    if (!isJson && req.file && req.file.buffer) {
-      const bucket = 'job-walk-media'
-      const safeName = (req.file.originalname || 'quote').replace(/[^a-zA-Z0-9._-]/g, '_')
-      const path = `${BID_QUOTES_PREFIX}/${bid.id}/${Date.now()}-${safeName}`
-      const { error: upErr } = await supabase.storage.from(bucket).upload(path, req.file.buffer, {
-        contentType: req.file.mimetype || 'application/pdf',
-        upsert: false,
-      })
-      if (!upErr) {
-        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path)
-        attachmentUrl = urlData?.publicUrl || path
+    /** @type {Record<string, string>} */
+    let complianceDocs = {}
+
+    if (isJson) {
+      const raw = body.compliance_documents
+      if (!raw || typeof raw !== 'object') {
+        return res.status(400).json({
+          error:
+            'compliance_documents is required with keys: w9, license, workers_comp, liability_insurance, contingency (each a non-empty URL string).',
+        })
+      }
+      for (const key of COMPLIANCE_KEYS) {
+        const u = raw[key] != null ? String(raw[key]).trim() : ''
+        if (!u) {
+          return res.status(400).json({
+            error: `compliance_documents.${key} is required (non-empty URL).`,
+          })
+        }
+        complianceDocs[key] = u
+      }
+    } else {
+      const filesByField = req.files && typeof req.files === 'object' ? req.files : {}
+      const need = {
+        w9: filesByField.w9File?.[0],
+        license: filesByField.licenseFile?.[0],
+        workers_comp: filesByField.workersCompFile?.[0],
+        liability_insurance: filesByField.liabilityInsuranceFile?.[0],
+        contingency: filesByField.contingencyFile?.[0],
+      }
+      for (const key of COMPLIANCE_KEYS) {
+        const f = need[key]
+        if (!f || !f.buffer) {
+          const label =
+            key === 'w9'
+              ? 'W-9'
+              : key === 'license'
+                ? 'license'
+                : key === 'workers_comp'
+                  ? "workers' compensation"
+                  : key === 'liability_insurance'
+                    ? 'liability / insurance'
+                    : 'contingency'
+          return res.status(400).json({ error: `Missing required file: ${label}.` })
+        }
+      }
+      try {
+        for (const key of COMPLIANCE_KEYS) {
+          const f = need[key]
+          complianceDocs[key] = await uploadPortalFileToBucket(supabase, bid.id, f, key)
+        }
+      } catch (uploadErr) {
+        console.error('[bids portal] compliance upload', uploadErr)
+        return res.status(500).json({ error: 'Failed to upload documents. Try again.' })
+      }
+
+      const quoteFile = filesByField.quoteFile?.[0]
+      if (quoteFile && quoteFile.buffer) {
+        try {
+          attachmentUrl = await uploadPortalFileToBucket(supabase, bid.id, quoteFile, 'quote')
+        } catch (uploadErr) {
+          console.error('[bids portal] quote upload', uploadErr)
+          return res.status(500).json({ error: 'Failed to upload quote. Try again.' })
+        }
       }
     }
 
@@ -303,7 +390,8 @@ async function handleRespond(req, res, next) {
         amount: bidAmount,
         notes,
         availability,
-        quote_url: attachmentUrl || bid.quote_url,
+        quote_url: attachmentUrl != null ? attachmentUrl : bid.quote_url,
+        compliance_documents: complianceDocs,
         response_status: 'bid_received',
         responded_at: respondedAt,
       })
@@ -338,7 +426,7 @@ async function handleRespond(req, res, next) {
   }
 }
 router.post('/portal/:token/respond', parseRespondBody, handleRespond)
-router.post('/portal/:token/submit', upload.single('quoteFile'), handleRespond)
+router.post('/portal/:token/submit', (req, res, next) => uploadBidPortal(req, res, next), handleRespond)
 
 /** POST /api/bids/portal/:token/decline — sets status = declined, responded_at. Returns confirmation. */
 async function handleDecline(req, res, next) {
