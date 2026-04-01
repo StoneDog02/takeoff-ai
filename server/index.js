@@ -143,6 +143,11 @@ app.get('/invoice/:token', (req, res) => {
 })
 
 const { requireAuth } = require('./middleware/auth')
+const { handleCloseStaleTimeEntries } = require('./routes/cron-stale-time-entries')
+
+/** Scheduled (e.g. cron-job.org): closes open time entries older than STALE_TIME_ENTRY_MAX_HOURS. Requires CRON_SECRET. */
+app.get('/api/cron/close-stale-time-entries', handleCloseStaleTimeEntries)
+app.post('/api/cron/close-stale-time-entries', handleCloseStaleTimeEntries)
 
 app.use('/api/me', requireAuth, meRoutes)
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes)

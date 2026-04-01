@@ -622,7 +622,7 @@ export interface JobAssignmentScheduleResponse {
   updated_at: string | null
 }
 
-export type TimeEntrySource = 'manual' | 'gps_auto'
+export type TimeEntrySource = 'manual' | 'gps_auto' | 'server_auto'
 
 export interface TimeEntry {
   id: string

@@ -29,7 +29,7 @@ interface DisplayEntry {
   clockIn: string
   clockOut: string
   hours: number | null
-  source: 'GPS' | 'Manual'
+  source: 'GPS' | 'Manual' | 'System'
   /** Still clocked in — not counted in period totals until they clock out */
   inProgress: boolean
 }
@@ -93,7 +93,9 @@ function EntryRow({
           className={`text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-md border ${
             entry.source === 'GPS'
               ? 'bg-primary/10 dark:bg-primary/20 text-primary border-primary/20'
-              : 'bg-white/10 dark:bg-white/5 text-muted border-border dark:border-border-dark'
+              : entry.source === 'System'
+                ? 'bg-amber-500/15 dark:bg-amber-400/15 text-amber-800 dark:text-amber-200 border-amber-500/25'
+                : 'bg-white/10 dark:bg-white/5 text-muted border-border dark:border-border-dark'
           }`}
         >
           {entry.source}
@@ -164,7 +166,12 @@ export function EmployeeHoursPage() {
         clockIn: formatTime(new Date(e.clock_in)),
         clockOut: inProgress ? 'In progress' : formatTime(new Date(e.clock_out!)),
         hours: hrs,
-        source: e.source === 'gps_auto' ? ('GPS' as const) : ('Manual' as const),
+        source:
+          e.source === 'gps_auto'
+            ? ('GPS' as const)
+            : e.source === 'server_auto'
+              ? ('System' as const)
+              : ('Manual' as const),
         inProgress,
       }
     })

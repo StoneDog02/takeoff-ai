@@ -13,6 +13,7 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { MobileNavBar } from '@/components/MobileNavBar'
 import { useEmployeeDailyLogEligibility } from '@/hooks/useEmployeeDailyLogEligibility'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
+import { GeolocationPermissionBanner } from '@/components/GeolocationPermissionBanner'
 
 export function EmployeeLayout() {
   const [ready, setReady] = useState(false)
@@ -208,6 +209,7 @@ export function EmployeeLayout() {
 
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
           {isPreview && <PreviewBanner />}
+          <GeolocationPermissionBanner />
           <OfflineSyncBanners isOnline={isOnline} syncPending={syncPending} />
           <AppLayoutProvider openMobileNav={openMobileNav}>
             <MobileNavBar onOpenMenu={openMobileNav} />

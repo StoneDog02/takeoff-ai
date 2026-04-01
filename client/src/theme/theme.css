@@ -1575,6 +1575,66 @@ body {
   border-radius: 20px;
 }
 
+.geolocation-banner {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: rgba(45, 111, 168, 0.1);
+  border-bottom: 2px solid rgba(45, 111, 168, 0.28);
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d6fa8;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  line-height: 1.35;
+}
+
+.geolocation-banner--blocked {
+  background: rgba(180, 60, 60, 0.1);
+  border-bottom-color: rgba(180, 60, 60, 0.35);
+  color: #a33;
+}
+
+.geolocation-banner-icon {
+  flex-shrink: 0;
+  opacity: 0.95;
+}
+
+.geolocation-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.geolocation-banner-actions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.geolocation-banner-btn {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(45, 111, 168, 0.45);
+  background: rgba(255, 255, 255, 0.85);
+  color: #1a4d7a;
+  cursor: pointer;
+}
+
+.geolocation-banner-btn:hover {
+  background: #fff;
+}
+
+.geolocation-banner--blocked .geolocation-banner-btn {
+  border-color: rgba(180, 60, 60, 0.45);
+  color: #822;
+}
+
 .sync-banner {
   position: sticky;
   top: 0;
