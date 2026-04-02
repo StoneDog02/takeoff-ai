@@ -167,7 +167,7 @@ async function syncPaperTrailFromEstimate(supabase, estimateId) {
   if (!db || !estimateId) return
   const { data: est, error: fetchErr } = await db
     .from('estimates')
-    .select('user_id, status, viewed_at, actioned_at, sent_at')
+    .select('user_id, status, viewed_at, actioned_at, sent_at, portal_client_acceptance_at')
     .eq('id', estimateId)
     .maybeSingle()
   if (fetchErr || !est) return
@@ -183,6 +183,23 @@ async function syncPaperTrailFromEstimate(supabase, estimateId) {
     .in('document_type', ['estimate', 'change_order'])
     .eq('organization_id', est.user_id)
   if (error) console.error('[paperTrail] sync estimate', estimateId, error.message || error)
+
+  const acceptanceAt = est.portal_client_acceptance_at || null
+  const { data: docRows, error: metaErr } = await db
+    .from('documents')
+    .select('id, metadata')
+    .eq('source_id', estimateId)
+    .in('document_type', ['estimate', 'change_order'])
+    .eq('organization_id', est.user_id)
+  if (metaErr || !docRows?.length) return
+  for (const row of docRows) {
+    const base =
+      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata) ? { ...row.metadata } : {}
+    if (acceptanceAt) base.client_portal_acceptance_at = acceptanceAt
+    else delete base.client_portal_acceptance_at
+    const { error: upMeta } = await db.from('documents').update({ metadata: base }).eq('id', row.id)
+    if (upMeta) console.error('[paperTrail] sync estimate metadata', estimateId, upMeta.message || upMeta)
+  }
 }
 
 /**

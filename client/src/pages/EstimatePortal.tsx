@@ -127,12 +127,14 @@ function ActiveReviewView({
   const [showDeclineConfirm, setShowDeclineConfirm] = useState(false)
   const [declining, setDeclining] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [acceptanceChecked, setAcceptanceChecked] = useState(false)
 
   const handleApprove = async () => {
+    if (!acceptanceChecked) return
     setActionError(null)
     setApproving(true)
     try {
-      await api.estimatePortal.approve(token)
+      await api.estimatePortal.approve(token, { acceptanceAcknowledged: true })
       onApproved()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Could not approve.')
@@ -194,6 +196,31 @@ function ActiveReviewView({
         sectionWorkTypes={data.section_work_types ?? null}
         estimateGroupsMeta={data.estimate_groups_meta ?? null}
       />
+
+      <div className="estimate-portal-acceptance--in-flow">
+        <label className="estimate-portal-acceptance__label" htmlFor="estimate-portal-acceptance-cb">
+          <input
+            id="estimate-portal-acceptance-cb"
+            type="checkbox"
+            className="estimate-portal-acceptance__checkbox"
+            checked={acceptanceChecked}
+            onChange={(e) => setAcceptanceChecked(e.target.checked)}
+          />
+          <span>
+            {portalKind === 'change_order' ? (
+              <>
+                I have reviewed this change order, including the line items, total price, notes, and terms above, and I
+                agree to the additional scope and pricing shown.
+              </>
+            ) : (
+              <>
+                I have reviewed this estimate, including the line items, total price, notes, and terms above, and I agree
+                to proceed at the stated price and scope.
+              </>
+            )}
+          </span>
+        </label>
+      </div>
 
       {/* Request changes inline */}
       {showRequestChanges && (
@@ -279,7 +306,7 @@ function ActiveReviewView({
               type="button"
               className="estimate-portal-btn estimate-portal-btn--primary estimate-portal-action-bar__approve"
               onClick={handleApprove}
-              disabled={approving}
+              disabled={approving || !acceptanceChecked}
             >
               {approving
                 ? 'Approving…'

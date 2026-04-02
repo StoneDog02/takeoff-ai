@@ -235,13 +235,15 @@ router.patch('/:token/viewed', async (req, res, next) => {
   }
 })
 
-/** POST /api/estimates/portal/:token/approve — set status = accepted, actioned_at. Project → backlog. Returns confirmation. */
+/** POST /api/estimates/portal/:token/approve — body: { acceptance_acknowledged: true } required for first-time accept. */
 router.post('/:token/approve', async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
     const token = req.params.token
     if (!token) return res.status(400).json({ error: 'Token required' })
+    const acceptanceAcknowledged =
+      req.body && (req.body.acceptance_acknowledged === true || req.body.acceptance_acknowledged === 'true')
 
     const { data: est, error: fetchErr } = await supabase
       .from('estimates')
@@ -272,10 +274,22 @@ router.post('/:token/approve', async (req, res, next) => {
       return res.status(400).json({ error: 'This estimate has been declined.' })
     }
 
+    if (!acceptanceAcknowledged) {
+      return res.status(400).json({
+        error:
+          'You must confirm that you have reviewed and accept the scope, pricing, and terms before approving.',
+      })
+    }
+
     const now = new Date().toISOString()
     await supabase
       .from('estimates')
-      .update({ status: 'accepted', actioned_at: now, updated_at: now })
+      .update({
+        status: 'accepted',
+        actioned_at: now,
+        updated_at: now,
+        portal_client_acceptance_at: now,
+      })
       .eq('id', est.id)
 
     if (est.job_id) {

@@ -189,6 +189,7 @@ function estimatePayloadFromRows(est, project, lineItems) {
     sent_at: est.sent_at || null,
     viewed_at: est.viewed_at || null,
     actioned_at: est.actioned_at || null,
+    portal_client_acceptance_at: est.portal_client_acceptance_at || null,
     source_change_order_id: est.source_change_order_id || null,
     estimate_groups_meta: Array.isArray(est.estimate_groups_meta) ? est.estimate_groups_meta : null,
   }
@@ -198,7 +199,7 @@ async function buildEstimateViewer(supabase, userId, estimateId) {
   const { data: est, error } = await supabase
     .from('estimates')
     .select(
-      'id, job_id, user_id, title, status, total_amount, invoiced_amount, recipient_emails, sent_at, viewed_at, actioned_at, changes_requested_at, changes_requested_message, client_notes, client_terms, estimate_groups_meta, source_change_order_id'
+      'id, job_id, user_id, title, status, total_amount, invoiced_amount, recipient_emails, sent_at, viewed_at, actioned_at, portal_client_acceptance_at, changes_requested_at, changes_requested_message, client_notes, client_terms, estimate_groups_meta, source_change_order_id'
     )
     .eq('id', estimateId)
     .maybeSingle()

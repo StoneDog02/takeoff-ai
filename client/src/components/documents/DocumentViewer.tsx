@@ -277,10 +277,15 @@ export function DocumentViewer({
       const d = viewer.data
       const st = (d.status || '').toLowerCase()
       if (st === 'accepted' && d.actioned_at) {
+        const when = formatPortalDate(d.actioned_at)
+        const ack =
+          d.portal_client_acceptance_at != null && String(d.portal_client_acceptance_at).trim() !== ''
+            ? ' · Client electronically confirmed scope, pricing, and terms'
+            : ''
         out.push({
           key: 'est',
           className: 'documents-status-banner documents-status-banner--success',
-          text: `Approved by client on ${formatPortalDate(d.actioned_at)}`,
+          text: `Approved by client on ${when}${ack}`,
         })
       } else if (st === 'declined') {
         out.push({ key: 'est', className: 'documents-status-banner documents-status-banner--danger', text: 'Declined' })

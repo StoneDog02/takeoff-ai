@@ -1336,8 +1336,15 @@ export const api = {
       const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/viewed`, { method: 'PATCH' })
       if (!res.ok && res.status !== 204) throw new Error(res.status === 404 ? 'Invalid or expired link' : 'Request failed')
     },
-    async approve(token: string): Promise<{ status: string }> {
-      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/approve`, { method: 'POST' })
+    async approve(
+      token: string,
+      opts: { acceptanceAcknowledged: boolean }
+    ): Promise<{ status: string }> {
+      const res = await fetch(`${API_BASE}/estimates/portal/${encodeURIComponent(token)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acceptance_acknowledged: opts.acceptanceAcknowledged === true }),
+      })
       return handleResponse<{ status: string }>(res)
     },
     async requestChanges(token: string, message: string): Promise<{ ok: boolean }> {
@@ -1450,6 +1457,8 @@ export interface EstimatePortalResponse {
   sent_at: string | null
   viewed_at: string | null
   actioned_at?: string | null
+  /** Set when client approved via portal with electronic scope/price/terms acknowledgment (in-app viewer + API). */
+  portal_client_acceptance_at?: string | null
   /** In-app viewer only: linked CO row when estimate was sent from change-order flow */
   source_change_order_id?: string | null
   /** When present, client table rolls up takeoff to scope lines and bids to trade/sub + total. */

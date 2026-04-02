@@ -17256,20 +17256,6 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
   border-radius: 14px;
   border: 1px solid var(--border, rgba(0, 0, 0, 0.07));
 }
-.estimate-portal-action-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #fff;
-  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.07));
-  padding: 16px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
-  z-index: 100;
-}
 .estimate-portal-approve-btn {
   height: 48px;
   padding: 0 32px;
@@ -20961,12 +20947,13 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   gap: 10px;
 }
 
-/* Action bar — fixed to viewport bottom */
+/* Action bar — fixed to viewport bottom (single definition; avoid duplicate rules that used flex row) */
 .estimate-portal-action-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
+  display: block;
   background: var(--bg-surface, #fff);
   border-top: 1px solid var(--border);
   padding: 16px 24px;
@@ -20976,10 +20963,41 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
 .estimate-portal-action-bar__inner {
   max-width: 680px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 /* Reserve space so content isn't hidden behind fixed bar */
 .estimate-portal__inner.estimate-portal__inner--with-actions {
-  padding-bottom: 100px;
+  padding-bottom: 112px;
+}
+/* Acknowledgment sits in page flow (below doc) so it is never clipped by the sticky footer */
+.estimate-portal-acceptance--in-flow {
+  margin: 1.5rem auto 1.25rem;
+  max-width: 680px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.05);
+}
+.estimate-portal-acceptance__label {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  user-select: none;
+}
+.estimate-portal-acceptance__checkbox {
+  margin-top: 3px;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--red, #dc2626);
 }
 .estimate-portal-action-bar__error {
   font-size: 13px;
