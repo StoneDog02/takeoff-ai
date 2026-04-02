@@ -40,7 +40,7 @@ export type PrefillClientInfo = {
   projectAddress?: string
 }
 
-/** Line item for pre-fill: takeoff materials (price can be 0) or awarded sub bids (price = amount). */
+/** Line item for pre-fill: bid-sheet rows (awarded sub bids, GC self-perform lines); takeoff is optional via picker. */
 export type LineItem = {
   id?: string | number
   name: string
@@ -1348,7 +1348,7 @@ export function EstimateBuilderModal({
                   !isReviseMode && initialBudgetLineItems?.length
                     ? 'budget'
                     : prefillLineItems?.length
-                      ? 'takeoff'
+                      ? 'bidSheet'
                       : null
                 }
                 resetKey={presetCatalogResetKey}
@@ -1811,7 +1811,7 @@ function Step2LineItems({
 }: {
   lineItemGroups: LineItemGroup[]
   setLineItemGroups: React.Dispatch<React.SetStateAction<LineItemGroup[]>>
-  prefillBannerSource: 'budget' | 'takeoff' | null
+  prefillBannerSource: 'budget' | 'bidSheet' | null
   resetKey: number
   defaultMarkupBaseline: number
   takeoffPickItems?: TakeoffPickItem[]
@@ -2204,7 +2204,7 @@ function Step2LineItems({
             <span>
               {prefillBannerSource === 'budget'
                 ? 'Loaded from your project budget — these rows match the Budget tab. Add more from takeoff, catalog, or custom lines as needed.'
-                : 'Pre-loaded from your takeoff and awarded bids — review pricing and add markup before sending.'}
+                : 'Pre-loaded from your bid sheet — awarded subcontractor scopes and any GC self-perform pricing. Takeoff quantities are not added automatically; use Add from takeoff or the catalog when you want them.'}
             </span>
             <button
               type="button"

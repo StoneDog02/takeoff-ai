@@ -1006,7 +1006,7 @@ export function ProjectsPage() {
       const tag = cat.name
       const awarded = awardedBidByTag.get(tag)
       const pkg = packagesByTag.get(tag)
-      if (awarded && subcontractors.length > 0) {
+      if (awarded) {
         const sub = subsById.get(awarded.subcontractor_id)
         lines.push({
           description: `${tag} — ${sub?.name ?? 'Subcontractor'}`,
@@ -1031,17 +1031,8 @@ export function ProjectsPage() {
         }
         continue
       }
-      for (const item of cat.items ?? []) {
-        const qty = item.quantity ?? 1
-        const unitPrice = item.cost_estimate ?? 0
-        lines.push({
-          description: item.description ?? '',
-          quantity: qty,
-          unit: item.unit ?? 'ea',
-          unit_price: unitPrice,
-          section: tag,
-        })
-      }
+      // Do not seed the estimate from takeoff quantities / cost_estimate; line items appear when a bid is
+      // awarded (above) or when GC self-perform lines exist. Takeoff detail remains available via the catalog picker.
     }
 
     const coveredTags = new Set(categories.map((c) => c.name))
