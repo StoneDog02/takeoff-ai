@@ -43,7 +43,7 @@ export function SignUpPage() {
       return error.message
     }
 
-    // Create Stripe subscription with 14-day trial when we have a session (e.g. email confirmation disabled)
+    // Create Stripe subscription with 30-day trial when we have a session (e.g. email confirmation disabled)
     if (data.session && form.plan) {
       try {
         const res = await fetch(`${API_BASE}/stripe/create-subscription`, {

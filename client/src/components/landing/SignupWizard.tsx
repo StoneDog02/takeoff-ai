@@ -594,7 +594,7 @@ function Step5({
     <div>
       <StepHeader
         title="Choose your plan"
-        sub="Start with a 14-day free trial on Standard. You'll add a payment method next — you won't be charged until the trial ends."
+        sub="Start with a 30-day free trial on Standard. You'll add a payment method next — you won't be charged until the trial ends."
       />
 
       {useProductCards && (
@@ -717,7 +717,7 @@ function Step5({
               const selected = price ? form.plan === price.id : false;
               const trialNote =
                 meta.trial_note ||
-                (isStandard ? "14-day free trial" : undefined);
+                (isStandard ? "30-day free trial" : undefined);
 
               return (
                 <PricingCard
@@ -757,7 +757,7 @@ function Step5({
                 price={{ amount: p.amount, currency: p.currency, formatted: p.formatted, interval: p.interval }}
                 features={[]}
                 cta="Select plan"
-                trialNote={p.name.toLowerCase() === "standard" ? "14-day free trial" : undefined}
+                trialNote={p.name.toLowerCase() === "standard" ? "30-day free trial" : undefined}
                 billingNote={p.interval === "year" ? "Billed annually" : "Billed monthly"}
                 disclaimer="No contracts — cancel anytime."
                 selectable
@@ -849,7 +849,7 @@ function Step6Payment({
             <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>
               {selectedPlan ? selectedPlan.formatted : form.plan ? "—" : "—"}
             </div>
-            <div style={{ fontSize: "12px", color: "#888" }}>after 14-day trial</div>
+            <div style={{ fontSize: "12px", color: "#888" }}>after 30-day trial</div>
           </div>
         </div>
 

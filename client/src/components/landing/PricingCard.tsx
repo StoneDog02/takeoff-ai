@@ -22,7 +22,7 @@ interface PricingCardProps {
   discountBadge?: string
   /** Below price e.g. "Billed monthly — lock in this rate while it lasts." */
   billingNote?: string
-  /** Highlight e.g. "14-day free trial" (shown under the description) */
+  /** Highlight e.g. "30-day free trial" (shown under the description) */
   trialNote?: string
   /** Below CTA e.g. "No contracts — cancel anytime." */
   disclaimer?: string

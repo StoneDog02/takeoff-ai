@@ -74,7 +74,7 @@ npm install stripe
 1. **Create a Stripe route** (e.g. `server/routes/stripe.js`):
 
    - Initialize Stripe with `STRIPE_SECRET_KEY`.
-   - Add a **POST** endpoint that creates a **SetupIntent** (to save a card for later, e.g. after a trial) or a **PaymentIntent** (if you charge immediately). For a “14-day trial, then charge” flow, SetupIntent is typical.
+   - Add a **POST** endpoint that creates a **SetupIntent** (to save a card for later, e.g. after a trial) or a **PaymentIntent** (if you charge immediately). For a “30-day trial, then charge” flow, SetupIntent is typical.
    - Return `client_secret` to the client so it can confirm the payment method.
 
 2. **Example flow (SetupIntent for “card on file” at signup):**
@@ -145,10 +145,10 @@ npm install stripe
 
 ## 9. Optional: Subscriptions and trial
 
-For a “14-day free trial, then $X/month” flow:
+For a “30-day free trial, then $X/month” flow:
 
 - Use **Stripe Billing**: create a **Product** and **Price** (recurring) in the Dashboard.
-- After signup, create a **Subscription** with `trial_period_days: 14` and the customer’s default payment method (from the SetupIntent flow above). Stripe will charge when the trial ends.
+- After signup, create a **Subscription** with `trial_period_days: 30` and the customer’s default payment method (from the SetupIntent flow above). Stripe will charge when the trial ends.
 - You can create the subscription from your server right after signup (with trial) or via a webhook/cron when the trial is about to end.
 
 Once this is in place, the signup wizard’s “plan” choice (Starter / Pro / Enterprise) can map to different Stripe Price IDs that you pass when creating the subscription.

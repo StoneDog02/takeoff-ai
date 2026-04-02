@@ -37,7 +37,7 @@ export function CTASection() {
           secondaryAction={{ label: 'View plans', href: '#pricing' }}
         >
           <p className="text-sm text-white-dim">
-            No credit card required · 14-day trial · Cancel anytime
+            No credit card required · 30-day trial · Cancel anytime
           </p>
         </CTABlock>
       </div>

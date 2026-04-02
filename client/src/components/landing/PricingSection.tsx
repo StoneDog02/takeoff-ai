@@ -205,7 +205,7 @@ export function PricingSection() {
                 (isStandard ? 'Everything you need to run your business.' : 'Subscribe to this plan.')
               const trialNote =
                 meta.trial_note ||
-                (isStandard ? '14-day free trial' : undefined)
+                (isStandard ? '30-day free trial' : undefined)
 
               return (
                 <PricingCard

@@ -14,7 +14,7 @@ const items = [
   {
     question: 'Is there a free trial?',
     answer:
-      'Yes — every new account gets a 14-day free trial with full access to Professional plan features. No credit card required to get started.',
+      'Yes — every new account gets a 30-day free trial with full access to Professional plan features. No credit card required to get started.',
   },
   {
     question: 'What payment methods do you accept?',

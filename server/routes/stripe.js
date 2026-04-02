@@ -283,7 +283,7 @@ async function trialDaysForPriceId(priceId) {
     const price = await stripe.prices.retrieve(priceId, { expand: ['product'] })
     const product = price.product
     const productName = typeof product === 'object' && product?.name ? product.name : ''
-    if (productName.toLowerCase() === 'standard') return 14
+    if (productName.toLowerCase() === 'standard') return 30
   } catch {
     // ignore
   }
@@ -771,7 +771,7 @@ router.post('/subscribe-plan', requireAuth, async (req, res) => {
 
 /**
  * POST /api/stripe/create-subscription
- * Creates a Stripe subscription. Standard plan gets 14-day trial; other plans charge immediately.
+ * Creates a Stripe subscription. Standard plan gets 30-day trial; other plans charge immediately.
  * Requires auth (call after signUp with session).
  * Body: { email, price_id }. user_id from token.
  */
