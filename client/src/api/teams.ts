@@ -11,9 +11,40 @@ import type {
 } from '@/types/global'
 import { API_BASE } from '@/api/config'
 import { getSessionAuthHeaders } from '@/api/authHeaders'
+import { isPublicDemo, DEMO_EMPLOYEE_ID } from '@/lib/publicDemo'
+import { DEMO_PROJECT_ID } from '@/data/mockProjectsData'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   return getSessionAuthHeaders()
+}
+
+const demoNow = () => new Date().toISOString()
+
+function demoEmployeesList(): Employee[] {
+  const t = demoNow()
+  return [
+    {
+      id: DEMO_EMPLOYEE_ID,
+      name: 'Jamie K.',
+      role: 'Site Super',
+      email: 'demo.employee@example.com',
+      phone: '(555) 000-1111',
+      status: 'off',
+      current_compensation: 32,
+      created_at: t,
+      updated_at: t,
+    },
+    {
+      id: 'demo-emp-2',
+      name: 'Marcus T.',
+      role: 'Lead Framer',
+      email: 'marcus@example.com',
+      status: 'off',
+      current_compensation: 28,
+      created_at: t,
+      updated_at: t,
+    },
+  ]
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -34,6 +65,9 @@ export interface YtdPayResponse {
 export const teamsApi = {
   employees: {
     async list(params?: { status?: string; job_id?: string }): Promise<Employee[]> {
+      if (isPublicDemo()) {
+        return Promise.resolve(demoEmployeesList())
+      }
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       if (params?.status) sp.set('status', params.status)
@@ -89,6 +123,22 @@ export const teamsApi = {
 
   jobAssignments: {
     async list(params?: { employee_id?: string; job_id?: string; active_only?: boolean }): Promise<JobAssignment[]> {
+      if (isPublicDemo()) {
+        const t = demoNow()
+        const jobId = params?.job_id ?? DEMO_PROJECT_ID
+        if (params?.employee_id && params.employee_id !== DEMO_EMPLOYEE_ID) {
+          return Promise.resolve([])
+        }
+        return Promise.resolve([
+          {
+            id: 'ja-demo-1',
+            employee_id: DEMO_EMPLOYEE_ID,
+            job_id: jobId,
+            assigned_at: t,
+            role_on_job: 'Site Super',
+          },
+        ])
+      }
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       if (params?.employee_id) sp.set('employee_id', params.employee_id)
@@ -142,6 +192,22 @@ export const teamsApi = {
 
   timeEntries: {
     async list(params?: { employee_id?: string; job_id?: string; from?: string; to?: string }): Promise<TimeEntry[]> {
+      if (isPublicDemo()) {
+        if (params?.employee_id && params.employee_id !== DEMO_EMPLOYEE_ID) return Promise.resolve([])
+        const yesterday = new Date(Date.now() - 86400000).toISOString()
+        const clockOut = new Date(Date.now() - 3600000).toISOString()
+        return Promise.resolve([
+          {
+            id: 'te-demo-past',
+            employee_id: DEMO_EMPLOYEE_ID,
+            job_id: DEMO_PROJECT_ID,
+            clock_in: yesterday,
+            clock_out: clockOut,
+            hours: 6,
+            source: 'manual',
+          },
+        ])
+      }
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       if (params?.employee_id) sp.set('employee_id', params.employee_id)
@@ -160,6 +226,17 @@ export const teamsApi = {
       source?: TimeEntry['source']
       project_work_type_id?: string
     }): Promise<TimeEntry> {
+      if (isPublicDemo()) {
+        return Promise.resolve({
+          id: `te-${Date.now()}`,
+          employee_id: body.employee_id,
+          job_id: body.job_id,
+          clock_in: body.clock_in ?? new Date().toISOString(),
+          clock_out: body.clock_out,
+          source: body.source ?? 'manual',
+          project_work_type_id: body.project_work_type_id,
+        })
+      }
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/time-entries`, {
         method: 'POST',
@@ -172,6 +249,17 @@ export const teamsApi = {
       id: string,
       body?: { clock_out?: string; source?: TimeEntry['source']; gps_clock_out_log_id?: string }
     ): Promise<TimeEntry> {
+      if (isPublicDemo()) {
+        return Promise.resolve({
+          id,
+          employee_id: DEMO_EMPLOYEE_ID,
+          job_id: DEMO_PROJECT_ID,
+          clock_in: new Date(Date.now() - 7200000).toISOString(),
+          clock_out: body?.clock_out ?? new Date().toISOString(),
+          hours: 2,
+          source: body?.source ?? 'manual',
+        })
+      }
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/time-entries/${id}/clock-out`, {
         method: 'PATCH',
@@ -190,6 +278,17 @@ export const teamsApi = {
         project_work_type_id?: string | null
       }
     ): Promise<TimeEntry> {
+      if (isPublicDemo()) {
+        return Promise.resolve({
+          id,
+          employee_id: DEMO_EMPLOYEE_ID,
+          job_id: DEMO_PROJECT_ID,
+          clock_in: body.clock_in ?? new Date().toISOString(),
+          clock_out: body.clock_out ?? undefined,
+          source: body.source ?? 'manual',
+          project_work_type_id: body.project_work_type_id ?? undefined,
+        })
+      }
       const headers = await getAuthHeaders()
       // PUT matches PATCH on server; some deployments only had older routes without PATCH /:id
       const res = await fetch(`${API_BASE}/time-entries/${id}`, {
@@ -203,6 +302,7 @@ export const teamsApi = {
 
   attendance: {
     async list(params?: { employee_id?: string; from?: string; to?: string }): Promise<AttendanceRecord[]> {
+      if (isPublicDemo()) return Promise.resolve([])
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       if (params?.employee_id) sp.set('employee_id', params.employee_id)
@@ -293,6 +393,16 @@ export const teamsApi = {
       return handleResponse<JobGeofence[]>(res)
     },
     async getByJob(jobId: string): Promise<JobGeofence | null> {
+      if (isPublicDemo()) {
+        return Promise.resolve({
+          id: 'gf-demo',
+          job_id: jobId,
+          center_lat: 40.7608,
+          center_lng: -111.891,
+          radius_value: 400,
+          radius_unit: 'feet',
+        })
+      }
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/geofences/job/${jobId}`, { headers })
       return handleResponse<JobGeofence | null>(res)
@@ -359,17 +469,36 @@ export const teamsApi = {
 
   payroll: {
     async getYtd(year?: number): Promise<YtdPayResponse> {
+      if (isPublicDemo()) {
+        const y = year ?? new Date().getFullYear()
+        return Promise.resolve({
+          year: y,
+          company_total: 128400,
+          by_employee: [
+            {
+              employee_id: DEMO_EMPLOYEE_ID,
+              year: y,
+              total_earnings: 42000,
+              monthly_breakdown: [{ month: 1, earnings: 3500 }],
+            },
+          ],
+        })
+      }
       const headers = await getAuthHeaders()
       const q = year != null ? `?year=${year}` : ''
       const res = await fetch(`${API_BASE}/payroll/ytd${q}`, { headers })
       return handleResponse<YtdPayResponse>(res)
     },
     async getContact(): Promise<{ name: string; email: string; phone?: string } | null> {
+      if (isPublicDemo()) {
+        return Promise.resolve({ name: 'Demo Payroll Partner', email: 'payroll@example.com', phone: '(555) 010-0200' })
+      }
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/payroll/contact`, { headers })
       return handleResponse<{ name: string; email: string; phone?: string } | null>(res)
     },
     async setContact(contact: { name: string; email: string; phone?: string }): Promise<{ name: string; email: string; phone?: string }> {
+      if (isPublicDemo()) return Promise.resolve(contact)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/payroll/contact`, {
         method: 'PUT',
@@ -387,6 +516,9 @@ export const teamsApi = {
       total_hours: number
       gross_pay: number
     }): Promise<{ id: string; sent_at: string }> {
+      if (isPublicDemo()) {
+        return Promise.resolve({ id: `pay-demo-${Date.now()}`, sent_at: new Date().toISOString() })
+      }
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/payroll/runs`, {
         method: 'POST',

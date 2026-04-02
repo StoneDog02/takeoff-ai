@@ -3,6 +3,12 @@ import { supabase } from '@/lib/supabaseClient'
 import { dayjs } from '@/lib/date'
 import { isBankTxTagged } from '@/lib/bankTransactionUtils'
 import { syncBankTransactionsFromStripe } from '@/api/financialConnections'
+import { isPublicDemo } from '@/lib/publicDemo'
+import {
+  loadDemoBankRowsFromSession,
+  persistDemoBankRows,
+  getDemoTransactionJobs,
+} from '@/data/demo/bankTransactionFixtures'
 
 /** Matches DB check constraint on public.bank_transactions.expense_type */
 export const EXPENSE_TYPES = [
@@ -72,6 +78,12 @@ export function useTransactions(userId) {
   const [savingId, setSavingId] = useState(null)
 
   const fetchTransactions = useCallback(async () => {
+    if (isPublicDemo()) {
+      setLoadError(null)
+      setTransactions(loadDemoBankRowsFromSession())
+      setLoading(false)
+      return
+    }
     if (!userId || !supabase) {
       setTransactions([])
       setLoading(false)
@@ -95,6 +107,13 @@ export function useTransactions(userId) {
   /** Stripe FC → Supabase, then reload rows. `showLoading` only on first paint. */
   const syncAndRefresh = useCallback(
     async (showLoading = true) => {
+      if (isPublicDemo()) {
+        if (showLoading) setLoading(true)
+        setLoadError(null)
+        setTransactions(loadDemoBankRowsFromSession())
+        if (showLoading) setLoading(false)
+        return
+      }
       if (!userId || !supabase) {
         setTransactions([])
         setLoading(false)
@@ -121,6 +140,11 @@ export function useTransactions(userId) {
   )
 
   const loadJobs = useCallback(async () => {
+    if (isPublicDemo()) {
+      setJobs(getDemoTransactionJobs())
+      setJobsLoading(false)
+      return
+    }
     if (!userId || !supabase) {
       setJobs([])
       setJobsLoading(false)
@@ -142,7 +166,7 @@ export function useTransactions(userId) {
   }, [syncAndRefresh])
 
   useEffect(() => {
-    if (!userId) return undefined
+    if (!userId || isPublicDemo()) return undefined
     const id = setInterval(() => {
       syncAndRefresh(false)
     }, 90 * 1000)
@@ -168,6 +192,40 @@ export function useTransactions(userId) {
 
   const saveTransaction = useCallback(
     async (row, form) => {
+      if (isPublicDemo()) {
+        setSaveError(null)
+        setSavingId(row.id)
+        try {
+          let receiptUrl = row.receipt_url ?? null
+          if (form.receiptFile && form.receiptFile instanceof File) {
+            receiptUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
+          } else if (form.receiptUrl && form.receiptUrl.trim()) {
+            receiptUrl = form.receiptUrl.trim()
+          } else if (form.receiptUrl === '' && row.receipt_url && String(row.receipt_url).startsWith('http')) {
+            receiptUrl = null
+          }
+          const expenseType = form.expenseType || null
+          const jobId = form.jobId || null
+          const isPayroll = expenseType === 'Payroll'
+          const payload = {
+            job_id: jobId,
+            expense_type: expenseType,
+            is_payroll: isPayroll,
+            receipt_url: receiptUrl,
+            notes: form.notes?.trim() || null,
+          }
+          const list = loadDemoBankRowsFromSession()
+          const next = list.map((r) => (r.id === row.id ? { ...r, ...payload } : r))
+          persistDemoBankRows(next)
+          setTransactions(next)
+          return true
+        } catch (e) {
+          setSaveError(e instanceof Error ? e.message : 'Save failed')
+          return false
+        } finally {
+          setSavingId(null)
+        }
+      }
       if (!userId || !supabase) {
         setSaveError('Supabase is not configured')
         return false

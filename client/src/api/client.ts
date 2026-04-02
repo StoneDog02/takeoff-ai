@@ -25,6 +25,8 @@ import type {
 } from '@/types/global'
 import { API_BASE } from '@/api/config'
 import { getSessionAuthHeaders } from '@/api/authHeaders'
+import { isPublicDemo } from '@/lib/publicDemo'
+import { publicDemoApi } from '@/api/publicDemoStubs'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   return getSessionAuthHeaders()
@@ -209,6 +211,13 @@ export interface SupportMessage {
 
 export const api = {
   async runTakeoff(file: File, name?: string): Promise<TakeoffResponse> {
+    if (isPublicDemo()) {
+      return {
+        id: `demo-takeoff-${Date.now()}`,
+        name: name || file.name || 'Demo takeoff',
+        materialList: { categories: [], summary: 'Demo mode — upload disabled for live takeoff.' },
+      }
+    }
     const form = new FormData()
     form.append('file', file)
     if (name) form.append('name', name)
@@ -222,12 +231,21 @@ export const api = {
   },
 
   async getBuildLists(): Promise<BuildListItem[]> {
+    if (isPublicDemo()) return []
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/build-lists`, { headers })
     return handleResponse<BuildListItem[]>(res)
   },
 
   async getBuildList(id: string): Promise<BuildListDetail> {
+    if (isPublicDemo()) {
+      return {
+        id,
+        name: 'Demo build list',
+        created_at: new Date().toISOString(),
+        material_list: { categories: [] },
+      }
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/build-lists/${id}`, { headers })
     return handleResponse<BuildListDetail>(res)
@@ -237,11 +255,13 @@ export const api = {
   projects: {
     /** List projects with summary for cards (phases, budget actual, days left). Used by Teams and other flows. */
     async list(): Promise<DashboardProject[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.list()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects?_=${Date.now()}`, { headers, cache: 'no-store' })
       return handleResponse<DashboardProject[]>(res)
     },
     async get(id: string): Promise<Project> {
+      if (isPublicDemo()) return publicDemoApi.projects.get(id)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${id}`, { headers })
       return handleResponse<Project>(res)
@@ -263,6 +283,7 @@ export const api = {
       client_phone?: string
       plan_type?: ProjectPlanType
     }): Promise<Project> {
+      if (isPublicDemo()) return publicDemoApi.projects.create(body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects`, {
         method: 'POST',
@@ -294,6 +315,7 @@ export const api = {
         >
       >
     ): Promise<Project> {
+      if (isPublicDemo()) return publicDemoApi.projects.update(id, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${id}`, {
         method: 'PUT',
@@ -309,6 +331,7 @@ export const api = {
       projectId: string,
       options?: { estimateId?: string }
     ): Promise<{ ok: boolean; estimate_id?: string; skipped?: boolean; reason?: string }> {
+      if (isPublicDemo()) return publicDemoApi.projects.seedBudgetFromEstimate()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/seed-budget-from-estimate`, {
         method: 'POST',
@@ -318,6 +341,7 @@ export const api = {
       return handleResponse<{ ok: boolean; estimate_id?: string; skipped?: boolean; reason?: string }>(res)
     },
     async delete(id: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.delete()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -326,11 +350,13 @@ export const api = {
       }
     },
     async getPhases(projectId: string): Promise<Phase[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getPhases(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/phases`, { headers })
       return handleResponse<Phase[]>(res)
     },
     async createPhase(projectId: string, body: { name?: string; start_date?: string; end_date?: string; order?: number }): Promise<Phase> {
+      if (isPublicDemo()) return publicDemoApi.projects.createPhase(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/phases`, {
         method: 'POST',
@@ -340,6 +366,7 @@ export const api = {
       return handleResponse<Phase>(res)
     },
     async updatePhase(projectId: string, phaseId: string, body: Partial<Phase>): Promise<Phase> {
+      if (isPublicDemo()) return publicDemoApi.projects.updatePhase(projectId, phaseId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/phases/${phaseId}`, {
         method: 'PUT',
@@ -349,6 +376,7 @@ export const api = {
       return handleResponse<Phase>(res)
     },
     async deletePhase(projectId: string, phaseId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deletePhase()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/phases/${phaseId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -357,11 +385,13 @@ export const api = {
       }
     },
     async getMilestones(projectId: string): Promise<Milestone[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getMilestones(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/milestones`, { headers })
       return handleResponse<Milestone[]>(res)
     },
     async createMilestone(projectId: string, body: { phase_id?: string; title?: string; due_date?: string; completed?: boolean }): Promise<Milestone> {
+      if (isPublicDemo()) return publicDemoApi.projects.createMilestone(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/milestones`, {
         method: 'POST',
@@ -371,6 +401,7 @@ export const api = {
       return handleResponse<Milestone>(res)
     },
     async updateMilestone(projectId: string, milestoneId: string, body: Partial<Milestone>): Promise<Milestone> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateMilestone(projectId, milestoneId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/milestones/${milestoneId}`, {
         method: 'PUT',
@@ -380,6 +411,7 @@ export const api = {
       return handleResponse<Milestone>(res)
     },
     async deleteMilestone(projectId: string, milestoneId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteMilestone()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/milestones/${milestoneId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -388,11 +420,13 @@ export const api = {
       }
     },
     async getTasks(projectId: string): Promise<ProjectTask[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getTasks(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/tasks`, { headers })
       return handleResponse<ProjectTask[]>(res)
     },
     async createTask(projectId: string, body: { phase_id?: string; title?: string; responsible?: string; start_date?: string; end_date?: string; duration_weeks?: number; order?: number; completed?: boolean }): Promise<ProjectTask> {
+      if (isPublicDemo()) return publicDemoApi.projects.createTask(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/tasks`, {
         method: 'POST',
@@ -402,6 +436,7 @@ export const api = {
       return handleResponse<ProjectTask>(res)
     },
     async updateTask(projectId: string, taskId: string, body: Partial<Pick<ProjectTask, 'phase_id' | 'title' | 'responsible' | 'start_date' | 'end_date' | 'duration_weeks' | 'order' | 'completed'>>): Promise<ProjectTask> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateTask(projectId, taskId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/tasks/${taskId}`, {
         method: 'PATCH',
@@ -411,6 +446,7 @@ export const api = {
       return handleResponse<ProjectTask>(res)
     },
     async deleteTask(projectId: string, taskId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteTask()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -419,6 +455,7 @@ export const api = {
       }
     },
     async getMedia(projectId: string): Promise<JobWalkMedia[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getMedia(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/media`, { headers })
       return handleResponse<JobWalkMedia[]>(res)
@@ -430,6 +467,7 @@ export const api = {
       caption?: string,
       opts?: { log_date?: string }
     ): Promise<JobWalkMedia> {
+      if (isPublicDemo()) return publicDemoApi.projects.uploadMedia()
       const headers = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
@@ -444,6 +482,7 @@ export const api = {
       return handleResponse<JobWalkMedia>(res)
     },
     async deleteMedia(projectId: string, mediaId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteMedia()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/media/${mediaId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -456,16 +495,19 @@ export const api = {
       employees: Employee[]
       phases: Phase[]
     }> {
+      if (isPublicDemo()) return publicDemoApi.projects.getDailyLogFieldData(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/daily-log-field-data`, { headers })
       return handleResponse<{ assignments: JobAssignment[]; employees: Employee[]; phases: Phase[] }>(res)
     },
     async getDailyLogs(projectId: string): Promise<DailyLogRow[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getDailyLogs(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs`, { headers })
       return handleResponse<DailyLogRow[]>(res)
     },
     async createDailyLog(projectId: string, body: { log_date: string }): Promise<DailyLogRow> {
+      if (isPublicDemo()) return publicDemoApi.projects.createDailyLog(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs`, {
         method: 'POST',
@@ -479,6 +521,7 @@ export const api = {
       logId: string,
       body: Record<string, unknown>
     ): Promise<DailyLogRow> {
+      if (isPublicDemo()) return publicDemoApi.projects.patchDailyLog()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs/${logId}`, {
         method: 'PATCH',
@@ -488,6 +531,7 @@ export const api = {
       return handleResponse<DailyLogRow>(res)
     },
     async deleteDailyLog(projectId: string, logId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteDailyLog()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/daily-logs/${logId}`, {
         method: 'DELETE',
@@ -499,11 +543,13 @@ export const api = {
       }
     },
     async getBuildPlans(projectId: string): Promise<ProjectBuildPlan[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getBuildPlans()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans`, { headers })
       return handleResponse<ProjectBuildPlan[]>(res)
     },
     async uploadBuildPlan(projectId: string, file: File, uploader_name?: string): Promise<ProjectBuildPlan> {
+      if (isPublicDemo()) return publicDemoApi.projects.uploadBuildPlan()
       const allHeaders = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
@@ -520,11 +566,13 @@ export const api = {
       return handleResponse<ProjectBuildPlan>(res)
     },
     async getBuildPlanViewUrl(projectId: string, planId: string): Promise<{ url: string }> {
+      if (isPublicDemo()) return publicDemoApi.projects.getBuildPlanViewUrl(projectId, planId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans/${planId}/view`, { headers })
       return handleResponse<{ url: string }>(res)
     },
     async deleteBuildPlan(projectId: string, planId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteBuildPlan()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/build-plans/${planId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -533,11 +581,13 @@ export const api = {
       }
     },
     async getBidDocuments(projectId: string): Promise<BidDocument[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getBidDocuments()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents`, { headers })
       return handleResponse<BidDocument[]>(res)
     },
     async uploadBidDocument(projectId: string, file: File, uploader_name?: string): Promise<BidDocument> {
+      if (isPublicDemo()) return publicDemoApi.projects.uploadBidDocument()
       const allHeaders = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
@@ -553,11 +603,13 @@ export const api = {
       return handleResponse<BidDocument>(res)
     },
     async getBidDocumentViewUrl(projectId: string, docId: string): Promise<{ url: string }> {
+      if (isPublicDemo()) return publicDemoApi.projects.getBidDocumentViewUrl()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents/${docId}/view`, { headers })
       return handleResponse<{ url: string }>(res)
     },
     async deleteBidDocument(projectId: string, docId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteBidDocument()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-documents/${docId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -566,6 +618,7 @@ export const api = {
       }
     },
     async getDocuments(projectId: string, opts?: { show_archived?: boolean }): Promise<PaperTrailDocument[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getDocuments()
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       sp.set('_', String(Date.now()))
@@ -583,6 +636,7 @@ export const api = {
       subs_actual_from_bid_sheet?: number
       approved_change_orders_total?: number
     }> {
+      if (isPublicDemo()) return publicDemoApi.projects.getBudget(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/budget?_=${Date.now()}`, { headers, cache: 'no-store' })
       return handleResponse<{
@@ -594,6 +648,7 @@ export const api = {
       }>(res)
     },
     async updateBudget(projectId: string, items: BudgetLineItem[]): Promise<{ items: BudgetLineItem[]; summary: BudgetSummary }> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateBudget(projectId, items)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/budget`, {
         method: 'PUT',
@@ -603,11 +658,13 @@ export const api = {
       return handleResponse<{ items: BudgetLineItem[]; summary: BudgetSummary }>(res)
     },
     async getChangeOrders(projectId: string): Promise<ChangeOrder[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getChangeOrders()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders?_=${Date.now()}`, { headers, cache: 'no-store' })
       return handleResponse<ChangeOrder[]>(res)
     },
     async createChangeOrder(projectId: string, body: { description: string; amount: number; status: 'Approved' | 'Pending'; date: string; category: string }): Promise<ChangeOrder> {
+      if (isPublicDemo()) return publicDemoApi.projects.createChangeOrder(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders`, {
         method: 'POST',
@@ -617,6 +674,7 @@ export const api = {
       return handleResponse<ChangeOrder>(res)
     },
     async updateChangeOrder(projectId: string, coId: string, body: Partial<{ description: string; amount: number; status: 'Approved' | 'Pending'; date: string; category: string }>): Promise<ChangeOrder> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateChangeOrder(projectId, coId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders/${coId}`, {
         method: 'PUT',
@@ -626,6 +684,7 @@ export const api = {
       return handleResponse<ChangeOrder>(res)
     },
     async deleteChangeOrder(projectId: string, coId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteChangeOrder()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders/${coId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -646,6 +705,7 @@ export const api = {
       portal_url: string
       recipient_emails: string[]
     }> {
+      if (isPublicDemo()) return publicDemoApi.projects.sendChangeOrderToClient()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/change-orders/${coId}/send`, {
         method: 'POST',
@@ -659,6 +719,7 @@ export const api = {
       }>(res)
     },
     async getTrades(): Promise<{ key: string; label: string; csiDivision: string }[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getTrades()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/trades`, { headers })
       return handleResponse<{ key: string; label: string; csiDivision: string }[]>(res)
@@ -669,6 +730,7 @@ export const api = {
       planType?: string,
       tradeFilter?: null | string | string[]
     ): Promise<{ id: string; material_list: GlobalMaterialList; created_at?: string; truncated?: boolean }> {
+      if (isPublicDemo()) return publicDemoApi.projects.launchTakeoff(projectId, file, planType, tradeFilter)
       const headers = await getAuthHeaders()
       const form = new FormData()
       form.append('file', file)
@@ -684,16 +746,19 @@ export const api = {
       return handleResponse<{ id: string; material_list: GlobalMaterialList; created_at?: string; truncated?: boolean }>(res)
     },
     async getTakeoffs(projectId: string): Promise<{ id: string; material_list: GlobalMaterialList; created_at: string }[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getTakeoffs(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/takeoffs`, { headers })
       return handleResponse<{ id: string; material_list: GlobalMaterialList; created_at: string }[]>(res)
     },
     async getActivity(projectId: string): Promise<ProjectActivityItem[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getActivity()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/activity`, { headers })
       return handleResponse<ProjectActivityItem[]>(res)
     },
     async getSubcontractors(projectId: string): Promise<Subcontractor[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getSubcontractors(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, { headers })
       return handleResponse<Subcontractor[]>(res)
@@ -709,6 +774,7 @@ export const api = {
         response_deadline?: string | null
       }
     ): Promise<Subcontractor> {
+      if (isPublicDemo()) return publicDemoApi.projects.createSubcontractor(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, {
         method: 'POST',
@@ -727,6 +793,7 @@ export const api = {
       sub_bid_id: string
       email_sent: boolean
     }> {
+      if (isPublicDemo()) return publicDemoApi.projects.createSubcontractorWithPortalInvite(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors`, {
         method: 'POST',
@@ -740,6 +807,7 @@ export const api = {
       return handleResponse(res)
     },
     async updateSubcontractor(projectId: string, subId: string, body: Partial<Subcontractor>): Promise<Subcontractor> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateSubcontractor(projectId, subId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors/${subId}`, {
         method: 'PUT',
@@ -749,6 +817,7 @@ export const api = {
       return handleResponse<Subcontractor>(res)
     },
     async deleteSubcontractor(projectId: string, subId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteSubcontractor()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors/${subId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -757,11 +826,13 @@ export const api = {
       }
     },
     async getWorkTypes(projectId: string): Promise<ProjectWorkType[]> {
+      if (isPublicDemo()) return publicDemoApi.projects.getWorkTypes(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/work-types`, { headers })
       return handleResponse<ProjectWorkType[]>(res)
     },
     async createWorkType(projectId: string, body: { name: string; description?: string; rate: number; unit: string; type_key?: string; custom_color?: string }): Promise<ProjectWorkType> {
+      if (isPublicDemo()) return publicDemoApi.projects.createWorkType(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/work-types`, {
         method: 'POST',
@@ -771,6 +842,7 @@ export const api = {
       return handleResponse<ProjectWorkType>(res)
     },
     async updateWorkType(projectId: string, wtId: string, body: Partial<{ name: string; description: string; rate: number; unit: string; type_key: string; custom_color: string }>): Promise<ProjectWorkType> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateWorkType(projectId, wtId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/work-types/${wtId}`, {
         method: 'PUT',
@@ -780,6 +852,7 @@ export const api = {
       return handleResponse<ProjectWorkType>(res)
     },
     async deleteWorkType(projectId: string, wtId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteWorkType()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/work-types/${wtId}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -788,6 +861,7 @@ export const api = {
       }
     },
     async bulkSendSubcontractors(projectId: string, subIds: string[], subject: string, body: string): Promise<{ ok: boolean }> {
+      if (isPublicDemo()) return publicDemoApi.projects.bulkSendSubcontractors()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/subcontractors/bulk-send`, {
         method: 'POST',
@@ -797,11 +871,13 @@ export const api = {
       return handleResponse<{ ok: boolean }>(res)
     },
     async getBidSheet(projectId: string): Promise<BidSheet> {
+      if (isPublicDemo()) return publicDemoApi.projects.getBidSheet(projectId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet`, { headers })
       return handleResponse<BidSheet>(res)
     },
     async updateBidSheet(projectId: string, data: Partial<BidSheet>): Promise<BidSheet> {
+      if (isPublicDemo()) return publicDemoApi.projects.updateBidSheet(projectId, data)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet`, {
         method: 'PUT',
@@ -822,6 +898,7 @@ export const api = {
         response_deadline?: string | null
       }
     ): Promise<{ token: string; portal_url: string }> {
+      if (isPublicDemo()) return publicDemoApi.projects.dispatchBid()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/dispatch`, {
         method: 'POST',
@@ -832,6 +909,7 @@ export const api = {
     },
     /** Resend portal link email for a sub bid. */
     async resendBid(projectId: string, subBidId: string): Promise<{ ok: boolean; portal_url?: string }> {
+      if (isPublicDemo()) return publicDemoApi.projects.resendBid()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/resend`, {
         method: 'POST',
@@ -841,6 +919,7 @@ export const api = {
       return handleResponse<{ ok: boolean; portal_url?: string }>(res)
     },
     async setSubBidAwarded(projectId: string, subBidId: string, awarded: boolean): Promise<{ ok: boolean }> {
+      if (isPublicDemo()) return publicDemoApi.projects.setSubBidAwarded()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/sub-bids/${subBidId}`, {
         method: 'PATCH',
@@ -850,6 +929,7 @@ export const api = {
       return handleResponse<{ ok: boolean }>(res)
     },
     async deleteSubBid(projectId: string, subBidId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.projects.deleteSubBid()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/sub-bids/${subBidId}`, {
         method: 'DELETE',
@@ -869,6 +949,7 @@ export const api = {
         estimate_lines: { description: string; quantity: number; unit: string; unit_price: number }[]
       }
     ): Promise<{ trade_package: import('@/types/global').TradePackage }> {
+      if (isPublicDemo()) return publicDemoApi.projects.setGcSelfPerform(projectId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/projects/${projectId}/bid-sheet/gc-self-perform`, {
         method: 'POST',
@@ -881,6 +962,7 @@ export const api = {
 
   /** Schedule items (tasks + milestones) for a given date across all user projects. */
   async getSchedule(date: string): Promise<ScheduleItem[]> {
+    if (isPublicDemo()) return publicDemoApi.getSchedule(date)
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/schedule?date=${encodeURIComponent(date)}`, { headers })
     return handleResponse<ScheduleItem[]>(res)
@@ -888,6 +970,7 @@ export const api = {
 
   /** Dates in a month that have at least one schedule item (task or milestone). */
   async getScheduleDays(month: string): Promise<{ dates: string[] }> {
+    if (isPublicDemo()) return publicDemoApi.getScheduleDays(month)
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/schedule/days?month=${encodeURIComponent(month)}`, { headers })
     return handleResponse<{ dates: string[] }>(res)
@@ -896,11 +979,13 @@ export const api = {
   /** Dashboard aggregates (alerts, KPIs, clocked-in, projects). */
   dashboard: {
     async getAlerts(): Promise<DashboardAlert[]> {
+      if (isPublicDemo()) return publicDemoApi.dashboard.getAlerts()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/dashboard/alerts`, { headers })
       return handleResponse<DashboardAlert[]>(res)
     },
     async dismissAlert(alert: DashboardAlert): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.dashboard.dismissAlert(alert)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/dashboard/alerts/dismiss`, {
         method: 'POST',
@@ -913,21 +998,25 @@ export const api = {
       }
     },
     async getDismissedAlerts(): Promise<DismissedAlert[]> {
+      if (isPublicDemo()) return publicDemoApi.dashboard.getDismissedAlerts()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/dashboard/alerts/dismissed`, { headers })
       return handleResponse<DismissedAlert[]>(res)
     },
     async getKpis(): Promise<DashboardKpis> {
+      if (isPublicDemo()) return publicDemoApi.dashboard.getKpis()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/dashboard/kpis`, { headers })
       return handleResponse<DashboardKpis>(res)
     },
     async getClockedIn(): Promise<ClockedInEntry[]> {
+      if (isPublicDemo()) return publicDemoApi.dashboard.getClockedIn()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/dashboard/clocked-in`, { headers })
       return handleResponse<ClockedInEntry[]>(res)
     },
     async getProjects(): Promise<DashboardProject[]> {
+      if (isPublicDemo()) return publicDemoApi.dashboard.getProjects()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/dashboard/projects?_=${Date.now()}`, {
         headers,
@@ -940,17 +1029,20 @@ export const api = {
   /** Messaging: conversations and messages */
   conversations: {
     async list(): Promise<ConversationListItem[]> {
+      if (isPublicDemo()) return publicDemoApi.conversations.list()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations`, { headers })
       return handleResponse<ConversationListItem[]>(res)
     },
     async findOrCreate(otherUserId: string): Promise<{ id: string; created_at: string; updated_at: string }> {
+      if (isPublicDemo()) return publicDemoApi.conversations.findOrCreate(otherUserId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations/find-or-create?other_user_id=${encodeURIComponent(otherUserId)}`, { headers })
       return handleResponse<{ id: string; created_at: string; updated_at: string }>(res)
     },
     /** Create a group conversation (e.g. team chat) with given participant user IDs. Current user is always included. */
     async create(participantIds: string[]): Promise<{ id: string; created_at: string; updated_at: string }> {
+      if (isPublicDemo()) return publicDemoApi.conversations.create(participantIds)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations`, {
         method: 'POST',
@@ -961,6 +1053,7 @@ export const api = {
     },
     /** Get or create the group conversation for a job. Returns conversation + job_name. */
     async getOrCreateForJob(jobId: string): Promise<{ id: string; created_at: string; updated_at: string; job_id: string; job_name: string }> {
+      if (isPublicDemo()) return publicDemoApi.conversations.getOrCreateForJob(jobId)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations/for-job`, {
         method: 'POST',
@@ -970,6 +1063,7 @@ export const api = {
       return handleResponse<{ id: string; created_at: string; updated_at: string; job_id: string; job_name: string }>(res)
     },
     async getMessages(conversationId: string, opts?: { limit?: number; before?: string }): Promise<{ messages: Message[]; has_more: boolean }> {
+      if (isPublicDemo()) return publicDemoApi.conversations.getMessages(conversationId, opts)
       const headers = await getAuthHeaders()
       const params = new URLSearchParams()
       if (opts?.limit) params.set('limit', String(opts.limit))
@@ -979,6 +1073,7 @@ export const api = {
       return handleResponse<{ messages: Message[]; has_more: boolean }>(res)
     },
     async sendMessage(conversationId: string, body: string): Promise<Message> {
+      if (isPublicDemo()) return publicDemoApi.conversations.sendMessage(conversationId, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
         method: 'POST',
@@ -988,10 +1083,12 @@ export const api = {
       return handleResponse<Message>(res)
     },
     async markRead(conversationId: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.conversations.markRead()
       const headers = await getAuthHeaders()
       await fetch(`${API_BASE}/conversations/${conversationId}/read`, { method: 'POST', headers })
     },
     async getUnreadCount(): Promise<{ count: number }> {
+      if (isPublicDemo()) return publicDemoApi.conversations.getUnreadCount()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/conversations/unread-count`, { headers })
       return handleResponse<{ count: number }>(res)
@@ -1009,6 +1106,7 @@ export const api = {
       project_id?: string
       show_archived?: boolean
     }): Promise<{ documents: PaperTrailDocument[]; total_count: number; storage_bytes_estimate: number }> {
+      if (isPublicDemo()) return publicDemoApi.documents.list()
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       if (params?.q?.trim()) sp.set('q', params.q.trim())
@@ -1028,6 +1126,7 @@ export const api = {
       id: string,
       body: { archived?: boolean; project_id?: string | null }
     ): Promise<PaperTrailDocument> {
+      if (isPublicDemo()) return publicDemoApi.documents.update(id)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}`, {
         method: 'PATCH',
@@ -1037,11 +1136,13 @@ export const api = {
       return handleResponse<PaperTrailDocument>(res)
     },
     async getViewer(id: string): Promise<DocumentViewerResponse> {
+      if (isPublicDemo()) return publicDemoApi.documents.getViewer(id)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}`, { headers, cache: 'no-store' })
       return handleResponse<DocumentViewerResponse>(res)
     },
     async resend(id: string): Promise<{ ok: boolean; portal_url?: string; emailed?: boolean }> {
+      if (isPublicDemo()) return publicDemoApi.documents.resend()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(id)}/resend`, {
         method: 'POST',
@@ -1057,6 +1158,7 @@ export const api = {
       demo: number
       errors: string[]
     }> {
+      if (isPublicDemo()) return publicDemoApi.documents.backfill()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/documents/backfill`, {
         method: 'POST',
@@ -1076,11 +1178,13 @@ export const api = {
   /** Global contractor contact list (Manage > Contractors). */
   contractors: {
     async list(): Promise<Contractor[]> {
+      if (isPublicDemo()) return publicDemoApi.contractors.list()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/contractors`, { headers })
       return handleResponse<Contractor[]>(res)
     },
     async create(body: { name: string; trade: string; email: string; phone?: string }): Promise<Contractor> {
+      if (isPublicDemo()) return publicDemoApi.contractors.create(body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/contractors`, {
         method: 'POST',
@@ -1090,6 +1194,7 @@ export const api = {
       return handleResponse<Contractor>(res)
     },
     async update(id: string, body: Partial<{ name: string; trade: string; email: string; phone: string }>): Promise<Contractor> {
+      if (isPublicDemo()) return publicDemoApi.contractors.update(id, body)
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/contractors/${id}`, {
         method: 'PUT',
@@ -1099,6 +1204,7 @@ export const api = {
       return handleResponse<Contractor>(res)
     },
     async delete(id: string): Promise<void> {
+      if (isPublicDemo()) return publicDemoApi.contractors.delete()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/contractors/${id}`, { method: 'DELETE', headers })
       if (!res.ok) {
@@ -1117,6 +1223,7 @@ export const api = {
       page_title: string
       metadata?: Record<string, unknown>
     }): Promise<{ id: string }> {
+      if (isPublicDemo()) return publicDemoApi.support.create()
       const headers = await getAuthHeaders()
       const body: Record<string, unknown> = {
         type: data.type,
@@ -1136,6 +1243,7 @@ export const api = {
     },
 
     async list(filters?: { status?: string; type?: string; q?: string }): Promise<{ messages: SupportMessage[] }> {
+      if (isPublicDemo()) return publicDemoApi.support.list()
       const headers = await getAuthHeaders()
       const sp = new URLSearchParams()
       if (filters?.status && filters.status !== 'all') sp.set('status', filters.status)
@@ -1150,6 +1258,7 @@ export const api = {
       id: string,
       data: { status?: string; priority?: string; admin_notes?: string }
     ): Promise<SupportMessage> {
+      if (isPublicDemo()) return publicDemoApi.support.update()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/admin/support/${encodeURIComponent(id)}`, {
         method: 'PATCH',
@@ -1160,6 +1269,7 @@ export const api = {
     },
 
     async getNewCount(): Promise<{ count: number }> {
+      if (isPublicDemo()) return publicDemoApi.support.getNewCount()
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/admin/support/new-count`, { headers })
       return handleResponse<{ count: number }>(res)

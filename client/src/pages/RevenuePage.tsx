@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { dayjs } from '@/lib/date'
 import { STATUS_CONFIG } from '@/data/revenueSeedData'
 import type { TrendPeriodKey } from '@/data/revenueSeedData'
@@ -57,15 +57,45 @@ export function RevenuePage() {
   }, [period])
 
   const comparisonData = period === 'Full year' ? lastYear : null
-  const lastPoint = chartData[chartData.length - 1]
-  const totalRev = lastPoint?.revenue ?? 0
-  const totalExp = lastPoint?.expenses ?? 0
-  const netProfit = lastPoint?.profit ?? 0
-  const marginPct = pct(netProfit, totalRev)
-  const currentMonth =
-    chartData.length > 1
-      ? (chartData[chartData.length - 1]?.revenue ?? 0) - (chartData[chartData.length - 2]?.revenue ?? 0)
-      : chartData[0]?.revenue ?? 0
+
+  /** Trend points are per bucket (each month or each day), not cumulative — KPIs must sum the series. */
+  const periodTotalRev = useMemo(
+    () => chartData.reduce((s, d) => s + Number(d.revenue ?? 0), 0),
+    [chartData],
+  )
+  const periodTotalExp = useMemo(
+    () => chartData.reduce((s, d) => s + Number(d.expenses ?? 0), 0),
+    [chartData],
+  )
+  const periodNetProfit = useMemo(
+    () =>
+      chartData.reduce(
+        (s, d) => s + Number(d.profit ?? Number(d.revenue ?? 0) - Number(d.expenses ?? 0)),
+        0,
+      ),
+    [chartData],
+  )
+
+  const currentMonthLabel = dayjs().format('MMM')
+  /** This month: sum of daily buckets. YTD / Full year: revenue in the calendar month bucket that matches today. */
+  const currentBucketRevenue = useMemo(() => {
+    if (period === 'This month') return periodTotalRev
+    const hit = chartData.find((d) => d.label === currentMonthLabel)
+    return hit != null ? Number(hit.revenue ?? 0) : 0
+  }, [chartData, period, periodTotalRev, currentMonthLabel])
+
+  const marginPct = pct(periodNetProfit, periodTotalRev)
+
+  /** Month-over-month change for the current calendar month vs prior month in the chart (skip for daily view). */
+  const revenueMomPct = useMemo(() => {
+    if (period === 'This month' || chartData.length < 2) return null
+    const idx = chartData.findIndex((d) => d.label === currentMonthLabel)
+    if (idx <= 0) return null
+    const prev = Number(chartData[idx - 1]?.revenue ?? 0)
+    const cur = Number(chartData[idx]?.revenue ?? 0)
+    if (prev <= 0) return cur > 0 ? 100 : null
+    return ((cur - prev) / prev) * 100
+  }, [chartData, period, currentMonthLabel])
 
   const cashflowMax = CASHFLOW[0].amount + CASHFLOW[1].amount + CASHFLOW[2].amount
   const activeJobsCount = JOBS.filter((j) => j.status === 'active').length
@@ -78,9 +108,9 @@ export function RevenuePage() {
       ['Revenue summary', ''],
       ['Period', period],
       ['Date range', `${fromDate} to ${toDate}`],
-      ['YTD Revenue', String(totalRev)],
-      ['Current month', String(currentMonth)],
-      ['Net profit', String(netProfit)],
+      ['YTD Revenue', String(periodTotalRev)],
+      ['Current month', String(currentBucketRevenue)],
+      ['Net profit', String(periodNetProfit)],
       ['Margin %', String(marginPct)],
       [],
       ['Revenue by job', 'Invoiced', 'Collected', 'Margin %'],
@@ -108,7 +138,7 @@ export function RevenuePage() {
     a.download = `revenue-summary-${fromDate}-${toDate}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct, JOBS, EXPENDITURE])
+  }, [period, fromDate, toDate, periodTotalRev, currentBucketRevenue, periodNetProfit, marginPct, JOBS, EXPENDITURE])
 
   const downloadPDF = useCallback(async () => {
     const { jsPDF } = await import('jspdf')
@@ -126,9 +156,9 @@ export function RevenuePage() {
     y += 4
     line(`Period: ${period}`)
     line(`Date range: ${fromDate} to ${toDate}`)
-    line(`YTD revenue: ${fmt(totalRev)}`)
-    line(`Current month: ${fmt(currentMonth)}`)
-    line(`Net profit: ${fmt(netProfit)}`)
+    line(`YTD revenue: ${fmt(periodTotalRev)}`)
+    line(`Current month: ${fmt(currentBucketRevenue)}`)
+    line(`Net profit: ${fmt(periodNetProfit)}`)
     line(`Margin: ${marginPct}%`)
     y += 6
     doc.setFont('helvetica', 'bold')
@@ -143,7 +173,7 @@ export function RevenuePage() {
     doc.setFont('helvetica', 'normal')
     EXPENDITURE.forEach((d) => line(`${d.category}: ${fmt(d.amount)}`))
     doc.save(`revenue-summary-${fromDate}-${toDate}.pdf`)
-  }, [period, fromDate, toDate, totalRev, currentMonth, netProfit, marginPct, JOBS, EXPENDITURE])
+  }, [period, fromDate, toDate, periodTotalRev, currentBucketRevenue, periodNetProfit, marginPct, JOBS, EXPENDITURE])
 
   if (loading) {
     return (
@@ -233,25 +263,33 @@ export function RevenuePage() {
               style={{ background: marginColor(marginPct) }}
             />
             <div className="revenue-overhaul-kpi-label">Net Profit</div>
-            <div className="revenue-overhaul-kpi-value">{fmt(netProfit)}</div>
+            <div className="revenue-overhaul-kpi-value">{fmt(periodNetProfit)}</div>
             <span className="revenue-overhaul-kpi-meta-small">
-              Revenue {fmt(totalRev)} · Expenses {fmt(totalExp)}
+              Revenue {fmt(periodTotalRev)} · Expenses {fmt(periodTotalExp)}
             </span>
           </div>
 
           <div className="revenue-overhaul-kpi-card">
             <div className="revenue-overhaul-kpi-bar revenue-overhaul-kpi-bar-blue" />
             <div className="revenue-overhaul-kpi-label">YTD Revenue</div>
-            <div className="revenue-overhaul-kpi-value">{fmt(totalRev)}</div>
-            <span className="revenue-overhaul-badge-up">↑ +12.1%</span>
+            <div className="revenue-overhaul-kpi-value">{fmt(periodTotalRev)}</div>
+            {revenueMomPct != null ? (
+              <span
+                className={
+                  revenueMomPct >= 0 ? 'revenue-overhaul-badge-up' : 'revenue-overhaul-badge-down'
+                }
+              >
+                {revenueMomPct >= 0 ? '↑' : '↓'} {Math.abs(revenueMomPct).toFixed(1)}% vs prior month
+              </span>
+            ) : (
+              <span className="revenue-overhaul-kpi-meta-small">In selected range</span>
+            )}
           </div>
 
           <div className="revenue-overhaul-kpi-card">
             <div className="revenue-overhaul-kpi-bar revenue-overhaul-kpi-bar-purple" />
             <div className="revenue-overhaul-kpi-label">Current Month</div>
-            <div className="revenue-overhaul-kpi-value">
-              {fmt(currentMonth > 0 ? currentMonth : (chartData[0]?.revenue ?? 0))}
-            </div>
+            <div className="revenue-overhaul-kpi-value">{fmt(currentBucketRevenue)}</div>
             <span className="revenue-overhaul-kpi-meta-small">this month</span>
           </div>
 

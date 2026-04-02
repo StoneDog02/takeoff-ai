@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import type { Estimate, Invoice, Job } from '@/types/global'
 import { formatDate, parseToTimestamp } from '@/lib/date'
-import { USE_MOCK_ESTIMATES, MOCK_ESTIMATES, MOCK_INVOICES } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, MOCK_ESTIMATES, MOCK_INVOICES } from '@/data/mockEstimatesData'
 
 type DocType = 'all' | 'estimate' | 'invoice'
 type DateRangeKey = '7' | '30' | '90'
@@ -51,7 +51,7 @@ export function EstimatesInvoicesLedger({
     let cancelled = false
     setLoading(true)
     setError(null)
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setEstimates(MOCK_ESTIMATES)
       setInvoices(MOCK_INVOICES)
       setLoading(false)

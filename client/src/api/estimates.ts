@@ -9,6 +9,18 @@ import type {
 } from '@/types/global'
 import { supabase } from '@/lib/supabaseClient'
 import { API_BASE } from '@/api/config'
+import { isPublicDemo, DEMO_PM_USER_ID } from '@/lib/publicDemo'
+import {
+  MOCK_JOBS,
+  MOCK_ESTIMATES,
+  MOCK_INVOICES,
+  MOCK_CUSTOM_PRODUCTS,
+  MOCK_JOB_EXPENSES,
+  MOCK_JOB_SPEND_SUMMARIES,
+  getMockEstimateWithLines,
+  getMockInvoice,
+  getMockJobExpensesByJob,
+} from '@/data/mockEstimatesData'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {}
@@ -71,6 +83,7 @@ export interface CustomProductsImportResult {
 export const estimatesApi = {
   // Jobs (projects as jobs)
   async getJobs(): Promise<Job[]> {
+    if (isPublicDemo()) return Promise.resolve(MOCK_JOBS)
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/jobs`, { headers })
     return handleResponse<Job[]>(res)
@@ -78,6 +91,10 @@ export const estimatesApi = {
 
   // Estimates
   async getEstimates(jobId?: string): Promise<Estimate[]> {
+    if (isPublicDemo()) {
+      const list = jobId ? MOCK_ESTIMATES.filter((e) => e.job_id === jobId) : MOCK_ESTIMATES
+      return Promise.resolve(list)
+    }
     const headers = await getAuthHeaders()
     const url = jobId
       ? `${API_BASE}/estimates?job_id=${encodeURIComponent(jobId)}`
@@ -87,12 +104,32 @@ export const estimatesApi = {
   },
 
   async getEstimate(id: string): Promise<EstimateWithLines> {
+    if (isPublicDemo()) {
+      const e = getMockEstimateWithLines(id)
+      if (!e) return Promise.reject(new Error('Estimate not found'))
+      return Promise.resolve(e)
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${id}`, { headers })
     return handleResponse<EstimateWithLines>(res)
   },
 
   async createEstimate(params: { job_id?: string; title?: string }): Promise<EstimateWithLines> {
+    if (isPublicDemo()) {
+      const t = new Date().toISOString()
+      return Promise.resolve({
+        id: `est-demo-${Date.now()}`,
+        job_id: params.job_id ?? 'demo',
+        title: params.title ?? 'New estimate',
+        status: 'draft',
+        total_amount: 0,
+        invoiced_amount: 0,
+        recipient_emails: [],
+        created_at: t,
+        updated_at: t,
+        line_items: [],
+      })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates`, {
       method: 'POST',
@@ -117,6 +154,11 @@ export const estimatesApi = {
       >
     > & { estimate_groups_meta?: unknown | null }
   ): Promise<Estimate> {
+    if (isPublicDemo()) {
+      const existing = getMockEstimateWithLines(id)
+      if (!existing) return Promise.reject(new Error('Not found'))
+      return Promise.resolve({ ...existing, ...updates } as Estimate)
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${id}`, {
       method: 'PATCH',
@@ -127,6 +169,7 @@ export const estimatesApi = {
   },
 
   async deleteEstimate(id: string): Promise<void> {
+    if (isPublicDemo()) return Promise.resolve()
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${id}`, {
       method: 'DELETE',
@@ -148,6 +191,19 @@ export const estimatesApi = {
       total?: number
     }
   ): Promise<EstimateLineItem> {
+    if (isPublicDemo()) {
+      return Promise.resolve({
+        id: `li-demo-${Date.now()}`,
+        estimate_id: estimateId,
+        product_id: item.custom_product_id ?? null,
+        description: item.description,
+        quantity: item.quantity,
+        unit: item.unit,
+        unit_price: item.unit_price,
+        total: item.total ?? item.quantity * item.unit_price,
+        section: item.section ?? null,
+      })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${estimateId}/line-items`, {
       method: 'POST',
@@ -162,6 +218,12 @@ export const estimatesApi = {
     lineId: string,
     updates: Partial<Pick<EstimateLineItem, 'description' | 'quantity' | 'unit' | 'unit_price' | 'section'>>
   ): Promise<EstimateLineItem> {
+    if (isPublicDemo()) {
+      const e = getMockEstimateWithLines(estimateId)
+      const li = e?.line_items.find((l) => l.id === lineId)
+      if (!li) return Promise.reject(new Error('Line not found'))
+      return Promise.resolve({ ...li, ...updates })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(
       `${API_BASE}/estimates/${estimateId}/line-items/${lineId}`,
@@ -175,6 +237,7 @@ export const estimatesApi = {
   },
 
   async deleteLineItem(estimateId: string, lineId: string): Promise<void> {
+    if (isPublicDemo()) return Promise.resolve()
     const headers = await getAuthHeaders()
     const res = await fetch(
       `${API_BASE}/estimates/${estimateId}/line-items/${lineId}`,
@@ -185,6 +248,7 @@ export const estimatesApi = {
 
   /** After saving line items on an already-accepted estimate, refresh the project budget. */
   async syncProjectBudgetFromEstimate(estimateId: string): Promise<{ ok: boolean }> {
+    if (isPublicDemo()) return Promise.resolve({ ok: true })
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${estimateId}/sync-project-budget`, {
       method: 'POST',
@@ -202,6 +266,20 @@ export const estimatesApi = {
       schedule_snapshot?: { rows: unknown[] } | null
     }
   ): Promise<{ invoice: Invoice; estimate?: Estimate }> {
+    if (isPublicDemo()) {
+      const est = getMockEstimateWithLines(estimateId)
+      const inv: Invoice = {
+        id: `inv-demo-${Date.now()}`,
+        estimate_id: estimateId,
+        job_id: est?.job_id ?? 'demo',
+        status: 'draft',
+        total_amount: options?.amount ?? est?.total_amount ?? 0,
+        recipient_emails: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      return Promise.resolve({ invoice: inv, estimate: est ?? undefined })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(
       `${API_BASE}/estimates/${estimateId}/convert-to-invoice`,
@@ -229,6 +307,11 @@ export const estimatesApi = {
       gc_name?: string
     }
   ): Promise<Estimate> {
+    if (isPublicDemo()) {
+      const e = getMockEstimateWithLines(estimateId)
+      if (!e) return Promise.reject(new Error('Not found'))
+      return Promise.resolve({ ...e, status: 'sent', recipient_emails: payload.recipient_emails })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/estimates/${estimateId}/send`, {
       method: 'POST',
@@ -240,6 +323,10 @@ export const estimatesApi = {
 
   // Invoices
   async getInvoices(jobId?: string): Promise<Invoice[]> {
+    if (isPublicDemo()) {
+      const list = jobId ? MOCK_INVOICES.filter((i) => i.job_id === jobId) : MOCK_INVOICES
+      return Promise.resolve(list)
+    }
     const headers = await getAuthHeaders()
     const url = jobId
       ? `${API_BASE}/invoices?job_id=${encodeURIComponent(jobId)}`
@@ -249,6 +336,11 @@ export const estimatesApi = {
   },
 
   async getInvoice(id: string): Promise<Invoice> {
+    if (isPublicDemo()) {
+      const inv = getMockInvoice(id)
+      if (!inv) return Promise.reject(new Error('Invoice not found'))
+      return Promise.resolve(inv)
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/invoices/${id}`, { headers })
     return handleResponse<Invoice>(res)
@@ -262,6 +354,20 @@ export const estimatesApi = {
     estimate_id?: string
     status?: 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue'
   }): Promise<Invoice> {
+    if (isPublicDemo()) {
+      const t = new Date().toISOString()
+      return Promise.resolve({
+        id: `inv-new-${Date.now()}`,
+        job_id: params.job_id,
+        estimate_id: params.estimate_id,
+        status: params.status ?? 'draft',
+        total_amount: params.total_amount,
+        recipient_emails: params.recipient_emails ?? [],
+        created_at: t,
+        updated_at: t,
+        due_date: params.due_date,
+      } as Invoice)
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/invoices`, {
       method: 'POST',
@@ -280,6 +386,11 @@ export const estimatesApi = {
       >
     >
   ): Promise<Invoice> {
+    if (isPublicDemo()) {
+      const inv = getMockInvoice(id)
+      if (!inv) return Promise.reject(new Error('Not found'))
+      return Promise.resolve({ ...inv, ...updates })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/invoices/${id}`, {
       method: 'PATCH',
@@ -290,6 +401,7 @@ export const estimatesApi = {
   },
 
   async deleteInvoice(id: string): Promise<void> {
+    if (isPublicDemo()) return Promise.resolve()
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/invoices/${id}`, { method: 'DELETE', headers })
     return handleResponse<void>(res)
@@ -299,6 +411,11 @@ export const estimatesApi = {
     invoiceId: string,
     recipient_emails: string[]
   ): Promise<Invoice> {
+    if (isPublicDemo()) {
+      const inv = getMockInvoice(invoiceId)
+      if (!inv) return Promise.reject(new Error('Not found'))
+      return Promise.resolve({ ...inv, status: 'sent', recipient_emails })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/invoices/${invoiceId}/send`, {
       method: 'POST',
@@ -310,12 +427,23 @@ export const estimatesApi = {
 
   // Custom products
   async getCustomProducts(): Promise<CustomProduct[]> {
+    if (isPublicDemo()) return Promise.resolve(MOCK_CUSTOM_PRODUCTS)
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/custom-products`, { headers })
     return handleResponse<CustomProduct[]>(res)
   },
 
   async previewCustomProductsImport(file: File): Promise<CustomProductsImportPreview> {
+    if (isPublicDemo()) {
+      return Promise.resolve({
+        totalParsed: 0,
+        wouldInsert: 0,
+        skippedDuplicates: 0,
+        previewRows: [],
+        warnings: [],
+        parseErrors: [],
+      })
+    }
     const headers = await getAuthHeaders()
     const form = new FormData()
     form.append('file', file)
@@ -328,6 +456,15 @@ export const estimatesApi = {
   },
 
   async importCustomProducts(file: File): Promise<CustomProductsImportResult> {
+    if (isPublicDemo()) {
+      return Promise.resolve({
+        inserted: 0,
+        skippedDuplicates: 0,
+        totalParsed: 0,
+        warnings: [],
+        parseErrors: [],
+      })
+    }
     const headers = await getAuthHeaders()
     const form = new FormData()
     form.append('file', file)
@@ -351,6 +488,19 @@ export const estimatesApi = {
     trades?: string[]
     taxable?: boolean
   }): Promise<CustomProduct> {
+    if (isPublicDemo()) {
+      const t = new Date().toISOString()
+      return Promise.resolve({
+        id: `prod-demo-${Date.now()}`,
+        user_id: DEMO_PM_USER_ID,
+        name: params.name,
+        description: params.description ?? '',
+        unit: params.unit ?? 'ea',
+        default_unit_price: params.default_unit_price,
+        item_type: params.item_type ?? 'service',
+        created_at: t,
+      })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/custom-products`, {
       method: 'POST',
@@ -366,6 +516,11 @@ export const estimatesApi = {
       Pick<CustomProduct, 'name' | 'description' | 'unit' | 'default_unit_price' | 'item_type' | 'sub_cost' | 'markup_pct' | 'billed_price' | 'trades' | 'taxable'>
     >
   ): Promise<CustomProduct> {
+    if (isPublicDemo()) {
+      const p = MOCK_CUSTOM_PRODUCTS.find((x) => x.id === id)
+      if (!p) return Promise.reject(new Error('Not found'))
+      return Promise.resolve({ ...p, ...updates })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/custom-products/${id}`, {
       method: 'PATCH',
@@ -376,6 +531,7 @@ export const estimatesApi = {
   },
 
   async deleteCustomProduct(id: string): Promise<void> {
+    if (isPublicDemo()) return Promise.resolve()
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/custom-products/${id}`, {
       method: 'DELETE',
@@ -386,6 +542,10 @@ export const estimatesApi = {
 
   // Job expenses (optional jobId; omit to fetch all for pipeline)
   async getJobExpenses(jobId?: string): Promise<JobExpense[]> {
+    if (isPublicDemo()) {
+      if (jobId) return Promise.resolve(getMockJobExpensesByJob(jobId))
+      return Promise.resolve(MOCK_JOB_EXPENSES)
+    }
     const headers = await getAuthHeaders()
     const url = jobId
       ? `${API_BASE}/job-expenses?job_id=${encodeURIComponent(jobId)}`
@@ -395,6 +555,7 @@ export const estimatesApi = {
   },
 
   async getJobSpendSummaries(): Promise<JobSpendSummary[]> {
+    if (isPublicDemo()) return Promise.resolve(MOCK_JOB_SPEND_SUMMARIES)
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/job-expenses/summary`, { headers })
     return handleResponse<JobSpendSummary[]>(res)
@@ -409,6 +570,18 @@ export const estimatesApi = {
     billable?: boolean
     vendor?: string
   }): Promise<JobExpense> {
+    if (isPublicDemo()) {
+      return Promise.resolve({
+        id: `exp-demo-${Date.now()}`,
+        job_id: params.job_id,
+        amount: params.amount,
+        category: params.category,
+        description: params.description,
+        created_at: new Date().toISOString(),
+        billable: params.billable ?? true,
+        vendor: params.vendor,
+      })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/job-expenses`, {
       method: 'POST',
@@ -419,6 +592,7 @@ export const estimatesApi = {
   },
 
   async deleteJobExpense(id: string): Promise<void> {
+    if (isPublicDemo()) return Promise.resolve()
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/job-expenses/${id}`, {
       method: 'DELETE',
@@ -440,6 +614,9 @@ export const estimatesApi = {
     description?: string
     category?: string
   }> {
+    if (isPublicDemo()) {
+      return Promise.resolve({ vendor: 'Demo Supply', total: 42, description: 'Demo receipt', category: 'materials' })
+    }
     const headers = await getAuthHeaders()
     const { image_base64, media_type, job_id } = params
     const res = await fetch(`${API_BASE}/receipts/scan`, {

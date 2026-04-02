@@ -3,6 +3,7 @@
  * Mirrors DashboardPage structure so the landing page preview matches the real app.
  */
 import { dayjs } from '@/lib/date'
+import { DEMO_KPIS, getDemoDashboardProjects } from '@/data/demo/dashboardFixtures'
 
 const PROJECT_COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#EF4444'] as const
 const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })
@@ -63,16 +64,10 @@ function IconSearch({ className }: { className?: string }) {
   )
 }
 
-const MOCK_KPIS = {
-  totalRevenue: 284500,
-  totalExpense: 198200,
-  outstanding: 47800,
-  openInvoicesCount: 3,
-  activeJobs: 8,
-  totalProjects: 12,
-  revenueTrend: [40, 55, 70, 50, 85, 90, 75, 88, 82, 95, 90, 100] as number[],
-  expenseTrend: [60, 65, 58, 72, 68, 75, 70, 78, 74, 80, 76, 82] as number[],
-}
+const MOCK_KPIS = DEMO_KPIS
+const HERO_REVENUE_SPARKLINE = DEMO_KPIS.revenueTrend ?? [
+  40, 55, 70, 50, 85, 90, 75, 88, 82, 95, 90, 100,
+]
 
 const MOCK_SCHEDULE = [
   { time: '7:30 AM', title: 'Crew Kickoff — Riverside Commercial', job: 'Riverside Commercial · Floor 4 Framing', type: 'On-site' as const, color: '#10B981', bg: '#ECFDF5' },
@@ -81,17 +76,18 @@ const MOCK_SCHEDULE = [
   { time: '3:30 PM', title: 'Inspect Framing', job: 'Riverside Commercial', type: 'Task' as const, color: '#0EA5E9', bg: '#E0F2FE' },
 ]
 
+const heroDashProject = getDemoDashboardProjects()[0]
 const MOCK_PROJECT = {
-  id: 'proj-a7f3c',
-  name: 'Riverside Commercial — Phase 4',
-  client: 'Summit Construction',
-  initials: 'RC',
+  id: heroDashProject.id,
+  name: heroDashProject.name,
+  client: heroDashProject.client ?? 'Summit Construction',
+  initials: heroDashProject.initials ?? 'RC',
   color: PROJECT_COLORS[2],
-  budget: 165000,
-  spent: 128400,
-  timelineStart: '02/01/2026',
-  timelineEnd: '04/15/2026',
-  pctTime: 65,
+  budget: heroDashProject.budget_total ?? 165000,
+  spent: heroDashProject.spent_total ?? 128400,
+  timelineStart: heroDashProject.timeline_start ?? '02/01/2026',
+  timelineEnd: heroDashProject.timeline_end ?? '04/15/2026',
+  pctTime: heroDashProject.timeline_pct ?? 65,
   status: 'active' as const,
   statusLabel: 'Active',
   statusColor: '#10B981',
@@ -157,7 +153,7 @@ export function HeroDashboardMock() {
               <div className="text-lg lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-landing-white mb-1">{fmt(MOCK_KPIS.totalRevenue)}</div>
               <div className="flex items-end justify-between gap-1.5">
                 <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">↑12.4% YTD</span>
-                <Sparkline data={MOCK_KPIS.revenueTrend} color="#10B981" height={24} width={56} />
+                <Sparkline data={HERO_REVENUE_SPARKLINE} color="#10B981" height={24} width={56} />
               </div>
             </div>
             <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 p-3 lg:p-4 pt-[14px] lg:pt-[18px] pb-2.5 lg:pb-3 relative overflow-hidden">

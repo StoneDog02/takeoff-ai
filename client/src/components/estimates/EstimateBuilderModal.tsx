@@ -12,7 +12,7 @@ import type {
   Project,
 } from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
-import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import {
   EstimateClientFacingDocument,
   EstimatePortalStyleActionBar,
@@ -140,7 +140,7 @@ function itemTypeFromEstimateBudgetCategory(cat: EstimateGroupBudgetCategory): C
  * Returns the merged catalog list for the picker. Safe to call when opening catalog or before save.
  */
 async function syncCustomLineGroupsToProductCatalog(groups: LineItemGroup[]): Promise<CustomProduct[]> {
-  if (USE_MOCK_ESTIMATES) {
+  if (shouldUseMockEstimates()) {
     return MOCK_CUSTOM_PRODUCTS
   }
   let existing: CustomProduct[] = []
@@ -1912,7 +1912,7 @@ function Step2LineItems({
   }, [addMenuOpen, catalogOpen, takeoffOpen, updatePopoverPosition])
 
   useEffect(() => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setProducts(MOCK_CUSTOM_PRODUCTS)
       setLoadingProducts(false)
       return
@@ -1932,7 +1932,7 @@ function Step2LineItems({
 
   /** Opening the catalog syncs completed custom lines only (see `customLineGroupReadyForCatalog`). */
   useEffect(() => {
-    if (!catalogOpen || USE_MOCK_ESTIMATES) return
+    if (!catalogOpen || shouldUseMockEstimates()) return
     let cancelled = false
     void (async () => {
       const list = await syncCustomLineGroupsToProductCatalog(lineItemGroupsRef.current)
@@ -1961,7 +1961,7 @@ function Step2LineItems({
   /** Call when the user leaves a field (blur) — syncs to catalog only if the row is complete. */
   const flushPersistCustomLineIfReady = useCallback(
     (groupId: string) => {
-      if (USE_MOCK_ESTIMATES) return
+      if (shouldUseMockEstimates()) return
       queueMicrotask(() => {
         const g = lineItemGroupsRef.current.find(
           (x) => x.id === groupId && x.source === 'custom' && x.items.length === 1

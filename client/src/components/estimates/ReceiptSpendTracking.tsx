@@ -7,7 +7,7 @@ import { formatCurrency } from '@/lib/pipeline'
 import { ScanReceiptModal } from './ScanReceiptModal'
 import { AddToInvoiceModal } from './AddToInvoiceModal'
 import {
-  USE_MOCK_ESTIMATES,
+  shouldUseMockEstimates,
   MOCK_JOB_EXPENSES,
   MOCK_JOB_RECEIPTS_META,
   MOCK_INVOICES,
@@ -61,7 +61,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
       setExpenses([])
       return
     }
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setExpenses(MOCK_JOB_EXPENSES.filter((e) => e.job_id === activeJobId))
       setLoading(false)
       return
@@ -79,7 +79,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
       setInvoicesForJob([])
       return
     }
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setInvoicesForJob(
         MOCK_INVOICES.filter((i) => i.job_id === activeJobId && i.status !== 'paid')
       )
@@ -108,7 +108,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
   const billableTotal = jobReceipts.filter((r) => r.billable).reduce((s, r) => s + Number(r.amount), 0)
   const overheadTotal = jobReceipts.filter((r) => !r.billable).reduce((s, r) => s + Number(r.amount), 0)
   const activeJob = jobs.find((j) => j.id === activeJobId)
-  const meta = USE_MOCK_ESTIMATES ? MOCK_JOB_RECEIPTS_META[activeJobId] : undefined
+  const meta = shouldUseMockEstimates() ? MOCK_JOB_RECEIPTS_META[activeJobId] : undefined
   const estimateTotal = meta?.estimateTotal ?? 0
   const pctComplete = meta?.pctComplete ?? 0
   const estimatedFinal = pctComplete > 0 ? (totalSpent / pctComplete) * 100 : 0
@@ -129,7 +129,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
       billable: r.billable,
       vendor: r.vendor,
     }
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setExpenses((prev) => [newExpense, ...prev])
       return
     }
@@ -147,7 +147,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
   }
 
   const toggleBillable = (id: string) => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setExpenses((prev) =>
         prev.map((r) => (r.id === id ? { ...r, billable: !r.billable } : r))
       )
@@ -161,7 +161,7 @@ export function ReceiptSpendTracking({ jobs, onAddToInvoice }: ReceiptSpendTrack
 
   const removeReceipt = async (id: string) => {
     if (!confirm('Remove this expense?')) return
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setExpenses((prev) => prev.filter((r) => r.id !== id))
       return
     }

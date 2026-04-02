@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useCallback, useRef, Fragment } from 'rea
 import { estimatesApi, type EstimateWithLines } from '@/api/estimates'
 import { api } from '@/api/client'
 import type { CustomProduct, Estimate, Job, Phase } from '@/types/global'
-import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import { getMockProjectDetail, isMockProjectId } from '@/data/mockProjectsData'
 import { buildMilestonesFromInvoiced, formatCurrency } from '@/lib/pipeline'
 import {
@@ -203,7 +203,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       .then((list) => setEstimates(list))
       .catch(() => setEstimates([]))
       .finally(() => setLoadingEstimates(false))
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setProducts(MOCK_CUSTOM_PRODUCTS)
       return
     }
@@ -239,7 +239,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       setClientPhone(String(j?.client_phone ?? '').trim())
     }
 
-    if (USE_MOCK_ESTIMATES && isMockProjectId(activeJobId)) {
+    if (shouldUseMockEstimates() && isMockProjectId(activeJobId)) {
       try {
         const detail = getMockProjectDetail(activeJobId)
         const p = detail.project
@@ -254,7 +254,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       return
     }
 
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       applyFromJobList()
       return
     }
@@ -347,7 +347,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     if (!activeJobId) return
     let cancelled = false
     setLoadingProjectPhases(true)
-    if (USE_MOCK_ESTIMATES && isMockProjectId(activeJobId)) {
+    if (shouldUseMockEstimates() && isMockProjectId(activeJobId)) {
       try {
         const detail = getMockProjectDetail(activeJobId)
         if (!cancelled) setProjectPhases(detail.phases ?? [])
@@ -360,7 +360,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         cancelled = true
       }
     }
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setLoadingProjectPhases(false)
       return
     }

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { estimatesApi, type CustomProductsImportPreview } from '@/api/estimates'
 import type { CustomProduct } from '@/types/global'
-import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import AddProductModal, { type AddProductModalPayload } from '@/components/estimates/AddProductModal'
 import { ProductsDrawer, type ProductsDrawerProduct, type ProductsDrawerType } from '@/components/estimates/ProductsDrawer'
 import {
@@ -73,7 +73,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
   const IMPORT_PREVIEW_PAGE_SIZE = 25
 
   const load = () => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setProducts(MOCK_CUSTOM_PRODUCTS)
       setLoading(false)
       return
@@ -115,7 +115,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
   }
 
   const saveCreate = async (payload: AddProductModalPayload) => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       closeModal()
       return
     }
@@ -141,7 +141,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
 
   const saveEdit = async () => {
     if (!editing || !form.name.trim()) return
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       closeModal()
       return
     }
@@ -168,7 +168,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
 
   const confirmDeleteProduct = async () => {
     if (!deleteTarget) return
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setDeleteTarget(null)
       closeModal()
       return
@@ -288,7 +288,7 @@ export function CustomProductLibrary({ onClose }: CustomProductLibraryProps) {
         products={drawerProducts}
         onClose={onClose ?? (() => {})}
         onAdd={openCreate}
-        onImport={USE_MOCK_ESTIMATES ? undefined : openImportPicker}
+        onImport={shouldUseMockEstimates() ? undefined : openImportPicker}
         onEdit={(dp) => {
           const full = resolveProduct(dp)
           if (full) openEdit(full)

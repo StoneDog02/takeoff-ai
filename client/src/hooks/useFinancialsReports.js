@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { isBankTxTagged } from '@/lib/bankTransactionUtils'
+import { isPublicDemo } from '@/lib/publicDemo'
+import {
+  loadDemoBankRowsFromSession,
+  getDemoTransactionJobs,
+  getDemoInvoiceRowsForReports,
+} from '@/data/demo/bankTransactionFixtures'
 
 /**
  * Live aggregates for Financials → Reports: per-job invoiced vs tagged debit spend,
@@ -14,6 +20,23 @@ export function useFinancialsReports(userId) {
   const [invoices, setInvoices] = useState([])
 
   const load = useCallback(async () => {
+    if (isPublicDemo()) {
+      setLoading(true)
+      setError(null)
+      const rows = loadDemoBankRowsFromSession()
+      const projects = getDemoTransactionJobs()
+      const txSlice = rows.map((r) => ({
+        job_id: r.job_id,
+        amount: r.amount,
+        is_debit: r.is_debit,
+        expense_type: r.expense_type,
+      }))
+      setProjects(projects)
+      setTransactions(txSlice)
+      setInvoices(getDemoInvoiceRowsForReports())
+      setLoading(false)
+      return
+    }
     if (!userId || !supabase) {
       setProjects([])
       setTransactions([])

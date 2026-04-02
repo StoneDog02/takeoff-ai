@@ -5,7 +5,7 @@ import { LaunchTakeoffWidget, type TakeoffPlanType } from '@/components/projects
 import { dayjs } from '@/lib/date'
 import { api } from '@/api/client'
 import { estimatesApi } from '@/api/estimates'
-import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import {
   AddProductFormFields,
   defaultProductFormValue,
@@ -34,7 +34,7 @@ async function persistScopesToProductLibrary(
   payloads: AddProductModalPayload[],
   tradeTag: string
 ): Promise<number> {
-  if (USE_MOCK_ESTIMATES) return 0
+  if (shouldUseMockEstimates()) return 0
   let added = 0
   try {
     const existing = await estimatesApi.getCustomProducts()
@@ -325,7 +325,7 @@ export function EstimatingWorkspace({
     }
     setGcScopeLibPickEpoch({})
     let cancelled = false
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setGcScopeCatalog([...MOCK_CUSTOM_PRODUCTS].sort((a, b) => a.name.localeCompare(b.name)))
       return
     }

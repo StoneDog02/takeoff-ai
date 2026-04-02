@@ -1,5 +1,7 @@
 import { API_BASE } from '@/api/config'
 import { getSessionAuthHeaders } from '@/api/authHeaders'
+import { supabase } from '@/lib/supabaseClient'
+import { isPublicDemo, buildSyntheticMeResponse } from '@/lib/publicDemo'
 
 export interface MeResponse {
   user: {
@@ -28,6 +30,16 @@ export interface MeResponse {
 }
 
 export async function getMe(): Promise<MeResponse> {
+  if (supabase) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session?.access_token && isPublicDemo()) {
+      return buildSyntheticMeResponse()
+    }
+  } else if (isPublicDemo()) {
+    return buildSyntheticMeResponse()
+  }
   const headers = await getSessionAuthHeaders()
   const res = await fetch(`${API_BASE}/me`, { headers })
   if (!res.ok) {

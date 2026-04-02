@@ -21,7 +21,7 @@ const past = (daysAgo: number) => dayjs().subtract(daysAgo, 'day').toISOString()
 export const MOCK_PROJECTS: Project[] = [
   {
     id: DEMO_PROJECT_ID,
-    name: 'Demo Project – Kitchen Remodel',
+    name: 'Riverside Commercial — Phase 4',
     status: 'active',
     scope: 'Full kitchen renovation: cabinets, countertops, flooring, and island.',
     created_at: past(45),

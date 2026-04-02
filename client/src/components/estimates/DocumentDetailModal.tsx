@@ -6,7 +6,7 @@ import type { EstimateWithLines } from '@/api/estimates'
 import { ConvertToInvoiceFlow } from './ConvertToInvoiceFlow'
 import { SendEstimateInvoice } from './SendEstimateInvoice'
 import { EstimateInvoiceFormView } from './EstimateInvoiceFormView'
-import { USE_MOCK_ESTIMATES, getMockEstimateWithLines, getMockInvoice } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, getMockEstimateWithLines, getMockInvoice } from '@/data/mockEstimatesData'
 
 interface DocumentDetailModalProps {
   type: 'estimate' | 'invoice'
@@ -49,7 +49,7 @@ export function DocumentDetailModal({
 
   const refreshEstimate = () => {
     if (type !== 'estimate') return
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setEstimate(getMockEstimateWithLines(id))
       return
     }
@@ -58,7 +58,7 @@ export function DocumentDetailModal({
 
   const refreshInvoice = () => {
     if (type !== 'invoice') return
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setInvoice(getMockInvoice(id))
       return
     }
@@ -66,7 +66,7 @@ export function DocumentDetailModal({
   }
 
   useEffect(() => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       if (type === 'estimate') {
         setEstimate(getMockEstimateWithLines(id))
         setInvoice(null)
@@ -182,7 +182,7 @@ export function DocumentDetailModal({
                         disabled={updatingStatus}
                         onClick={async () => {
                           setMenuOpen(false)
-                          if (USE_MOCK_ESTIMATES) {
+                          if (shouldUseMockEstimates()) {
                             setEstimate((prev) => (prev ? { ...prev, status: 'accepted' as const } : null))
                             onSent?.()
                             return
@@ -206,7 +206,7 @@ export function DocumentDetailModal({
                       disabled={updatingStatus}
                       onClick={async () => {
                         setMenuOpen(false)
-                        if (USE_MOCK_ESTIMATES) {
+                        if (shouldUseMockEstimates()) {
                           setEstimate((prev) => (prev ? { ...prev, status: 'declined' as const } : null))
                           onSent?.()
                           return
@@ -238,7 +238,7 @@ export function DocumentDetailModal({
                       disabled={markingPaid}
                       onClick={async () => {
                         setMenuOpen(false)
-                        if (USE_MOCK_ESTIMATES) {
+                        if (shouldUseMockEstimates()) {
                           setInvoice((prev) => (prev ? { ...prev, status: 'paid' as const, paid_at: new Date().toISOString() } : null))
                           onSent?.()
                           return
@@ -268,13 +268,13 @@ export function DocumentDetailModal({
                       setDeleting(true)
                       try {
                         if (type === 'estimate') {
-                          if (USE_MOCK_ESTIMATES) {
+                          if (shouldUseMockEstimates()) {
                             setEstimate(null)
                           } else {
                             await estimatesApi.deleteEstimate(id)
                           }
                         } else {
-                          if (USE_MOCK_ESTIMATES) {
+                          if (shouldUseMockEstimates()) {
                             setInvoice(null)
                           } else {
                             await estimatesApi.deleteInvoice(id)
@@ -350,7 +350,7 @@ export function DocumentDetailModal({
                         className="btn btn-ghost estimate-detail-suggestion__btn"
                         disabled={updatingStatus}
                         onClick={async () => {
-                        if (USE_MOCK_ESTIMATES) {
+                        if (shouldUseMockEstimates()) {
                           setEstimate((prev) => (prev ? { ...prev, status: 'accepted' as const } : null))
                           onSent?.()
                           return

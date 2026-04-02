@@ -1,7 +1,10 @@
 /**
  * Mock data for Estimates & Invoices so you can see the full UI without a backend.
- * Set USE_MOCK_ESTIMATES to false to use the real API again.
+ * Set USE_MOCK_ESTIMATES to true for local UI dev without API.
+ * Public interactive demo also uses this data when isPublicDemo().
  */
+import { dayjs } from '@/lib/date'
+import { isPublicDemo } from '@/lib/publicDemo'
 import type {
   Job,
   Estimate,
@@ -17,16 +20,31 @@ import type { EstimateWithLines } from '@/api/estimates'
 
 export const USE_MOCK_ESTIMATES = false
 
+export function shouldUseMockEstimates(): boolean {
+  return USE_MOCK_ESTIMATES || isPublicDemo()
+}
+
 const past = (daysAgo: number) =>
   new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString()
 
+/** Spread paid revenue across months so Revenue trend + KPI totals match the line chart. */
+function paidMonthsAgo(monthsAgo: number, dayOfMonth: number): string {
+  return dayjs()
+    .subtract(monthsAgo, 'month')
+    .date(dayOfMonth)
+    .hour(14)
+    .minute(0)
+    .second(0)
+    .toISOString()
+}
+
 // ——— Jobs (projects as jobs) ———
 export const MOCK_JOBS: Job[] = [
-  { id: 'job-kitchen', name: 'Kitchen Remodel – 123 Main St', created_at: past(60) },
-  { id: 'job-bath', name: 'Master Bath Renovation – 442 Oak St', created_at: past(45) },
-  { id: 'job-office', name: 'Office Build-Out – Suite 200', created_at: past(30) },
-  { id: 'job-addition', name: 'Second-Story Addition – 88 Pine Rd', created_at: past(90) },
-  { id: 'job-deck', name: 'Deck & Patio – 55 Maple Dr', created_at: past(120) },
+  { id: 'demo', name: 'Riverside Commercial — Phase 4', created_at: past(60) },
+  { id: 'mock-bath', name: 'Master Bath Renovation – 442 Oak St', created_at: past(45) },
+  { id: 'mock-office', name: 'Office Build-Out – Suite 200', created_at: past(30) },
+  { id: 'mock-addition', name: 'Second-Story Addition – 88 Pine Rd', created_at: past(90) },
+  { id: 'mock-deck', name: 'Deck & Patio – 55 Maple Dr', created_at: past(120) },
 ]
 
 // ——— Custom Products & Services ———
@@ -124,7 +142,7 @@ const MOCK_LINE_ITEMS: Record<string, EstimateLineItem[]> = {
 export const MOCK_ESTIMATES: Estimate[] = [
   {
     id: 'est-1',
-    job_id: 'job-kitchen',
+    job_id: 'demo',
     title: 'Kitchen remodel – full',
     status: 'accepted',
     total_amount: 17835,
@@ -136,7 +154,7 @@ export const MOCK_ESTIMATES: Estimate[] = [
   },
   {
     id: 'est-2',
-    job_id: 'job-bath',
+    job_id: 'mock-bath',
     title: 'Master bath – tile and fixtures',
     status: 'sent',
     total_amount: 5160,
@@ -148,7 +166,7 @@ export const MOCK_ESTIMATES: Estimate[] = [
   },
   {
     id: 'est-3',
-    job_id: 'job-addition',
+    job_id: 'mock-addition',
     title: 'Second-story addition – Phase 1',
     status: 'accepted',
     total_amount: 11300,
@@ -160,7 +178,7 @@ export const MOCK_ESTIMATES: Estimate[] = [
   },
   {
     id: 'est-4',
-    job_id: 'job-deck',
+    job_id: 'mock-deck',
     title: 'Deck demo and prep',
     status: 'draft',
     total_amount: 2560,
@@ -170,7 +188,7 @@ export const MOCK_ESTIMATES: Estimate[] = [
   },
   {
     id: 'est-5',
-    job_id: 'job-office',
+    job_id: 'mock-office',
     title: 'Office design consult',
     status: 'declined',
     total_amount: 300,
@@ -184,35 +202,74 @@ export const MOCK_ESTIMATES: Estimate[] = [
 // ——— Invoices ———
 export const MOCK_INVOICES: Invoice[] = [
   {
+    id: 'inv-ytd-q1a',
+    estimate_id: 'est-1',
+    job_id: 'demo',
+    status: 'paid',
+    total_amount: 9100,
+    recipient_emails: ['client@example.com'],
+    created_at: paidMonthsAgo(3, 4),
+    updated_at: paidMonthsAgo(3, 9),
+    sent_at: paidMonthsAgo(3, 5),
+    paid_at: paidMonthsAgo(3, 9),
+    due_date: paidMonthsAgo(3, 2).slice(0, 10),
+  },
+  {
+    id: 'inv-ytd-q1b',
+    estimate_id: 'est-2',
+    job_id: 'mock-bath',
+    status: 'paid',
+    total_amount: 12200,
+    recipient_emails: ['owner@example.com'],
+    created_at: paidMonthsAgo(2, 6),
+    updated_at: paidMonthsAgo(2, 14),
+    sent_at: paidMonthsAgo(2, 8),
+    paid_at: paidMonthsAgo(2, 14),
+    due_date: paidMonthsAgo(2, 1).slice(0, 10),
+  },
+  {
+    id: 'inv-ytd-q1c',
+    estimate_id: 'est-1',
+    job_id: 'demo',
+    status: 'paid',
+    total_amount: 13550,
+    recipient_emails: ['client@example.com'],
+    created_at: paidMonthsAgo(1, 3),
+    updated_at: paidMonthsAgo(1, 11),
+    sent_at: paidMonthsAgo(1, 5),
+    paid_at: paidMonthsAgo(1, 11),
+    due_date: paidMonthsAgo(1, 1).slice(0, 10),
+  },
+  {
     id: 'inv-1',
     estimate_id: 'est-1',
-    job_id: 'job-kitchen',
+    job_id: 'demo',
     status: 'paid',
-    total_amount: 8000,
+    total_amount: 8850,
     recipient_emails: ['client@example.com'],
     created_at: past(15),
-    updated_at: past(8),
+    updated_at: paidMonthsAgo(0, 6),
     sent_at: past(14),
-    paid_at: past(8),
+    paid_at: paidMonthsAgo(0, 6),
     due_date: past(10).slice(0, 10),
   },
   {
     id: 'inv-2',
     estimate_id: 'est-3',
-    job_id: 'job-addition',
+    job_id: 'mock-addition',
     status: 'paid',
     total_amount: 11300,
     recipient_emails: ['builder@example.com'],
     created_at: past(30),
-    updated_at: past(12),
+    updated_at: paidMonthsAgo(0, 17),
     sent_at: past(28),
-    paid_at: past(12),
+    paid_at: paidMonthsAgo(0, 17),
     due_date: past(20).slice(0, 10),
   },
   {
     id: 'inv-3',
     estimate_id: 'est-1',
-    job_id: 'job-kitchen',
+    job_id: 'demo',
     status: 'sent',
     total_amount: 5000,
     recipient_emails: ['client@example.com'],
@@ -224,7 +281,7 @@ export const MOCK_INVOICES: Invoice[] = [
   {
     id: 'inv-4',
     estimate_id: 'est-1',
-    job_id: 'job-kitchen',
+    job_id: 'demo',
     status: 'overdue',
     total_amount: 2835,
     recipient_emails: ['client@example.com'],
@@ -237,23 +294,29 @@ export const MOCK_INVOICES: Invoice[] = [
 
 // ——— Job expenses (receipts & spend) ———
 export const MOCK_JOB_EXPENSES: JobExpense[] = [
-  { id: 'exp-1', job_id: 'job-kitchen', amount: 420, category: 'materials', description: 'Lumber and fasteners', created_at: past(12), billable: true, vendor: 'Home Depot' },
-  { id: 'exp-2', job_id: 'job-kitchen', amount: 185, category: 'subs', description: 'Sub – electrician', created_at: past(10), billable: false, vendor: 'ABC Electric' },
-  { id: 'exp-3', job_id: 'job-kitchen', amount: 90, category: 'equipment', description: 'Tool rental', created_at: past(8), billable: false, vendor: 'Sunbelt Rentals' },
-  { id: 'exp-4', job_id: 'job-kitchen', amount: 340, category: 'materials', description: 'Cabinet hardware', created_at: past(6), billable: true, vendor: "Lowe's" },
-  { id: 'exp-5', job_id: 'job-kitchen', amount: 680, category: 'labor', description: 'Framing crew – day 1', created_at: past(5), billable: true, vendor: 'Internal' },
-  { id: 'exp-6', job_id: 'job-kitchen', amount: 680, category: 'labor', description: 'Framing crew – day 2', created_at: past(4), billable: true, vendor: 'Internal' },
-  { id: 'exp-7', job_id: 'job-kitchen', amount: 890, category: 'materials', description: 'Drywall sheets', created_at: past(3), billable: true, vendor: '84 Lumber' },
-  { id: 'exp-8', job_id: 'job-kitchen', amount: 210, category: 'materials', description: 'Paint & primer', created_at: past(2), billable: true, vendor: 'Sherwin-Williams' },
-  { id: 'exp-9', job_id: 'job-bath', amount: 620, category: 'materials', description: 'Tile and thinset', created_at: past(6) },
-  { id: 'exp-10', job_id: 'job-bath', amount: 340, category: 'materials', description: 'Vanity and faucet', created_at: past(4) },
-  { id: 'exp-11', job_id: 'job-addition', amount: 1200, category: 'materials', description: 'Framing package', created_at: past(25) },
-  { id: 'exp-12', job_id: 'job-addition', amount: 450, category: 'labor', description: 'Crane day', created_at: past(22) },
+  { id: 'exp-m3a', job_id: 'demo', amount: 2180, category: 'materials', description: 'Steel studs & track', created_at: paidMonthsAgo(3, 12), billable: true, vendor: 'Supply House' },
+  { id: 'exp-m3b', job_id: 'demo', amount: 640, category: 'labor', description: 'Rough-in labor', created_at: paidMonthsAgo(3, 22), billable: true, vendor: 'Internal' },
+  { id: 'exp-m2a', job_id: 'mock-bath', amount: 1420, category: 'materials', description: 'Waterproofing & pan', created_at: paidMonthsAgo(2, 9), billable: true, vendor: 'Ferguson' },
+  { id: 'exp-m2b', job_id: 'demo', amount: 890, category: 'subs', description: 'HVAC rough-in', created_at: paidMonthsAgo(2, 18), billable: false, vendor: 'Comfort Air' },
+  { id: 'exp-m1a', job_id: 'demo', amount: 1750, category: 'materials', description: 'Drywall & mud', created_at: paidMonthsAgo(1, 8), billable: true, vendor: '84 Lumber' },
+  { id: 'exp-m1b', job_id: 'mock-addition', amount: 2100, category: 'materials', description: 'Engineered lumber package', created_at: paidMonthsAgo(1, 19), billable: true, vendor: 'Dealer' },
+  { id: 'exp-1', job_id: 'demo', amount: 420, category: 'materials', description: 'Lumber and fasteners', created_at: past(12), billable: true, vendor: 'Home Depot' },
+  { id: 'exp-2', job_id: 'demo', amount: 185, category: 'subs', description: 'Sub – electrician', created_at: past(10), billable: false, vendor: 'ABC Electric' },
+  { id: 'exp-3', job_id: 'demo', amount: 90, category: 'equipment', description: 'Tool rental', created_at: past(8), billable: false, vendor: 'Sunbelt Rentals' },
+  { id: 'exp-4', job_id: 'demo', amount: 340, category: 'materials', description: 'Cabinet hardware', created_at: past(6), billable: true, vendor: "Lowe's" },
+  { id: 'exp-5', job_id: 'demo', amount: 680, category: 'labor', description: 'Framing crew – day 1', created_at: past(5), billable: true, vendor: 'Internal' },
+  { id: 'exp-6', job_id: 'demo', amount: 680, category: 'labor', description: 'Framing crew – day 2', created_at: past(4), billable: true, vendor: 'Internal' },
+  { id: 'exp-7', job_id: 'demo', amount: 890, category: 'materials', description: 'Drywall sheets', created_at: past(3), billable: true, vendor: '84 Lumber' },
+  { id: 'exp-8', job_id: 'demo', amount: 210, category: 'materials', description: 'Paint & primer', created_at: past(2), billable: true, vendor: 'Sherwin-Williams' },
+  { id: 'exp-9', job_id: 'mock-bath', amount: 620, category: 'materials', description: 'Tile and thinset', created_at: past(6) },
+  { id: 'exp-10', job_id: 'mock-bath', amount: 340, category: 'materials', description: 'Vanity and faucet', created_at: past(4) },
+  { id: 'exp-11', job_id: 'mock-addition', amount: 1200, category: 'materials', description: 'Framing package', created_at: past(25) },
+  { id: 'exp-12', job_id: 'mock-addition', amount: 450, category: 'labor', description: 'Crane day', created_at: past(22) },
 ]
 
 // ——— Job budget & progress (for Budget vs Actual, change-order alert) ———
 export const MOCK_JOB_RECEIPTS_META: Record<string, JobReceiptsMeta> = {
-  'job-kitchen': {
+  'demo': {
     estimateTotal: 17835,
     pctComplete: 60,
     budget: {
@@ -263,7 +326,7 @@ export const MOCK_JOB_RECEIPTS_META: Record<string, JobReceiptsMeta> = {
       Subs: { allocated: 1635, color: 'var(--red-light)', bg: 'var(--red-glow-soft)' },
     },
   },
-  'job-deck': {
+  'mock-deck': {
     estimateTotal: 2560,
     pctComplete: 20,
     budget: {
@@ -275,9 +338,13 @@ export const MOCK_JOB_RECEIPTS_META: Record<string, JobReceiptsMeta> = {
 }
 
 export const MOCK_JOB_SPEND_SUMMARIES: JobSpendSummary[] = [
-  { job_id: 'job-kitchen', total_spend: 695, by_category: { materials: 420, labor: 185, equipment: 90 } },
-  { job_id: 'job-bath', total_spend: 960, by_category: { materials: 960 } },
-  { job_id: 'job-addition', total_spend: 1650, by_category: { materials: 1200, labor: 450 } },
+  {
+    job_id: 'demo',
+    total_spend: 8955,
+    by_category: { materials: 5790, labor: 2000, equipment: 90, subs: 1075 },
+  },
+  { job_id: 'mock-bath', total_spend: 2380, by_category: { materials: 2380 } },
+  { job_id: 'mock-addition', total_spend: 3750, by_category: { materials: 3300, labor: 450 } },
 ]
 
 // ——— Helpers for detail views ———

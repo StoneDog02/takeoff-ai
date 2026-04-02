@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { HeroDashboardMock } from '@/components/landing/HeroDashboardMock'
+import { enterPublicDemo } from '@/lib/publicDemo'
 
 const HERO_FEATURE_BADGES_ROW1 = [
   'Material Takeoffs',
@@ -89,6 +90,8 @@ function HeroFeatureBadgesMobile() {
 }
 
 export function HeroSection() {
+  const navigate = useNavigate()
+
   return (
     <section
       id="hero"
@@ -155,6 +158,16 @@ export function HeroSection() {
           >
             Sign In
           </Link>
+          <button
+            type="button"
+            onClick={() => {
+              enterPublicDemo('pm')
+              navigate('/dashboard', { replace: true })
+            }}
+            className="inline-flex items-center gap-2 bg-transparent text-landing-white py-4 px-8 rounded-lg font-sora font-medium text-[15px] border border-border-dark transition-all duration-250 hover:border-accent-hover hover:bg-accent/15 hover:-translate-y-0.5 backdrop-blur-sm cursor-pointer"
+          >
+            See it in action
+          </button>
           <a
             href="#features"
             className="inline-flex items-center gap-2 bg-transparent text-landing-white py-4 px-8 rounded-lg font-sora font-medium text-[15px] border border-border-dark no-underline transition-all duration-250 hover:border-white-faint hover:bg-white-faint hover:-translate-y-0.5 backdrop-blur-sm"

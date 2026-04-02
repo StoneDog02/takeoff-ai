@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import type { Job, CustomProduct } from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
-import { USE_MOCK_ESTIMATES, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
 import {
   LINE_ITEM_BUDGET_CATEGORY_LABELS,
   estimateBudgetCategoryFromProductItemType,
@@ -109,7 +109,7 @@ export function EstimateBuilder({
       : products
 
   useEffect(() => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setProducts(MOCK_CUSTOM_PRODUCTS)
       return
     }
@@ -258,7 +258,7 @@ export function EstimateBuilder({
   }
 
   const save = async () => {
-    if (USE_MOCK_ESTIMATES) return
+    if (shouldUseMockEstimates()) return
     if (!estimateId && !jobId) {
       alert('Please select a job.')
       return

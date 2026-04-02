@@ -8,7 +8,7 @@ import { NewInvoiceModal } from '@/components/estimates/NewInvoiceModal'
 import { SubcontractorPayoutsTab } from '@/components/estimates/SubcontractorPayoutsTab'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import {
-  USE_MOCK_ESTIMATES,
+  shouldUseMockEstimates,
   MOCK_JOBS,
   MOCK_INVOICES,
 } from '@/data/mockEstimatesData'
@@ -26,7 +26,7 @@ export function EstimatesPage({ embedded = false }: { embedded?: boolean }) {
   const [invoicePeriod, setInvoicePeriod] = useState<'This month' | 'Last 30 days' | 'This year' | 'All time'>('This month')
 
   useEffect(() => {
-    if (USE_MOCK_ESTIMATES) {
+    if (shouldUseMockEstimates()) {
       setJobs(MOCK_JOBS)
       setAllInvoices(MOCK_INVOICES)
       setLoading(false)
@@ -48,7 +48,7 @@ export function EstimatesPage({ embedded = false }: { embedded?: boolean }) {
   }, [])
 
   const refreshPipeline = async () => {
-    if (USE_MOCK_ESTIMATES) return
+    if (shouldUseMockEstimates()) return
     try {
       const [jobsList, invoices] = await Promise.all([
         estimatesApi.getJobs(),

@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabaseClient'
 import { getMe, type MeResponse } from '@/api/me'
 import { tryApplyStoredReferralCode } from '@/lib/referralCapture'
+import { isPublicDemo, buildSyntheticMeResponse } from '@/lib/publicDemo'
 
 interface AuthState {
   user: MeResponse['user']
@@ -37,19 +38,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refetch = useCallback(async () => {
     if (!supabase) {
-      setState((s) => ({ ...s, loading: false }))
+      if (isPublicDemo()) {
+        const me = buildSyntheticMeResponse()
+        setState({
+          user: me.user,
+          isAdmin: me.isAdmin,
+          loading: false,
+          type: me.type,
+          role_label: me.role_label,
+          employee: me.employee,
+          acting_as_employee: me.acting_as_employee,
+        })
+      } else {
+        setState((s) => ({ ...s, loading: false }))
+      }
       return
     }
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) {
-      setState({
-        user: null,
-        isAdmin: false,
-        loading: false,
-        type: 'contractor',
-        role_label: undefined,
-        acting_as_employee: undefined,
-      })
+      if (isPublicDemo()) {
+        const me = buildSyntheticMeResponse()
+        setState({
+          user: me.user,
+          isAdmin: me.isAdmin,
+          loading: false,
+          type: me.type,
+          role_label: me.role_label,
+          employee: me.employee,
+          acting_as_employee: me.acting_as_employee,
+        })
+      } else {
+        setState({
+          user: null,
+          isAdmin: false,
+          loading: false,
+          type: 'contractor',
+          role_label: undefined,
+          employee: undefined,
+          acting_as_employee: undefined,
+        })
+      }
       return
     }
     try {
@@ -70,10 +98,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading: false,
         type: 'contractor',
         role_label: undefined,
+        employee: undefined,
         acting_as_employee: undefined,
       })
     }
   }, [])
+
+  useEffect(() => {
+    const onDemoChange = () => {
+      void refetch()
+    }
+    window.addEventListener('takeoff-public-demo-change', onDemoChange)
+    return () => window.removeEventListener('takeoff-public-demo-change', onDemoChange)
+  }, [refetch])
 
   useEffect(() => {
     if (!supabase) {

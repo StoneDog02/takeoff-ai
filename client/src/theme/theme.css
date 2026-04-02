@@ -15160,6 +15160,10 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
     font-size: 9px;
     padding: 2px 6px;
   }
+  .revenue-overhaul-badge-down {
+    font-size: 9px;
+    padding: 2px 6px;
+  }
   .revenue-overhaul-kpi-meta-small {
     font-size: 9px;
   }
@@ -15205,6 +15209,14 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
   border-radius: 20px;
   background: #ECFDF5;
   color: #10B981;
+}
+.revenue-overhaul-badge-down {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #DC2626;
 }
 .revenue-overhaul-kpi-meta-small {
   font-size: 11px;

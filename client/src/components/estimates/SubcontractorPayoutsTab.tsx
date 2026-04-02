@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { api } from '@/api/client'
 import type { BidSheet, Subcontractor } from '@/types/global'
 import { formatCurrency } from '@/lib/pipeline'
-import { USE_MOCK_ESTIMATES } from '@/data/mockEstimatesData'
+import { shouldUseMockEstimates } from '@/data/mockEstimatesData'
 import { MOCK_PROJECTS, getMockProjectDetail } from '@/data/mockProjectsData'
 
 type PayoutStatus = 'awaiting' | 'received' | 'approved' | 'paid'
@@ -53,7 +53,7 @@ export function SubcontractorPayoutsTab() {
       setLoading(true)
       try {
         const nextRows: PayoutRow[] = []
-        if (USE_MOCK_ESTIMATES) {
+        if (shouldUseMockEstimates()) {
           for (const p of MOCK_PROJECTS) {
             const detail = getMockProjectDetail(p.id)
             appendRowsForProject(nextRows, p.id, p.name || 'Project', detail.bidSheet, detail.subcontractors)

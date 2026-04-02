@@ -14,6 +14,8 @@ import { MobileNavBar } from '@/components/MobileNavBar'
 import { useEmployeeDailyLogEligibility } from '@/hooks/useEmployeeDailyLogEligibility'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { GeolocationPermissionBanner } from '@/components/GeolocationPermissionBanner'
+import { PublicDemoBanner } from '@/components/PublicDemoBanner'
+import { isPublicDemo, getPublicDemoPersona, exitPublicDemo } from '@/lib/publicDemo'
 
 export function EmployeeLayout() {
   const [ready, setReady] = useState(false)
@@ -38,6 +40,13 @@ export function EmployeeLayout() {
       }
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
+        if (isPublicDemo() && getPublicDemoPersona() === 'employee') {
+          if (!cancelled) {
+            setReady(true)
+            setEmployeeName(null)
+          }
+          return
+        }
         if (!cancelled) navigate('/sign-in', { replace: true })
         return
       }
@@ -84,6 +93,11 @@ export function EmployeeLayout() {
   const closeMobileNav = () => setMobileNavOpen(false)
 
   async function handleLogout() {
+    if (isPublicDemo()) {
+      exitPublicDemo()
+      navigate('/', { replace: true })
+      return
+    }
     await supabase?.auth.signOut()
     navigate('/sign-in', { replace: true })
   }
@@ -208,6 +222,7 @@ export function EmployeeLayout() {
         </nav>
 
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
+          <PublicDemoBanner />
           {isPreview && <PreviewBanner />}
           <GeolocationPermissionBanner />
           <OfflineSyncBanners isOnline={isOnline} syncPending={syncPending} />

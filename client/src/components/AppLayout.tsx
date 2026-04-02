@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, NavLink, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
+import { PublicDemoBanner } from '@/components/PublicDemoBanner'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { MobileNavBar } from '@/components/MobileNavBar'
 import { AppLayoutProvider } from '@/contexts/AppLayoutContext'
@@ -13,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
 import { supabase } from '@/lib/supabaseClient'
 import { api } from '@/api/client'
+import { isPublicDemo, exitPublicDemo } from '@/lib/publicDemo'
 import type { DismissedAlert } from '@/api/client'
 
 export function AppLayout() {
@@ -118,6 +120,11 @@ export function AppLayout() {
   const closeMobileNav = () => setMobileNavOpen(false)
 
   async function handleLogout() {
+    if (isPublicDemo()) {
+      exitPublicDemo()
+      navigate('/', { replace: true })
+      return
+    }
     await supabase?.auth.signOut()
     navigate('/sign-in', { replace: true })
   }
@@ -274,6 +281,7 @@ export function AppLayout() {
         </nav>
 
         <div className={`content-wrap ${navCollapsed ? 'collapsed' : ''}`} id="contentWrap">
+          <PublicDemoBanner />
           {previewRole === 'project_manager' && <PreviewBanner />}
           <OfflineSyncBanners isOnline={isOnline} syncPending={syncPending} />
           <AppLayoutProvider openMobileNav={openMobileNav}>

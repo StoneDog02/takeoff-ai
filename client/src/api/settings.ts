@@ -9,6 +9,7 @@ import type {
 } from '@/types/global'
 import { supabase } from '@/lib/supabaseClient'
 import { API_BASE } from '@/api/config'
+import { isPublicDemo } from '@/lib/publicDemo'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {}
@@ -52,6 +53,30 @@ export interface SettingsResponse {
 
 export const settingsApi = {
   async getSettings(): Promise<SettingsResponse> {
+    if (isPublicDemo()) {
+      return Promise.resolve({
+        company: {
+          name: 'Demo Construction Co.',
+          email: 'hello@example.com',
+          phone: '(555) 123-4567',
+          address: { line1: '100 Main St', line2: '', city: 'Salt Lake City', state: 'UT', zip: '84101' },
+        },
+        branding: {
+          logoUrl: null,
+          primaryColor: '#c0392b',
+          secondaryColor: '#1e293b',
+          invoiceTemplateStyle: 'standard',
+        },
+        notification_preferences: null,
+        geofence_defaults: { default_radius_meters: 150, clock_out_tolerance_minutes: 15 },
+        tax_compliance: {
+          default_tax_rates: [],
+          contractor_license_number: null,
+          insurance_expiry_date: null,
+        },
+        integrations: [],
+      })
+    }
     const headers = await getAuthHeaders()
     const res = await fetch(`${API_BASE}/settings`, { headers })
     return handleResponse<SettingsResponse>(res)
