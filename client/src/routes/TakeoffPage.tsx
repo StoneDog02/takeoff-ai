@@ -110,6 +110,15 @@ export function TakeoffPage() {
         Upload build plans (PDF or image) to generate a material list.
       </p>
 
+      <div
+        className="mt-6 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
+        role="note"
+      >
+        <strong>Work in progress.</strong> You can run takeoffs and explore what the tool produces, but it is still
+        evolving. Always verify quantities and materials against your plans — do not rely on this output alone for
+        purchasing or bidding yet.
+      </div>
+
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-landing-white mb-1">

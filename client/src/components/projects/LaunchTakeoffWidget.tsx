@@ -376,6 +376,14 @@ export function LaunchTakeoffWidget({
   return (
     <div className="rounded-lg border border-border dark:border-border-dark bg-surface-elevated dark:bg-dark-3 p-4 shadow-card">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-3">Launch Takeoff</h2>
+      <div
+        className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
+        role="note"
+      >
+        <strong>Work in progress.</strong> You can run takeoffs and explore what the tool produces, but it is still
+        evolving. Always verify quantities and materials against your plans — do not rely on this output alone for
+        purchasing or bidding yet.
+      </div>
       <div className="flex items-center justify-between gap-4 mb-4">
         <p className="text-sm text-muted dark:text-white-dim">
           Upload PDF blueprints/plans to generate a structured material takeoff with trade tags and cost estimates.
