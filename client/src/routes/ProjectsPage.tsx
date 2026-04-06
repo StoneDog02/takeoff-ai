@@ -377,6 +377,14 @@ export function ProjectsPage() {
   const tabFromUrl = searchParams.get('tab')
   /** Budget tab: show skeleton until refetch completes so variance/actual don't flash. */
   const [budgetTabLoading, setBudgetTabLoading] = useState(false)
+  /** Project detail: client used “Request changes” on the portal — drives banner + revise target. */
+  const [clientChangesRequested, setClientChangesRequested] = useState<{
+    estimateId: string
+    message: string | null
+    requestedAt: string | null
+  } | null>(null)
+  /** When opening Build Estimate, prefer this estimate id if it still exists (e.g. client change request). */
+  const buildEstimatePreferredEstimateIdRef = useRef<string | null>(null)
   /** List view: estimates for awaiting_approval column (project id → estimate). */
   const [estimatesByProjectId, setEstimatesByProjectId] = useState<Record<string, Estimate>>({})
   /** List view: convert-to-job confirmation (project id, name, estimate total). */
@@ -646,11 +654,13 @@ export function ProjectsPage() {
   useEffect(() => {
     if (!id || !project?.id) {
       setAwaitingApprovalEstimatePreview(null)
+      setClientChangesRequested(null)
       return
     }
     const sk = (project.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
     if (sk !== 'awaiting_approval') {
       setAwaitingApprovalEstimatePreview(null)
+      setClientChangesRequested(null)
       return
     }
     let cancelled = false
@@ -662,46 +672,64 @@ export function ProjectsPage() {
         const candidates = (list ?? []).filter((e) => e.job_id === id && open.includes(e.status))
         if (candidates.length === 0) {
           setAwaitingApprovalEstimatePreview(null)
+          setClientChangesRequested(null)
           return
+        }
+        const changesRow = candidates.find((e) => (e.status ?? '').toLowerCase() === 'changes_requested')
+        if (changesRow) {
+          setClientChangesRequested({
+            estimateId: changesRow.id,
+            message: changesRow.changes_requested_message ?? null,
+            requestedAt: changesRow.changes_requested_at ?? null,
+          })
+        } else {
+          setClientChangesRequested(null)
         }
         const est = [...candidates].sort((a, b) => {
           const ta = (a.sent_at ? new Date(a.sent_at) : new Date(a.updated_at)).getTime()
           const tb = (b.sent_at ? new Date(b.sent_at) : new Date(b.updated_at)).getTime()
           return tb - ta
         })[0]
-        const full = await estimatesApi.getEstimate(est.id)
-        if (cancelled) return
-        const { total, items } = buildOverviewBudgetFromEstimateLines(id, full.line_items ?? [], full.total_amount)
-        const rawLines = full.line_items ?? []
-        const lineItems: EstimateLineItem[] =
-          rawLines.length > 0
-            ? rawLines
-            : total > 0
-              ? [
-                  {
-                    id: `est-rollup-${est.id}`,
-                    estimate_id: est.id,
-                    product_id: null,
-                    description: 'Estimate total',
-                    quantity: 1,
-                    unit: 'ls',
-                    unit_price: total,
-                    total,
-                    section: null,
-                  },
-                ]
-              : []
-        setAwaitingApprovalEstimatePreview(
-          items.length > 0 || total > 0 ? { total, items, lineItems } : null
-        )
+        try {
+          const full = await estimatesApi.getEstimate(est.id)
+          if (cancelled) return
+          const { total, items } = buildOverviewBudgetFromEstimateLines(id, full.line_items ?? [], full.total_amount)
+          const rawLines = full.line_items ?? []
+          const lineItems: EstimateLineItem[] =
+            rawLines.length > 0
+              ? rawLines
+              : total > 0
+                ? [
+                    {
+                      id: `est-rollup-${est.id}`,
+                      estimate_id: est.id,
+                      product_id: null,
+                      description: 'Estimate total',
+                      quantity: 1,
+                      unit: 'ls',
+                      unit_price: total,
+                      total,
+                      section: null,
+                    },
+                  ]
+                : []
+          setAwaitingApprovalEstimatePreview(
+            items.length > 0 || total > 0 ? { total, items, lineItems } : null
+          )
+        } catch {
+          if (!cancelled) setAwaitingApprovalEstimatePreview(null)
+        }
       } catch {
-        if (!cancelled) setAwaitingApprovalEstimatePreview(null)
+        if (!cancelled) {
+          setAwaitingApprovalEstimatePreview(null)
+          setClientChangesRequested(null)
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [id, project?.id, project?.status])
+  }, [id, project?.id, project?.status, detailRefreshTrigger])
 
   useEffect(() => {
     if (!id) {
@@ -895,7 +923,14 @@ export function ProjectsPage() {
           setBudget(bud.items?.length ? bud : { items: [], summary: bud.summary ?? emptySummary })
         }
         if (estRes.status === 'fulfilled' && Array.isArray(estRes.value)) {
-          setBuildEstimateLinkedEstimateId(pickPrimaryEstimateIdForBuild(estRes.value))
+          const rows = estRes.value
+          const preferred = buildEstimatePreferredEstimateIdRef.current
+          buildEstimatePreferredEstimateIdRef.current = null
+          const linked =
+            preferred && rows.some((e) => e.id === preferred)
+              ? preferred
+              : pickPrimaryEstimateIdForBuild(rows)
+          setBuildEstimateLinkedEstimateId(linked)
         }
         if (settingsRes.status === 'fulfilled' && settingsRes.value?.company?.defaultEstimateMarkupPct != null) {
           const m = Number(settingsRes.value.company.defaultEstimateMarkupPct)
@@ -2970,6 +3005,45 @@ export function ProjectsPage() {
       </div>
       </div>
 
+      {clientChangesRequested && budgetShowsAwaitingApproval && (
+        <div
+          className="w-full min-w-0 px-6 sm:px-8 py-3 border-b border-amber-200/80 flex flex-col sm:flex-row sm:flex-wrap sm:items-start sm:justify-between gap-3"
+          style={{ background: 'linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%)' }}
+          role="status"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-950 m-0">Client requested changes to the estimate</p>
+            {clientChangesRequested.requestedAt ? (
+              <p className="text-xs text-amber-900/80 m-0 mt-0.5">
+                {dayjs(clientChangesRequested.requestedAt).format('MMM D, YYYY h:mm A')}
+              </p>
+            ) : null}
+            {clientChangesRequested.message?.trim() ? (
+              <blockquote className="text-sm text-amber-950/90 m-0 mt-2 pl-3 border-l-2 border-amber-400/90 whitespace-pre-wrap">
+                {clientChangesRequested.message.trim()}
+              </blockquote>
+            ) : (
+              <p className="text-sm text-amber-900/85 m-0 mt-1.5">
+                Open the estimate to adjust pricing or scope, then send an updated version to your client.
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              className="text-sm font-semibold px-3 py-2 rounded-lg bg-amber-900 text-amber-50 hover:opacity-90 whitespace-nowrap"
+              onClick={() => {
+                buildEstimatePreferredEstimateIdRef.current = clientChangesRequested.estimateId
+                setBuildEstimateBlankMode(false)
+                setBuildEstimateOpen(true)
+              }}
+            >
+              Revise estimate →
+            </button>
+          </div>
+        </div>
+      )}
+
       {paymentPrompt && id && (activeTab === 'overview' || activeTab === 'schedule') && (
         <div
           className="w-full min-w-0 px-8 py-3 border-b border-[var(--border)] flex flex-wrap items-center justify-between gap-3"
@@ -4169,6 +4243,7 @@ export function ProjectsPage() {
           }
           takeoffPickItems={buildEstimateTakeoffPickItems.length > 0 ? buildEstimateTakeoffPickItems : undefined}
           onClose={() => {
+            buildEstimatePreferredEstimateIdRef.current = null
             setBuildEstimateOpen(false)
             setBuildEstimateBlankMode(false)
             setBuildEstimateBidSheet(undefined)
@@ -4176,6 +4251,7 @@ export function ProjectsPage() {
             setBuildEstimateLinkedEstimateId(null)
           }}
           onSave={(_estimateId) => {
+            buildEstimatePreferredEstimateIdRef.current = null
             setBuildEstimateOpen(false)
             setBuildEstimateBlankMode(false)
             setBuildEstimateBidSheet(undefined)
