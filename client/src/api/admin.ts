@@ -52,3 +52,83 @@ export async function getAdminUsers(page = 1, perPage = 20): Promise<AdminUsersR
   }
   return res.json() as Promise<AdminUsersResponse>
 }
+
+export interface AdminAffiliate {
+  id: string
+  name: string
+  email: string
+  phone: string | null
+  commission_rate: number
+  active: boolean
+  created_at: string
+  updated_at: string
+  referral_code: string | null
+  signup_count: number
+  completed_referrals: number
+  commission_cents_total: number
+}
+
+export async function getAdminAffiliates(): Promise<{ affiliates: AdminAffiliate[] }> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates`, { headers })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || res.statusText)
+  }
+  return res.json() as Promise<{ affiliates: AdminAffiliate[] }>
+}
+
+export async function createAdminAffiliate(body: {
+  name: string
+  email: string
+  phone?: string
+  commission_rate: number
+}): Promise<{ affiliate: AdminAffiliate; welcome_email_sent?: boolean }> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || res.statusText)
+  }
+  return res.json() as Promise<{ affiliate: AdminAffiliate; welcome_email_sent?: boolean }>
+}
+
+export async function patchAdminAffiliate(
+  id: string,
+  body: Partial<{
+    name: string
+    email: string
+    phone: string | null
+    commission_rate: number
+    active: boolean
+  }>
+): Promise<{ affiliate: AdminAffiliate }> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || res.statusText)
+  }
+  return res.json() as Promise<{ affiliate: AdminAffiliate }>
+}
+
+export async function deleteAdminAffiliate(id: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers,
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || res.statusText)
+  }
+  return res.json() as Promise<{ success: boolean }>
+}

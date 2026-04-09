@@ -900,9 +900,57 @@ async function handleInvoiceCreatedReferral(event) {
   }
 }
 
+function affiliateCommissionAccrualEnabled() {
+  return process.env.AFFILIATE_COMMISSION_ENABLED !== 'false'
+}
+
+/**
+ * Idempotent commission row per Stripe invoice (affiliate referrals only).
+ * amount_paid is in the smallest currency unit; commission_rate is 0–1.
+ */
+async function recordAffiliateCommissionFromInvoice({
+  invoice,
+  affiliateId,
+  referralId,
+  refereeUserId,
+  commissionRate,
+}) {
+  if (!affiliateCommissionAccrualEnabled() || !supabase) return
+  const invoiceId = typeof invoice?.id === 'string' ? invoice.id : ''
+  if (!invoiceId || !affiliateId || !referralId || !refereeUserId) return
+
+  const amountPaid =
+    typeof invoice.amount_paid === 'number' ? invoice.amount_paid : Number(invoice.amount_paid)
+  if (!Number.isFinite(amountPaid) || amountPaid <= 0) return
+
+  const rate = Number(commissionRate)
+  if (!Number.isFinite(rate) || rate <= 0) return
+
+  const amountCents = Math.round(amountPaid * rate)
+  if (amountCents <= 0) return
+
+  const currency = typeof invoice.currency === 'string' ? invoice.currency.toLowerCase() : 'usd'
+
+  const { error } = await supabase.from('affiliate_commission_events').insert({
+    affiliate_id: affiliateId,
+    referral_id: referralId,
+    referee_user_id: refereeUserId,
+    stripe_invoice_id: invoiceId,
+    amount_cents: amountCents,
+    currency,
+    commission_rate: rate,
+  })
+
+  if (error && error.code !== '23505') {
+    console.error('[stripe] affiliate commission insert failed:', error.message)
+  }
+}
+
 /**
  * Award referral credits only after Stripe confirms a real subscription payment (renewal cycle).
  * Requires billing_reason === subscription_cycle; looks up user via public.subscriptions.stripe_customer_id.
+ * Affiliate codes: accrue commission from invoice amount_paid × snapshot rate; referee credits only (no referrer user).
+ * Renewals: repeat commission accrual for completed affiliate referrals (same invoice idempotency).
  */
 async function handleInvoicePaymentSucceededReferralCredits(event) {
   if (!supabase) return
@@ -927,9 +975,19 @@ async function handleInvoicePaymentSucceededReferralCredits(event) {
   const refereeUserId = subRow?.user_id
   if (!refereeUserId) return
 
+  const invoiceId = typeof invoice.id === 'string' ? invoice.id : null
+  if (!invoiceId) return
+
+  const { data: existingComm } = await supabase
+    .from('affiliate_commission_events')
+    .select('id')
+    .eq('stripe_invoice_id', invoiceId)
+    .maybeSingle()
+  if (existingComm?.id) return
+
   const { data: pendingRows, error: qErr } = await supabase
     .from('referrals')
-    .select('id, referrer_id')
+    .select('id, referrer_id, affiliate_id, affiliate_commission_rate')
     .eq('referee_id', refereeUserId)
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
@@ -940,33 +998,86 @@ async function handleInvoicePaymentSucceededReferralCredits(event) {
     return
   }
   const pendingRow = pendingRows?.[0]
-  if (!pendingRow?.id || !pendingRow.referrer_id) return
 
-  const { error: updErr } = await supabase
+  if (pendingRow?.id) {
+    const { error: updErr } = await supabase
+      .from('referrals')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', pendingRow.id)
+
+    if (updErr) {
+      console.error('[stripe] invoice.payment_succeeded referral: update failed:', updErr.message)
+      return
+    }
+
+    if (pendingRow.affiliate_id) {
+      if (pendingRow.referrer_id) {
+        console.warn('[stripe] referral row has both affiliate_id and referrer_id; skipping referral credits')
+        return
+      }
+      await recordAffiliateCommissionFromInvoice({
+        invoice,
+        affiliateId: pendingRow.affiliate_id,
+        referralId: pendingRow.id,
+        refereeUserId,
+        commissionRate: pendingRow.affiliate_commission_rate,
+      })
+      const { error: refeErr } = await supabase.rpc('increment_referral_credits', {
+        p_user_id: refereeUserId,
+      })
+      if (refeErr) {
+        console.error('[stripe] invoice.payment_succeeded referral: increment referee failed:', refeErr.message)
+      }
+      return
+    }
+
+    if (pendingRow.referrer_id) {
+      const { error: refErr } = await supabase.rpc('increment_referral_credits', {
+        p_user_id: pendingRow.referrer_id,
+      })
+      if (refErr) {
+        console.error('[stripe] invoice.payment_succeeded referral: increment referrer failed:', refErr.message)
+        return
+      }
+      const { error: refeErr } = await supabase.rpc('increment_referral_credits', {
+        p_user_id: refereeUserId,
+      })
+      if (refeErr) {
+        console.error('[stripe] invoice.payment_succeeded referral: increment referee failed:', refeErr.message)
+      }
+      return
+    }
+
+    console.warn('[stripe] pending referral missing referrer_id and affiliate_id:', pendingRow.id)
+    return
+  }
+
+  const { data: completedAffRows, error: affQErr } = await supabase
     .from('referrals')
-    .update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
+    .select('id, affiliate_id, affiliate_commission_rate')
+    .eq('referee_id', refereeUserId)
+    .eq('status', 'completed')
+    .not('affiliate_id', 'is', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+
+  if (affQErr) {
+    console.error('[stripe] affiliate renewal commission: referrals query failed:', affQErr.message)
+    return
+  }
+
+  const affRef = completedAffRows?.[0]
+  if (affRef?.affiliate_id && affRef?.id) {
+    await recordAffiliateCommissionFromInvoice({
+      invoice,
+      affiliateId: affRef.affiliate_id,
+      referralId: affRef.id,
+      refereeUserId,
+      commissionRate: affRef.affiliate_commission_rate,
     })
-    .eq('id', pendingRow.id)
-
-  if (updErr) {
-    console.error('[stripe] invoice.payment_succeeded referral: update failed:', updErr.message)
-    return
-  }
-
-  const { error: refErr } = await supabase.rpc('increment_referral_credits', {
-    p_user_id: pendingRow.referrer_id,
-  })
-  if (refErr) {
-    console.error('[stripe] invoice.payment_succeeded referral: increment referrer failed:', refErr.message)
-    return
-  }
-  const { error: refeErr } = await supabase.rpc('increment_referral_credits', {
-    p_user_id: refereeUserId,
-  })
-  if (refeErr) {
-    console.error('[stripe] invoice.payment_succeeded referral: increment referee failed:', refeErr.message)
   }
 }
 

@@ -34,6 +34,7 @@ export function SignInPage() {
       try {
         const me = await getMe()
         if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+        else if (me.type === 'affiliate') navigate('/affiliate', { replace: true })
         else if (me.isAdmin) {
           try {
             sessionStorage.removeItem('takeoff-admin-preview')

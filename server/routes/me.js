@@ -30,6 +30,7 @@ function roleLabelFromProfile(profile) {
     field_supervisor: 'Field Supervisor',
     employee: 'Employee',
     subcontractor: 'Subcontractor',
+    affiliate: 'Partner',
   }
   return labels[profile.role] ?? profile.role
 }
@@ -89,6 +90,10 @@ router.get('/', async (req, res, next) => {
         })
       }
       return res.json({ user, isAdmin, type: 'employee', employee_id: null, employee: null })
+    }
+    if (profile?.role === 'affiliate') {
+      const role_label = roleLabelFromProfile(profile)
+      return res.json({ user, isAdmin, type: 'affiliate', role_label })
     }
     const role_label = roleLabelFromProfile(profile)
     res.json({ user, isAdmin, type: 'contractor', role_label })

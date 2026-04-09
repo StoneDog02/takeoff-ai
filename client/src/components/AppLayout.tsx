@@ -35,6 +35,13 @@ export function AppLayout() {
   const { isOnline, syncPending, syncing } = useOfflineSync()
 
   useEffect(() => {
+    if (loading) return
+    if (!isPublicDemo() && type === 'affiliate') {
+      navigate('/affiliate', { replace: true })
+    }
+  }, [loading, type, navigate])
+
+  useEffect(() => {
     if (!profileMenuOpen) return
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
@@ -204,6 +211,16 @@ export function AppLayout() {
                 <NavLink end to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12h3l2-4 2 6 2-4 3 2" /><path d="M2 14h12" /></svg>
                   <span className="nav-label">Admin</span>
+                </NavLink>
+                <NavLink
+                  to="/admin/affiliates"
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                    <path d="M8 1.5 14 5v6l-6 3.5L2 11V5l6-3.5z" />
+                    <path d="M8 1.5v13M2 5l6 3.5L14 5" />
+                  </svg>
+                  <span className="nav-label">Affiliates</span>
                 </NavLink>
                 <NavLink
                   to="/admin/support"

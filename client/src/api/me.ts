@@ -11,7 +11,7 @@ export interface MeResponse {
     display_name?: string
   } | null
   isAdmin: boolean
-  type: 'contractor' | 'employee'
+  type: 'contractor' | 'employee' | 'affiliate'
   role_label?: string
   employee_id?: string
   employee?: {

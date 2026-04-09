@@ -328,4 +328,4 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
-module.exports = { router, trackReferralEmailOpen }
+module.exports = { router, trackReferralEmailOpen, buildReferralCode }

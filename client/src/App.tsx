@@ -63,6 +63,9 @@ const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default:
 const SupportInboxPage = lazy(() =>
   import('@/pages/admin/SupportInboxPage').then((m) => ({ default: m.SupportInboxPage }))
 )
+const AffiliatesAdminPage = lazy(() =>
+  import('@/pages/admin/AffiliatesAdminPage').then((m) => ({ default: m.AffiliatesAdminPage }))
+)
 
 const LandingPage = lazy(() =>
   import('@/routes/LandingPage').then((m) => ({ default: m.LandingPage }))
@@ -78,6 +81,18 @@ const AuthCallbackPage = lazy(() =>
 )
 const AcceptInvitePage = lazy(() =>
   import('@/routes/AcceptInvitePage').then((m) => ({ default: m.AcceptInvitePage }))
+)
+const AffiliateSetupPage = lazy(() =>
+  import('@/routes/AffiliateSetupPage').then((m) => ({ default: m.AffiliateSetupPage }))
+)
+const AffiliateLayout = lazy(() =>
+  import('@/components/AffiliateLayout').then((m) => ({ default: m.AffiliateLayout }))
+)
+const AffiliateGuard = lazy(() =>
+  import('@/components/AffiliateGuard').then((m) => ({ default: m.AffiliateGuard }))
+)
+const AffiliateDashboardPage = lazy(() =>
+  import('@/pages/AffiliateDashboardPage').then((m) => ({ default: m.AffiliateDashboardPage }))
 )
 
 const EmployeeClockPage = lazy(() =>
@@ -125,6 +140,16 @@ export const router = createBrowserRouter([
       { path: 'pricing', element: <Navigate to={{ pathname: '/', hash: 'pricing' }} replace /> },
       { path: 'auth/callback', element: <AuthCallbackPage /> },
       { path: 'accept-invite', element: <AcceptInvitePage /> },
+      { path: 'affiliate/setup', element: <AffiliateSetupPage /> },
+      {
+        path: 'affiliate',
+        element: (
+          <AffiliateGuard>
+            <AffiliateLayout />
+          </AffiliateGuard>
+        ),
+        children: [{ index: true, element: <AffiliateDashboardPage /> }],
+      },
       {
         path: 'employee',
         element: <EmployeeLayout />,
@@ -166,6 +191,7 @@ export const router = createBrowserRouter([
           { path: 'messages', element: <Navigate to="/directory" replace /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'admin', element: <AdminGuard><AdminPage /></AdminGuard> },
+          { path: 'admin/affiliates', element: <AdminGuard><AffiliatesAdminPage /></AdminGuard> },
           { path: 'admin/support', element: <AdminGuard><SupportInboxPage /></AdminGuard> },
         ],
       },

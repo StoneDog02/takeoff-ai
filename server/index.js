@@ -41,6 +41,7 @@ const supportRoutes = require('./routes/support')
 const { backfillPaperTrailDocuments } = require('./lib/paperTrailDocuments')
 const { supabase: defaultSupabase } = require('./db/supabase')
 const { router: invitesRouter } = require('./routes/invites')
+const { router: affiliatePortalRouter } = require('./routes/affiliatePortal')
 const { requireAdmin } = require('./middleware/admin')
 
 const app = express()
@@ -149,6 +150,7 @@ const { handleCloseStaleTimeEntries } = require('./routes/cron-stale-time-entrie
 app.get('/api/cron/close-stale-time-entries', handleCloseStaleTimeEntries)
 app.post('/api/cron/close-stale-time-entries', handleCloseStaleTimeEntries)
 
+app.use('/api/affiliates/portal', affiliatePortalRouter)
 app.use('/api/me', requireAuth, meRoutes)
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes)
 app.use('/api/auth', authRoutes)

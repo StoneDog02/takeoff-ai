@@ -25,6 +25,11 @@ type ApplyBody = {
   referee_email?: string
 }
 
+type CodeRow = {
+  user_id: string | null
+  affiliate_id: string | null
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -60,36 +65,67 @@ serve(async (req) => {
 
   const { data: codeRow, error: codeError } = await supabaseAdmin
     .from('referral_codes')
-    .select('user_id')
+    .select('user_id, affiliate_id')
     .ilike('code', codeRaw)
     .maybeSingle()
 
   if (codeError) return jsonResponse({ error: 'Failed to look up referral code' }, 500)
-  if (!codeRow?.user_id) return jsonResponse({ error: 'Referral code not found' }, 404)
 
-  const referrerId = codeRow.user_id as string
+  const row = codeRow as CodeRow | null
+  const referrerId = row?.user_id ?? null
+  const affiliateId = row?.affiliate_id ?? null
+  if (!referrerId && !affiliateId) {
+    return jsonResponse({ error: 'Referral code not found' }, 404)
+  }
 
-  if (refereeId && refereeId === referrerId) {
+  let affiliateCommissionRate: number | null = null
+  if (affiliateId) {
+    const { data: aff, error: affErr } = await supabaseAdmin
+      .from('affiliates')
+      .select('commission_rate')
+      .eq('id', affiliateId)
+      .maybeSingle()
+    if (affErr) return jsonResponse({ error: 'Failed to load affiliate' }, 500)
+    if (aff?.commission_rate != null) affiliateCommissionRate = Number(aff.commission_rate)
+  }
+
+  if (refereeId && referrerId && refereeId === referrerId) {
     return jsonResponse({ error: 'cannot refer yourself' }, 400)
   }
 
   if (refereeId) {
     const nowIso = new Date().toISOString()
 
-    /** Link email invite row → account when signup email matches the invited address. */
     const { data: authUserRes, error: authLookupErr } = await supabaseAdmin.auth.admin.getUserById(refereeId)
     if (authLookupErr) {
       console.warn('[apply-referral] getUserById:', authLookupErr.message)
     }
     const emailFromAuth = authUserRes?.user?.email?.toLowerCase()?.trim()
     if (emailFromAuth) {
-      const { data: pendingEmailRow, error: pendingErr } = await supabaseAdmin
-        .from('referrals')
-        .select('id')
-        .eq('referrer_id', referrerId)
-        .eq('referee_email', emailFromAuth)
-        .is('referee_id', null)
-        .maybeSingle()
+      let pendingEmailRow: { id: string } | null = null
+      let pendingErr: Error | null = null
+
+      if (referrerId) {
+        const res = await supabaseAdmin
+          .from('referrals')
+          .select('id')
+          .eq('referrer_id', referrerId)
+          .eq('referee_email', emailFromAuth)
+          .is('referee_id', null)
+          .maybeSingle()
+        pendingEmailRow = res.data
+        pendingErr = res.error as Error | null
+      } else if (affiliateId) {
+        const res = await supabaseAdmin
+          .from('referrals')
+          .select('id')
+          .eq('affiliate_id', affiliateId)
+          .eq('referee_email', emailFromAuth)
+          .is('referee_id', null)
+          .maybeSingle()
+        pendingEmailRow = res.data
+        pendingErr = res.error as Error | null
+      }
 
       if (pendingErr) return jsonResponse({ error: 'Failed to check existing referral' }, 500)
       if (pendingEmailRow?.id) {
@@ -109,12 +145,27 @@ serve(async (req) => {
       }
     }
 
-    const { data: existingByReferee, error: existingErr } = await supabaseAdmin
-      .from('referrals')
-      .select('id, status')
-      .eq('referrer_id', referrerId)
-      .eq('referee_id', refereeId)
-      .maybeSingle()
+    let existingByReferee: { id: string; status: string } | null = null
+    let existingErr: Error | null = null
+    if (referrerId) {
+      const res = await supabaseAdmin
+        .from('referrals')
+        .select('id, status')
+        .eq('referrer_id', referrerId)
+        .eq('referee_id', refereeId)
+        .maybeSingle()
+      existingByReferee = res.data
+      existingErr = res.error as Error | null
+    } else if (affiliateId) {
+      const res = await supabaseAdmin
+        .from('referrals')
+        .select('id, status')
+        .eq('affiliate_id', affiliateId)
+        .eq('referee_id', refereeId)
+        .maybeSingle()
+      existingByReferee = res.data
+      existingErr = res.error as Error | null
+    }
 
     if (existingErr) return jsonResponse({ error: 'Failed to check existing referral' }, 500)
 
@@ -130,17 +181,23 @@ serve(async (req) => {
 
     const { data: anyRefForReferee, error: anyRefErr } = await supabaseAdmin
       .from('referrals')
-      .select('id, referrer_id')
+      .select('id, referrer_id, affiliate_id')
       .eq('referee_id', refereeId)
       .maybeSingle()
 
     if (anyRefErr) return jsonResponse({ error: 'Failed to check existing referral' }, 500)
-    if (anyRefForReferee && anyRefForReferee.referrer_id !== referrerId) {
-      return jsonResponse({ error: 'already referred' }, 409)
+    if (anyRefForReferee) {
+      const sameUser = Boolean(referrerId && anyRefForReferee.referrer_id === referrerId)
+      const sameAff = Boolean(affiliateId && anyRefForReferee.affiliate_id === affiliateId)
+      if (!sameUser && !sameAff) {
+        return jsonResponse({ error: 'already referred' }, 409)
+      }
     }
 
     const { error: insertErr } = await supabaseAdmin.from('referrals').insert({
       referrer_id: referrerId,
+      affiliate_id: affiliateId,
+      affiliate_commission_rate: affiliateCommissionRate,
       referee_id: refereeId,
       referee_email: refereeEmail ?? null,
       code: codeRaw,
@@ -157,12 +214,27 @@ serve(async (req) => {
     })
   }
 
-  const { data: dupEmail, error: dupErr } = await supabaseAdmin
-    .from('referrals')
-    .select('id')
-    .eq('referrer_id', referrerId)
-    .eq('referee_email', refereeEmail!)
-    .maybeSingle()
+  let dupEmail: { id: string } | null = null
+  let dupErr: Error | null = null
+  if (referrerId) {
+    const res = await supabaseAdmin
+      .from('referrals')
+      .select('id')
+      .eq('referrer_id', referrerId)
+      .eq('referee_email', refereeEmail!)
+      .maybeSingle()
+    dupEmail = res.data
+    dupErr = res.error as Error | null
+  } else if (affiliateId) {
+    const res = await supabaseAdmin
+      .from('referrals')
+      .select('id')
+      .eq('affiliate_id', affiliateId)
+      .eq('referee_email', refereeEmail!)
+      .maybeSingle()
+    dupEmail = res.data
+    dupErr = res.error as Error | null
+  }
 
   if (dupErr) return jsonResponse({ error: 'Failed to check existing referral' }, 500)
   if (dupEmail) {
@@ -171,6 +243,8 @@ serve(async (req) => {
 
   const { error: insertPendingErr } = await supabaseAdmin.from('referrals').insert({
     referrer_id: referrerId,
+    affiliate_id: affiliateId,
+    affiliate_commission_rate: affiliateCommissionRate,
     referee_id: null,
     referee_email: refereeEmail!,
     code: codeRaw,

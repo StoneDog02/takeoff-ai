@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
 
 const REDIRECT_DELAY_MS = 2500
@@ -32,7 +33,13 @@ export function AuthCallbackPage() {
       supabase.auth.getSession().then(() => {
         setVerified(true)
         redirectTimeoutRef.current = setTimeout(() => {
-          navigate('/dashboard', { replace: true })
+          getMe()
+            .then((me) => {
+              if (me.type === 'affiliate') navigate('/affiliate', { replace: true })
+              else if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+              else navigate('/dashboard', { replace: true })
+            })
+            .catch(() => navigate('/dashboard', { replace: true }))
         }, REDIRECT_DELAY_MS)
       })
       return () => {
@@ -75,7 +82,15 @@ export function AuthCallbackPage() {
         </p>
         <button
           type="button"
-          onClick={() => navigate('/dashboard', { replace: true })}
+          onClick={() => {
+            getMe()
+              .then((me) => {
+                if (me.type === 'affiliate') navigate('/affiliate', { replace: true })
+                else if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+                else navigate('/dashboard', { replace: true })
+              })
+              .catch(() => navigate('/dashboard', { replace: true }))
+          }}
           className="text-sm underline text-white/80 hover:text-white"
         >
           Go now
