@@ -59,3 +59,18 @@ export async function getAffiliatePortalSummary(): Promise<AffiliatePortalSummar
   }
   return res.json() as Promise<AffiliatePortalSummary>
 }
+
+/** Email a sign-up link with the partner’s referral code (same behavior as Settings → Referrals). */
+export async function postAffiliatePortalSendInvite(email: string): Promise<{ success: boolean; message?: string }> {
+  const headers = await getSessionAuthHeaders()
+  const res = await fetch(`${API_BASE}/affiliates/portal/send-invite`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  })
+  const json = (await res.json().catch(() => ({}))) as { error?: string; success?: boolean; message?: string }
+  if (!res.ok) {
+    throw new Error(json.error || res.statusText)
+  }
+  return { success: Boolean(json.success), message: json.message }
+}

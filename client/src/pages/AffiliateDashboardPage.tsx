@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { getAffiliatePortalSummary, type AffiliatePortalSummary } from '@/api/affiliatePortal'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  getAffiliatePortalSummary,
+  postAffiliatePortalSendInvite,
+  type AffiliatePortalSummary,
+} from '@/api/affiliatePortal'
 import { Card, CardBody, CardHeader } from '@/components/settings/SettingsPrimitives'
 
 function formatMoney(cents: number) {
@@ -20,6 +24,10 @@ export function AffiliateDashboardPage() {
   const [data, setData] = useState<AffiliatePortalSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteMessage, setInviteMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const inviteOkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -41,6 +49,12 @@ export function AffiliateDashboardPage() {
       cancelled = true
     }
   }, [load])
+
+  useEffect(() => {
+    return () => {
+      if (inviteOkTimerRef.current) clearTimeout(inviteOkTimerRef.current)
+    }
+  }, [])
 
   if (loading) {
     return <p className="text-[var(--text-muted)] text-sm">Loading your dashboard…</p>
@@ -110,6 +124,83 @@ export function AffiliateDashboardPage() {
       </Card>
 
       <Card>
+        <CardHeader
+          title="Invite by email"
+          desc="We’ll email them a sign-up link that includes your referral code—the same experience as when a customer invites a friend from Settings."
+        />
+        <CardBody>
+          {!affiliate.active ? (
+            <p className="text-sm text-[var(--text-muted)]">Your partner account is inactive; invites are disabled.</p>
+          ) : (
+            <form
+              className="flex flex-col sm:flex-row gap-3 sm:items-end max-w-xl"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const email = inviteEmail.trim().toLowerCase()
+                if (!email.includes('@')) {
+                  setInviteMessage({ type: 'err', text: 'Enter a valid email address.' })
+                  return
+                }
+                setInviteLoading(true)
+                setInviteMessage(null)
+                if (inviteOkTimerRef.current) {
+                  clearTimeout(inviteOkTimerRef.current)
+                  inviteOkTimerRef.current = null
+                }
+                try {
+                  const result = await postAffiliatePortalSendInvite(email)
+                  setInviteMessage({
+                    type: 'ok',
+                    text: result.message || 'We sent an email with a sign-up link that includes your referral.',
+                  })
+                  setInviteEmail('')
+                  await load()
+                  inviteOkTimerRef.current = setTimeout(() => {
+                    setInviteMessage(null)
+                    inviteOkTimerRef.current = null
+                  }, 4000)
+                } catch (err) {
+                  setInviteMessage({
+                    type: 'err',
+                    text: err instanceof Error ? err.message : 'Could not send invite.',
+                  })
+                } finally {
+                  setInviteLoading(false)
+                }
+              }}
+            >
+              <div className="flex-1 min-w-0">
+                <label htmlFor="aff-invite-email" className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                  Recipient email
+                </label>
+                <input
+                  id="aff-invite-email"
+                  type="email"
+                  className="input w-full"
+                  placeholder="prospect@company.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  disabled={inviteLoading}
+                  autoComplete="email"
+                />
+              </div>
+              <button type="submit" className="btn btn-primary shrink-0" disabled={inviteLoading}>
+                {inviteLoading ? 'Sending…' : 'Send invite'}
+              </button>
+            </form>
+          )}
+          {inviteMessage && (
+            <p
+              className={`text-sm mt-3 ${inviteMessage.type === 'ok' ? 'text-green-700' : 'text-red-700'}`}
+              role={inviteMessage.type === 'err' ? 'alert' : undefined}
+            >
+              {inviteMessage.text}
+            </p>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
         <CardHeader title="Referred sign-ups" desc="Email from invite or sign-up; status updates when they complete a paid billing cycle." />
         <CardBody style={{ padding: 0 }}>
           <div className="overflow-x-auto">
@@ -126,7 +217,7 @@ export function AffiliateDashboardPage() {
                 {referrals.length === 0 && (
                   <tr>
                     <td colSpan={4} className="text-center py-10 text-[var(--text-muted)]">
-                      No referrals yet. Share your link to get started.
+                      No referrals yet. Share your link or send an email invite above.
                     </td>
                   </tr>
                 )}

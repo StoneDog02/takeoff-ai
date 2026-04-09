@@ -5,8 +5,16 @@ const express = require('express')
 const { supabase: supabaseAdmin } = require('../db/supabase')
 const { requireAuth } = require('../middleware/auth')
 const { publicAppOrigin } = require('../lib/affiliatePortalTokens')
+const { applyReferralViaEdgeFunction, buildReferralInviteEmailHtml } = require('./referrals')
+const { sendEmail } = require('../lib/emailUtils')
 
 const router = express.Router()
+
+function trackingPublicBaseUrl() {
+  const raw = (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || '').trim().replace(/\/$/, '')
+  if (!raw) return ''
+  return raw.startsWith('http') ? raw : `https://${raw}`
+}
 
 async function requireAffiliate(req, res, next) {
   try {
@@ -237,6 +245,103 @@ router.get('/summary', requireAuth, requireAffiliate, async (req, res, next) => 
       referrals,
     })
   } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * POST /api/affiliates/portal/send-invite
+ * Body: { email }
+ * Same flow as POST /api/referrals/send-invite but for partner referral codes.
+ */
+router.post('/send-invite', requireAuth, requireAffiliate, async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Database not configured' })
+    const aff = req.affiliate
+    if (!aff.active) {
+      return res.status(403).json({ error: 'Your partner account is inactive.' })
+    }
+
+    const emailRaw = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    if (!emailRaw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+      return res.status(400).json({ error: 'Valid email is required' })
+    }
+    if (emailRaw === (aff.email || '').toLowerCase()) {
+      return res.status(400).json({ error: 'You cannot invite your own email address.' })
+    }
+
+    const { data: codeRow, error: codeErr } = await supabaseAdmin
+      .from('referral_codes')
+      .select('code')
+      .eq('affiliate_id', aff.id)
+      .maybeSingle()
+    if (codeErr) throw codeErr
+    if (!codeRow?.code) {
+      return res.status(404).json({ error: 'No referral code found for your account' })
+    }
+    const code = codeRow.code
+
+    const { ok, status, json } = await applyReferralViaEdgeFunction(code, emailRaw)
+    if (!ok) {
+      const msg = json?.error || json?.message || 'Could not record referral'
+      if (status === 409) return res.status(409).json({ error: msg })
+      return res.status(status >= 400 ? status : 500).json({ error: msg })
+    }
+
+    let trackingPixelUrl = ''
+    const apiBase = trackingPublicBaseUrl()
+    if (apiBase) {
+      const { data: refRow } = await supabaseAdmin
+        .from('referrals')
+        .select('invite_token')
+        .eq('affiliate_id', aff.id)
+        .eq('referee_email', emailRaw)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (refRow?.invite_token) {
+        trackingPixelUrl = `${apiBase}/api/referrals/track-email-open?t=${encodeURIComponent(refRow.invite_token)}`
+      }
+    }
+
+    const base = publicAppOrigin()
+    const signUpUrl = base ? `${base}/sign-up?ref=${encodeURIComponent(code)}` : ''
+
+    const inviterLabel = (aff.name && String(aff.name).trim()) || aff.email || 'Someone'
+    const from = process.env.INVITE_EMAIL_FROM || 'onboarding@resend.dev'
+    const productName = process.env.APP_NAME || 'Proj-X'
+
+    const html = buildReferralInviteEmailHtml({
+      inviterLabel,
+      productName,
+      signUpUrl,
+      code,
+      trackingPixelUrl,
+    })
+
+    const { sent, error: sendErr } = await sendEmail({
+      from,
+      to: emailRaw,
+      subject: `${inviterLabel} invited you to ${productName}`,
+      html,
+    })
+
+    if (!sent) {
+      console.error('[affiliates/portal/send-invite] Resend failed:', sendErr)
+      return res.status(503).json({
+        error:
+          'Referral was saved, but the email could not be sent. Ask your administrator to set RESEND_API_KEY and INVITE_EMAIL_FROM.',
+        code: 'email_failed',
+        success: false,
+      })
+    }
+
+    res.json({
+      success: true,
+      message: 'We sent an email with a sign-up link that includes your referral.',
+    })
+  } catch (err) {
+    console.error('[affiliates/portal/send-invite]', err)
     next(err)
   }
 })

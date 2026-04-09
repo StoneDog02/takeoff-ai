@@ -328,4 +328,10 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
-module.exports = { router, trackReferralEmailOpen, buildReferralCode }
+module.exports = {
+  router,
+  trackReferralEmailOpen,
+  buildReferralCode,
+  applyReferralViaEdgeFunction,
+  buildReferralInviteEmailHtml,
+}
