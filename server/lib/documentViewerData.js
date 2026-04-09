@@ -4,6 +4,9 @@
 const { isChangeOrderEstimateTitle } = require('./estimatePortalKind')
 const { fetchPublicCompanyProfile, companyRowToPublic } = require('./publicCompanyProfile')
 const { fetchInvoiceBranding } = require('./invoiceBranding')
+const { parseManualInvoiceSnapshot, normalizeInvoiceScheduleSnapshot } = require('./invoiceManualSnapshot')
+const { getClientAttachmentsArray } = require('./invoiceClientAttachments')
+const { paymentOptionsForPortalResponse } = require('./invoicePaymentConfig')
 
 const COMPLETION_LABELS = {
   on_phase_completion: 'Due when phase completes',
@@ -283,14 +286,19 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
   const address = project
     ? [project.address_line_1, project.address_line_2, project.city, project.state, project.postal_code].filter(Boolean).join(', ')
     : ''
-  const clientName = project?.assigned_to_name ? String(project.assigned_to_name).trim() : null
+
+  const snap = normalizeInvoiceScheduleSnapshot(inv.schedule_snapshot)
+  const manualSnap = parseManualInvoiceSnapshot(snap)
+
+  const clientName = project?.assigned_to_name
+    ? String(project.assigned_to_name).trim()
+    : manualSnap?.client_name || null
 
   const meta =
     estimate?.estimate_groups_meta && typeof estimate.estimate_groups_meta === 'object' && !Array.isArray(estimate.estimate_groups_meta)
       ? estimate.estimate_groups_meta
       : {}
 
-  const snap = inv.schedule_snapshot && typeof inv.schedule_snapshot === 'object' ? inv.schedule_snapshot : {}
   const rawRows = Array.isArray(snap.rows) ? snap.rows : []
 
   const schedule_rows = rawRows.map((row) => {
@@ -309,7 +317,9 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
   })
 
   let line_items = []
-  if (schedule_rows.length === 0 && inv.estimate_id) {
+  if (manualSnap?.line_items?.length) {
+    line_items = manualSnap.line_items
+  } else if (inv.estimate_id) {
     const { data: items } = await supabase
       .from('estimate_line_items')
       .select('id, description, quantity, unit, unit_price, total, section')
@@ -325,11 +335,48 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
       section: li.section,
     }))
   }
+  if (
+    line_items.length === 0 &&
+    schedule_rows.length === 0 &&
+    (Number(inv.total_amount) || 0) > 0
+  ) {
+    const t = Number(inv.total_amount) || 0
+    line_items = [
+      {
+        id: 'invoice-total-summary',
+        description: 'Invoice balance',
+        quantity: 1,
+        unit: 'ea',
+        unit_price: t,
+        total: t,
+        section: null,
+      },
+    ]
+  }
 
   const amount_due_now = schedule_rows.filter((r) => r.status === 'due_now').reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
 
   const company = await fetchPublicCompanyProfile(supabase, inv.user_id)
   const branding = await fetchInvoiceBranding(supabase, inv.user_id)
+
+  const attachList = getClientAttachmentsArray(snap)
+  const attachments = attachList
+    .map((a) => ({
+      id: String(a.id || ''),
+      label: String(a.label || 'Attachment'),
+    }))
+    .filter((a) => a.id)
+
+  let payment_options = paymentOptionsForPortalResponse(null)
+  if (inv.user_id) {
+    const { data: csPay } = await supabase
+      .from('company_settings')
+      .select('invoice_payment_config')
+      .eq('user_id', inv.user_id)
+      .maybeSingle()
+    payment_options = paymentOptionsForPortalResponse(csPay?.invoice_payment_config)
+  }
+  payment_options = { ...payment_options, card: false }
 
   const payload = {
     invoice_id: inv.id,
@@ -350,10 +397,16 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
     schedule_rows,
     line_items,
     notes:
-      estimate?.client_notes != null && String(estimate.client_notes).trim() ? String(estimate.client_notes).trim() : null,
+      estimate?.client_notes != null && String(estimate.client_notes).trim()
+        ? String(estimate.client_notes).trim()
+        : manualSnap?.notes || null,
     terms:
-      estimate?.client_terms != null && String(estimate.client_terms).trim() ? String(estimate.client_terms).trim() : null,
+      estimate?.client_terms != null && String(estimate.client_terms).trim()
+        ? String(estimate.client_terms).trim()
+        : manualSnap?.terms || null,
     branding,
+    attachments,
+    payment_options,
   }
 
   const overdue_days = (() => {

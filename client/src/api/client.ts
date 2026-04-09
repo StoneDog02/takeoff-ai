@@ -580,6 +580,15 @@ export const api = {
         throw new Error((data as { error?: string }).error || res.statusText)
       }
     },
+    async getInvoiceAttachmentCandidates(projectId: string): Promise<{
+      awarded_quotes: { sub_bid_id: string; label: string }[]
+      bid_documents: { project_bid_document_id: string; label: string }[]
+    }> {
+      if (isPublicDemo()) return publicDemoApi.projects.getInvoiceAttachmentCandidates()
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/${projectId}/invoice-attachment-candidates`, { headers })
+      return handleResponse(res)
+    },
     async getBidDocuments(projectId: string): Promise<BidDocument[]> {
       if (isPublicDemo()) return publicDemoApi.projects.getBidDocuments()
       const headers = await getAuthHeaders()
@@ -1371,6 +1380,14 @@ export const api = {
       const res = await fetch(`${API_BASE}/invoices/portal/${encodeURIComponent(token)}/viewed`, { method: 'PATCH' })
       if (!res.ok && res.status !== 204) throw new Error(res.status === 404 ? 'Invalid or expired link' : 'Request failed')
     },
+    async createCheckoutSession(token: string): Promise<{ url: string }> {
+      const res = await fetch(`${API_BASE}/invoices/portal/${encodeURIComponent(token)}/create-checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      return handleResponse<{ url: string }>(res)
+    },
   },
 }
 
@@ -1392,6 +1409,17 @@ export interface InvoicePortalBranding {
   /** Section titles, eyebrow, notes headings; defaults to slate if omitted. */
   secondaryColor?: string
   invoiceTemplateStyle: 'standard' | 'minimal' | 'detailed'
+}
+
+export interface InvoicePortalPaymentOptions {
+  cash: boolean
+  check: boolean
+  ach: boolean
+  /** Shown only when Stripe is configured server-side and enabled in company settings. */
+  card: boolean
+  check_instructions: string | null
+  ach_instructions: string | null
+  cash_note: string | null
 }
 
 export interface InvoicePortalResponse {
@@ -1425,6 +1453,10 @@ export interface InvoicePortalResponse {
   terms: string | null
   /** Saved in Settings → Branding; drives layout and accent on this page. */
   branding?: InvoicePortalBranding | null
+  /** Supporting PDFs / quotes (portal links use token + attachment id). */
+  attachments?: { id: string; label: string }[]
+  /** How customers may pay; configured in Settings → Company Profile. */
+  payment_options?: InvoicePortalPaymentOptions
 }
 
 export interface EstimatePortalResponse {

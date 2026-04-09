@@ -123,9 +123,11 @@ export function useRevenueLiveData({
       estimatesByJob[e.job_id] = (estimatesByJob[e.job_id] ?? 0) + Number(e.total_amount ?? 0)
     })
     invoices.forEach((i) => {
+      const jid = i.job_id
+      if (!jid) return
       const amt = Number(i.total_amount ?? 0)
-      invoicedByJob[i.job_id] = (invoicedByJob[i.job_id] ?? 0) + amt
-      if (i.status === 'paid') collectedByJob[i.job_id] = (collectedByJob[i.job_id] ?? 0) + amt
+      invoicedByJob[jid] = (invoicedByJob[jid] ?? 0) + amt
+      if (i.status === 'paid') collectedByJob[jid] = (collectedByJob[jid] ?? 0) + amt
     })
 
     const derivedJobs: RevenueJobRow[] = jobs.map((j, i) => {

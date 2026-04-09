@@ -81,7 +81,7 @@ function deriveInvoiceDueDateFromSchedule(
 
 function initialManualLine(): InvoiceLine {
   return {
-    id: `line-${Date.now()}`,
+    id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     description: '',
     qty: 1,
     unit: 'ea',
@@ -181,7 +181,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   const [loadingProgressMilestones, setLoadingProgressMilestones] = useState(false)
   const [projectPhases, setProjectPhases] = useState<Phase[]>([])
   const [loadingProjectPhases, setLoadingProjectPhases] = useState(false)
-  const [manualLines, setManualLines] = useState<InvoiceLine[]>([initialManualLine()])
+  const [manualLines, setManualLines] = useState<InvoiceLine[]>([])
   const [clientName, setClientName] = useState('')
   const [clientEmail, setClientEmail] = useState('')
   const [clientPhone, setClientPhone] = useState('')
@@ -196,6 +196,16 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   const [recipientEmailUnlocked, setRecipientEmailUnlocked] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  type AttachmentCandidates = {
+    awarded_quotes: { sub_bid_id: string; label: string }[]
+    bid_documents: { project_bid_document_id: string; label: string }[]
+  }
+  const [attachmentCandidates, setAttachmentCandidates] = useState<AttachmentCandidates | null>(null)
+  const [loadingAttachmentCandidates, setLoadingAttachmentCandidates] = useState(false)
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState<string[]>([])
+  const [selectedBidDocIds, setSelectedBidDocIds] = useState<string[]>([])
+  const [invoiceExtraFiles, setInvoiceExtraFiles] = useState<File[]>([])
 
   useEffect(() => {
     setLoadingEstimates(true)
@@ -279,6 +289,42 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       cancelled = true
     }
   }, [activeJobId, jobsById])
+
+  /** Awarded sub quotes + project bid files to optionally include on the customer invoice. */
+  useEffect(() => {
+    if (step !== 'manual-lines' || pathType !== 'manual') {
+      return
+    }
+    if (!activeJobId || shouldUseMockEstimates()) {
+      setAttachmentCandidates(null)
+      setSelectedQuoteIds([])
+      setSelectedBidDocIds([])
+      return
+    }
+    let cancelled = false
+    setLoadingAttachmentCandidates(true)
+    api.projects
+      .getInvoiceAttachmentCandidates(activeJobId)
+      .then((data) => {
+        if (cancelled) return
+        setAttachmentCandidates(data)
+        setSelectedQuoteIds(data.awarded_quotes.map((q) => q.sub_bid_id))
+        setSelectedBidDocIds(data.bid_documents.map((d) => d.project_bid_document_id))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAttachmentCandidates({ awarded_quotes: [], bid_documents: [] })
+          setSelectedQuoteIds([])
+          setSelectedBidDocIds([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAttachmentCandidates(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [step, pathType, activeJobId])
 
   const progressEligible = useMemo(() => {
     return estimates.filter((e) => e.status === 'accepted' && Number(e.total_amount) > Number(e.invoiced_amount || 0))
@@ -438,6 +484,27 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   const reviewLines = pathType === 'progress' ? progressLines : manualLines
   const lineSubtotal = reviewLines.reduce((s, l) => s + l.qty * l.unitPrice, 0)
 
+  const manualCustomerAttachmentCount = useMemo(() => {
+    if (pathType !== 'manual') return 0
+    let n = 0
+    if (attachmentCandidates && activeJobId) {
+      for (const q of attachmentCandidates.awarded_quotes) {
+        if (selectedQuoteIds.includes(q.sub_bid_id)) n += 1
+      }
+      for (const d of attachmentCandidates.bid_documents) {
+        if (selectedBidDocIds.includes(d.project_bid_document_id)) n += 1
+      }
+    }
+    return n + invoiceExtraFiles.length
+  }, [
+    pathType,
+    attachmentCandidates,
+    activeJobId,
+    selectedQuoteIds,
+    selectedBidDocIds,
+    invoiceExtraFiles.length,
+  ])
+
   const progressPaymentReviewRows = useMemo(() => {
     if (pathType !== 'progress') return [] as { m: ProgressMilestone; amt: number; pctRem: number }[]
     return selectedMilestones
@@ -472,6 +539,10 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     setStep('manual-info')
     setError(null)
     setProgressPaymentSchedule({})
+    setInvoiceExtraFiles([])
+    setAttachmentCandidates(null)
+    setSelectedQuoteIds([])
+    setSelectedBidDocIds([])
   }
 
   const setManualField = (id: string, patch: Partial<InvoiceLine>) => {
@@ -482,7 +553,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     setManualLines((prev) => [
       ...prev,
       {
-        id: `line-${Date.now()}-${Math.random()}`,
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         description: product.name,
         qty: 1,
         unit: product.unit || 'ea',
@@ -490,6 +561,10 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         section: product.item_type || 'Catalog',
       },
     ])
+  }
+
+  const removeManualLine = (lineId: string) => {
+    setManualLines((prev) => prev.filter((l) => l.id !== lineId))
   }
 
   const canContinue = () => {
@@ -502,7 +577,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       if (progressSplit.total <= 0) return false
       return true
     }
-    if (step === 'manual-info') return !!activeJobId && !!clientEmail.trim()
+    if (step === 'manual-info') return !!clientEmail.trim()
     if (step === 'manual-lines') return manualLines.some((l) => l.description.trim() && l.qty > 0)
     if (step === 'review') {
       if (lineSubtotal <= 0 || !clientEmail.trim()) return false
@@ -616,13 +691,62 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         })
         await estimatesApi.sendInvoice(result.invoice.id, [clientEmail.trim()])
       } else {
+        const manualLinePayload = manualLines
+          .filter((l) => l.description.trim() && l.qty > 0)
+          .map((l) => ({
+            id: l.id,
+            description: l.description.trim(),
+            quantity: l.qty,
+            unit: l.unit || 'ea',
+            unit_price: l.unitPrice,
+            total: round2(l.qty * l.unitPrice),
+            section: l.section || null,
+          }))
+        const client_attachments: Array<Record<string, unknown>> = []
+        if (attachmentCandidates && activeJobId) {
+          for (const q of attachmentCandidates.awarded_quotes) {
+            if (selectedQuoteIds.includes(q.sub_bid_id)) {
+              client_attachments.push({
+                id: crypto.randomUUID(),
+                kind: 'sub_bid_quote',
+                sub_bid_id: q.sub_bid_id,
+                label: q.label,
+              })
+            }
+          }
+          for (const d of attachmentCandidates.bid_documents) {
+            if (selectedBidDocIds.includes(d.project_bid_document_id)) {
+              client_attachments.push({
+                id: crypto.randomUUID(),
+                kind: 'project_bid_document',
+                project_bid_document_id: d.project_bid_document_id,
+                project_id: activeJobId,
+                label: d.label,
+              })
+            }
+          }
+        }
+        const schedule_snapshot: Record<string, unknown> = {
+          manual_invoice: true,
+          client_name: clientName.trim() || null,
+          notes: notes.trim() || null,
+          terms: terms.trim() || null,
+          line_items: manualLinePayload,
+        }
+        if (client_attachments.length > 0) {
+          schedule_snapshot.client_attachments = client_attachments
+        }
         const created = await estimatesApi.createInvoice({
-          job_id: activeJobId,
+          ...(activeJobId ? { job_id: activeJobId } : {}),
           total_amount: lineSubtotal,
           recipient_emails: [clientEmail.trim()],
           due_date: dueDate || undefined,
           status: 'draft',
+          schedule_snapshot: schedule_snapshot as Record<string, unknown>,
         })
+        for (const file of invoiceExtraFiles) {
+          await estimatesApi.uploadInvoiceAttachment(created.id, file)
+        }
         await estimatesApi.sendInvoice(created.id, [clientEmail.trim()])
       }
       onSaved?.()
@@ -657,8 +781,8 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
               </button>
               <button type="button" className="new-invoice-choice-card" onClick={goManual}>
                 <div className="new-invoice-choice-title">Manual Invoice</div>
-                <div className="new-invoice-choice-sub">Create a custom invoice for any job.</div>
-                <div className="new-invoice-choice-note">For change orders, additional work, or jobs without an estimate.</div>
+                <div className="new-invoice-choice-sub">Line-item invoice for anyone—link to a job or keep it standalone.</div>
+                <div className="new-invoice-choice-note">Change orders, one-off billing, or generic invoices with a recipient email.</div>
               </button>
             </div>
           )}
@@ -860,18 +984,23 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
           {step === 'manual-info' && (
             <div className="new-invoice-step-grid">
               <div className="estimate-wizard-field estimate-wizard-field--full">
-                <label className="estimate-wizard-label">Job</label>
+                <label className="estimate-wizard-label">Project / job (optional)</label>
+                <p className="estimate-wizard-helper" style={{ marginTop: 0 }}>
+                  Link to a project to pre-fill client details, or leave as standalone for a one-off invoice.
+                </p>
                 <select className="estimate-wizard-input" value={activeJobId} onChange={(e) => {
                   const nextJob = e.target.value
                   setActiveJobId(nextJob)
-                  const j = jobsById.get(nextJob)
-                  setClientName(j?.client_name || '')
-                  const em = String(j?.client_email ?? '').trim()
-                  setClientEmail(em)
-                  setProjectClientEmailSnapshot(em)
-                  setClientPhone(j?.client_phone || '')
+                  const j = nextJob ? jobsById.get(nextJob) : undefined
+                  if (j) {
+                    setClientName(j.client_name || '')
+                    const em = String(j.client_email ?? '').trim()
+                    setClientEmail(em)
+                    setProjectClientEmailSnapshot(em)
+                    setClientPhone(j.client_phone || '')
+                  }
                 }}>
-                  <option value="">Select a job</option>
+                  <option value="">No project (standalone invoice)</option>
                   {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
                 </select>
               </div>
@@ -902,16 +1031,34 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                   onChange={(e) => setCatalogQuery(e.target.value)}
                   placeholder="Search products & services"
                 />
-                <div className="new-invoice-catalog-list">
-                  {filteredProducts.slice(0, 8).map((p) => (
-                    <button key={p.id} type="button" className="new-invoice-catalog-row" onClick={() => addFromCatalog(p)}>
-                      <span>{p.name}</span>
-                      <span>{formatCurrency(Number(p.default_unit_price || 0))}/{p.unit || 'ea'}</span>
-                    </button>
-                  ))}
+                <div className="new-invoice-catalog-list" role="listbox" aria-label="Catalog items">
+                  {products.length === 0 ? (
+                    <div className="new-invoice-muted">No catalog items yet.</div>
+                  ) : filteredProducts.length === 0 ? (
+                    <div className="new-invoice-muted">No matches. Try a different search.</div>
+                  ) : (
+                    filteredProducts.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="new-invoice-catalog-row"
+                        role="option"
+                        onClick={() => addFromCatalog(p)}
+                      >
+                        <span>{p.name}</span>
+                        <span>{formatCurrency(Number(p.default_unit_price || 0))}/{p.unit || 'ea'}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
               <div className="new-invoice-lines">
+                <label className="estimate-wizard-label">Line items</label>
+                {manualLines.length === 0 ? (
+                  <p className="estimate-wizard-helper new-invoice-lines-empty-hint">
+                    Choose items from the catalog above, or use &quot;Add line item&quot; to type your own.
+                  </p>
+                ) : null}
                 {manualLines.map((line) => (
                   <div key={line.id} className="new-invoice-line-row">
                     <input className="estimate-wizard-input" placeholder="Description" value={line.description} onChange={(e) => setManualField(line.id, { description: e.target.value })} />
@@ -919,11 +1066,116 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                     <input className="estimate-wizard-input" value={line.unit} onChange={(e) => setManualField(line.id, { unit: e.target.value })} />
                     <input className="estimate-wizard-input" type="number" min={0} step={0.01} value={line.unitPrice} onChange={(e) => setManualField(line.id, { unitPrice: Number(e.target.value) || 0 })} />
                     <div className="new-invoice-line-total">{formatCurrency(line.qty * line.unitPrice)}</div>
+                    <button
+                      type="button"
+                      className="new-invoice-line-remove"
+                      aria-label="Remove line item"
+                      onClick={() => removeManualLine(line.id)}
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
                 <button type="button" className="btn btn-ghost" onClick={() => setManualLines((p) => [...p, initialManualLine()])}>
                   + Add line item
                 </button>
+              </div>
+
+              <div className="new-invoice-attachments-section estimate-wizard-field estimate-wizard-field--full">
+                <label className="estimate-wizard-label">Supporting documents for your customer</label>
+                <p className="estimate-wizard-helper" style={{ marginTop: 0 }}>
+                  {activeJobId
+                    ? 'Selected items appear as view-only links on the invoice so your customer can see how pricing breaks down. Uncheck anything you do not want to share.'
+                    : 'Upload PDFs or other files to include as view-only links on the invoice.'}
+                </p>
+                {activeJobId && loadingAttachmentCandidates ? (
+                  <p className="new-invoice-muted">Loading project bid files…</p>
+                ) : null}
+                {activeJobId && attachmentCandidates ? (
+                  <>
+                    {attachmentCandidates.awarded_quotes.length > 0 ? (
+                      <div className="new-invoice-attach-group">
+                        <div className="new-invoice-attach-group-title">Awarded subcontractor quotes</div>
+                        {attachmentCandidates.awarded_quotes.map((q) => (
+                          <label key={q.sub_bid_id} className="new-invoice-attach-row">
+                            <input
+                              type="checkbox"
+                              checked={selectedQuoteIds.includes(q.sub_bid_id)}
+                              onChange={(e) => {
+                                const on = e.target.checked
+                                setSelectedQuoteIds((prev) =>
+                                  on ? [...new Set([...prev, q.sub_bid_id])] : prev.filter((x) => x !== q.sub_bid_id)
+                                )
+                              }}
+                            />
+                            <span>{q.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                    {attachmentCandidates.bid_documents.length > 0 ? (
+                      <div className="new-invoice-attach-group">
+                        <div className="new-invoice-attach-group-title">Bid sheet uploads</div>
+                        {attachmentCandidates.bid_documents.map((d) => (
+                          <label key={d.project_bid_document_id} className="new-invoice-attach-row">
+                            <input
+                              type="checkbox"
+                              checked={selectedBidDocIds.includes(d.project_bid_document_id)}
+                              onChange={(e) => {
+                                const on = e.target.checked
+                                setSelectedBidDocIds((prev) =>
+                                  on
+                                    ? [...new Set([...prev, d.project_bid_document_id])]
+                                    : prev.filter((x) => x !== d.project_bid_document_id)
+                                )
+                              }}
+                            />
+                            <span>{d.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                    {!loadingAttachmentCandidates &&
+                      attachmentCandidates.awarded_quotes.length === 0 &&
+                      attachmentCandidates.bid_documents.length === 0 ? (
+                      <p className="new-invoice-muted">
+                        No awarded quotes with files or bid-sheet uploads found for this project yet.
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+                <div className="new-invoice-attach-upload">
+                  <label className="estimate-wizard-label" htmlFor="new-invoice-extra-files">
+                    {activeJobId ? 'Add more files (optional)' : 'Upload supporting files (optional)'}
+                  </label>
+                  <input
+                    id="new-invoice-extra-files"
+                    type="file"
+                    multiple
+                    className="estimate-wizard-input"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (files.length) setInvoiceExtraFiles((prev) => [...prev, ...files])
+                      e.target.value = ''
+                    }}
+                  />
+                  {invoiceExtraFiles.length > 0 ? (
+                    <ul className="new-invoice-attach-file-list">
+                      {invoiceExtraFiles.map((f, i) => (
+                        <li key={`${f.name}-${f.size}-${i}`}>
+                          <span>{f.name}</span>
+                          <button
+                            type="button"
+                            className="new-invoice-line-remove"
+                            onClick={() => setInvoiceExtraFiles((prev) => prev.filter((_, j) => j !== i))}
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               </div>
             </div>
           )}
@@ -1178,8 +1430,15 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                     <textarea className="estimate-wizard-input estimate-wizard-textarea" rows={3} value={terms} onChange={(e) => setTerms(e.target.value)} />
                   </div>
                   <div className="new-invoice-review-card">
-                    <div className="new-invoice-review-row"><span>Job</span><span>{activeJob?.name || '—'}</span></div>
+                    <div className="new-invoice-review-row">
+                      <span>Project</span>
+                      <span>{activeJob?.name || 'Standalone (not linked)'}</span>
+                    </div>
                     <div className="new-invoice-review-row"><span>Lines</span><span>{reviewLines.length}</span></div>
+                    <div className="new-invoice-review-row">
+                      <span>Customer attachments</span>
+                      <span>{manualCustomerAttachmentCount}</span>
+                    </div>
                     <div className="new-invoice-review-row strong"><span>Total</span><span>{formatCurrency(lineSubtotal)}</span></div>
                   </div>
                 </>

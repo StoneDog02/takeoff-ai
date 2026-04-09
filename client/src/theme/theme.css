@@ -6643,6 +6643,18 @@ body {
   transform: scaleX(1);
 }
 
+/* Financials sub-nav only: inactive tabs use primary text (not muted grey) */
+.financials-page__tabs .estimates-page__tab {
+  color: var(--text-primary);
+}
+.financials-page__tabs .estimates-page__tab:hover {
+  color: var(--text-primary);
+  opacity: 0.88;
+}
+.financials-page__tabs .estimates-page__tab.active {
+  opacity: 1;
+}
+
 .estimates-page__tab-icon {
   display: flex;
   align-items: center;
@@ -7878,7 +7890,7 @@ html[data-theme='dark'] .new-invoice-review-summary-anchor {
   margin-top: 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  max-height: 180px;
+  max-height: min(52vh, 320px);
   overflow: auto;
 }
 .new-invoice-catalog-row {
@@ -7897,18 +7909,81 @@ html[data-theme='dark'] .new-invoice-review-summary-anchor {
 .new-invoice-catalog-row:last-child { border-bottom: 0; }
 .new-invoice-catalog-row:hover { background: var(--bg-hover); }
 .new-invoice-lines { display: grid; gap: 8px; }
+.new-invoice-lines-empty-hint { margin: 0 0 4px; }
 .new-invoice-line-row {
   display: grid;
-  grid-template-columns: 1.8fr 0.5fr 0.5fr 0.7fr auto;
+  grid-template-columns: 1.8fr 0.5fr 0.5fr 0.7fr minmax(96px, auto) min-content;
   gap: 8px;
   align-items: center;
 }
 .new-invoice-line-total {
-  min-width: 104px;
+  min-width: 96px;
   text-align: right;
   font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
+}
+.new-invoice-line-remove {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.new-invoice-line-remove:hover {
+  color: var(--red, #b91c1c);
+  border-color: color-mix(in srgb, var(--red, #b91c1c) 35%, var(--border));
+  background: var(--bg-hover);
+}
+
+.new-invoice-attachments-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.new-invoice-attach-group {
+  margin-top: 10px;
+}
+.new-invoice-attach-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.new-invoice-attach-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.new-invoice-attach-row input {
+  margin-top: 3px;
+}
+.new-invoice-attach-upload {
+  margin-top: 12px;
+}
+.new-invoice-attach-file-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.new-invoice-attach-file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
 }
 .new-invoice-review-card {
   border: 1px solid var(--border);
@@ -12809,6 +12884,26 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
   line-height: 1.5;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.estimate-doc__terms-attachments {
+  margin-top: 16px;
+}
+
+.estimate-doc__attachment-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-align: left;
+}
+
+.estimate-invoice-form__attachments {
+  margin: 16px 0;
 }
 
 /* Document detail modal: card and table rows are not clickable */
@@ -21794,6 +21889,62 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   color: var(--text-primary, #1a1a24);
   font-weight: 500;
 }
+.invoice-portal-pay {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.15rem;
+  border-radius: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+}
+.invoice-portal-pay__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.invoice-portal-pay__method h3 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--invoice-accent-secondary, #1e293b);
+  margin: 0 0 0.35rem;
+}
+.invoice-portal-pay__detail {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #475569);
+  white-space: pre-wrap;
+}
+.invoice-portal-pay__card-actions {
+  margin-top: 0.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.invoice-portal-pay__card-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--invoice-accent, #1f4a8a);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.invoice-portal-pay__card-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.invoice-portal-pay__card-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
 .invoice-portal-schedule__title {
   font-size: 1.125rem;
   font-weight: 600;
@@ -21966,6 +22117,34 @@ button.estimating-workspace-trade-pill--invited-btn:focus-visible {
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.5;
+}
+.invoice-portal-notes__attachments {
+  margin-top: 0.75rem;
+}
+.invoice-portal-notes__attachments-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text, #374151);
+  margin: 0 0 0.35rem;
+}
+.invoice-portal-notes__attachments-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+.invoice-portal-notes__attachment-link {
+  color: var(--invoice-accent, #b91c1c);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.invoice-portal-notes__attachment-link:hover {
+  opacity: 0.9;
+}
+.invoice-portal-notes__attachment-hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #64748b);
 }
 
 /* --- Project Documents tab (paper trail) --- */

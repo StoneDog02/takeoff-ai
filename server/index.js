@@ -176,6 +176,19 @@ app.use('/api/jobs', requireAuth, jobsRoutes)
 app.use('/api/estimates/portal', estimatePortalRoutes)
 app.use('/api/estimates', requireAuth, estimatesRoutes)
 app.use('/api/invoices/portal', invoicePortalRoutes)
+/** Invoice attachment upload — registered on the app so POST /api/invoices/:id/attachments always matches (avoids proxy/path quirks). */
+app.post(
+  '/api/invoices/:id/attachments',
+  requireAuth,
+  invoicesRoutes.invoiceAttachmentUploadSingle,
+  invoicesRoutes.postInvoiceAttachment
+)
+/** Same for GET view / JSON signed URL (owner session + ?format=json from SPA). */
+app.get(
+  '/api/invoices/:id/attachments/:attachmentId/view',
+  requireAuth,
+  invoicesRoutes.getInvoiceAttachmentView
+)
 app.use('/api/invoices', requireAuth, invoicesRoutes)
 app.use('/api/custom-products', requireAuth, customProductsRoutes)
 app.use('/api/job-expenses', requireAuth, jobExpensesRoutes)

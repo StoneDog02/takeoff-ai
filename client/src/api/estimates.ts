@@ -347,32 +347,36 @@ export const estimatesApi = {
   },
 
   async createInvoice(params: {
-    job_id: string
+    job_id?: string | null
     total_amount: number
     recipient_emails?: string[]
     due_date?: string
-    estimate_id?: string
+    estimate_id?: string | null
     status?: 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue'
+    schedule_snapshot?: Record<string, unknown>
   }): Promise<Invoice> {
     if (isPublicDemo()) {
       const t = new Date().toISOString()
       return Promise.resolve({
         id: `inv-new-${Date.now()}`,
-        job_id: params.job_id,
-        estimate_id: params.estimate_id,
+        job_id: params.job_id ?? null,
+        estimate_id: params.estimate_id ?? null,
         status: params.status ?? 'draft',
         total_amount: params.total_amount,
         recipient_emails: params.recipient_emails ?? [],
         created_at: t,
         updated_at: t,
         due_date: params.due_date,
+        schedule_snapshot: params.schedule_snapshot ?? null,
       } as Invoice)
     }
     const headers = await getAuthHeaders()
+    const body = { ...params }
+    if (body.job_id === '' || body.job_id === undefined) delete body.job_id
     const res = await fetch(`${API_BASE}/invoices`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify(body),
     })
     return handleResponse<Invoice>(res)
   },
@@ -423,6 +427,27 @@ export const estimatesApi = {
       body: JSON.stringify({ recipient_emails }),
     })
     return handleResponse<Invoice>(res)
+  },
+
+  async uploadInvoiceAttachment(invoiceId: string, file: File): Promise<Invoice> {
+    if (isPublicDemo()) {
+      const inv = getMockInvoice(invoiceId)
+      if (!inv) return Promise.reject(new Error('Not found'))
+      return Promise.resolve(inv)
+    }
+    const allHeaders = await getAuthHeaders()
+    const form = new FormData()
+    form.append('file', file)
+    const headers: Record<string, string> = {}
+    const auth = (allHeaders as Record<string, string> | undefined)?.Authorization
+    if (auth) headers.Authorization = auth
+    const res = await fetch(`${API_BASE}/invoices/${invoiceId}/attachments`, {
+      method: 'POST',
+      body: form,
+      headers,
+    })
+    const data = await handleResponse<{ invoice: Invoice }>(res)
+    return data.invoice
   },
 
   // Custom products

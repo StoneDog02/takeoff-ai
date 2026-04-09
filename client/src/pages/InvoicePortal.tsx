@@ -27,6 +27,16 @@ export function InvoicePortal() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const viewedFiredRef = useRef(false)
+  const [cardPaymentThanks, setCardPaymentThanks] = useState(false)
+
+  useEffect(() => {
+    if (!token) return
+    const q = new URLSearchParams(window.location.search).get('payment')
+    if (q !== 'success') return
+    setCardPaymentThanks(true)
+    window.history.replaceState({}, '', window.location.pathname)
+    void api.invoicePortal.get(token).then(setData).catch(() => {})
+  }, [token])
 
   useEffect(() => {
     if (!token) {
@@ -87,7 +97,24 @@ export function InvoicePortal() {
           </div>
         )}
 
-        {data && !loading && <InvoiceClientFacing data={data} interactiveSchedule />}
+        {data && !loading && (
+          <>
+            {cardPaymentThanks ? (
+              <div
+                className="estimate-portal-card"
+                style={{ marginBottom: 16, borderColor: 'rgba(34, 197, 94, 0.35)', background: 'rgba(34, 197, 94, 0.08)' }}
+                role="status"
+              >
+                <div className="estimate-portal-card__body">
+                  <p className="estimate-portal-message" style={{ margin: 0, fontWeight: 600 }}>
+                    Payment submitted — thank you. If your bank or card issuer shows a delay, status here may update in a moment.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            <InvoiceClientFacing data={data} interactiveSchedule portalToken={token ?? null} />
+          </>
+        )}
       </div>
       <footer className="estimate-portal-footer">
         <span className="estimate-portal-footer__text">Powered by BuildOS</span>

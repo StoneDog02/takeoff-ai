@@ -1063,6 +1063,21 @@ async function handleWebhook(req, res) {
         await handleInvoiceCreatedReferral(event)
         break
       }
+      case 'checkout.session.completed': {
+        const session = event.data?.object
+        const meta = session?.metadata || {}
+        if (meta.buildos_client_invoice === '1' && meta.invoice_id && supabase) {
+          const now = new Date().toISOString()
+          const { error: invPayErr } = await supabase
+            .from('invoices')
+            .update({ status: 'paid', paid_at: now, updated_at: now })
+            .eq('id', meta.invoice_id)
+          if (invPayErr) {
+            console.error('[stripe] checkout.session.completed invoice update:', invPayErr.message)
+          }
+        }
+        break
+      }
       case 'financial_connections.account.refreshed_transactions': {
         const accountObj = event.data?.object
         const fcAccountId = accountObj?.id

@@ -475,6 +475,7 @@ export function DocumentViewer({
                   data={viewer.data}
                   overdueDays={viewer.overdue_days}
                   interactiveSchedule={false}
+                  invoiceIdForAttachments={viewer.data.invoice_id}
                 />
               </div>
             </div>

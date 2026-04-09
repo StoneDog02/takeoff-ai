@@ -4,6 +4,10 @@ const { PDFDocument } = require('pdf-lib')
 const { supabase: defaultSupabase } = require('../db/supabase')
 const { buildBillingSummary } = require('../lib/billingSummary')
 const { cancelStripeSubscriptionsForUser } = require('../lib/cancelStripeSubscriptionsForUser')
+const {
+  companySettingsInvoicePaymentFromRow,
+  companySettingsInvoicePaymentToRow,
+} = require('../lib/invoicePaymentConfig')
 
 const SETTINGS_ASSETS_BUCKET = 'settings-assets'
 const router = express.Router()
@@ -119,6 +123,7 @@ function rowToCompany(row) {
     website: row.website || null,
     defaultEstimateMarkupPct:
       m != null && !Number.isNaN(Number(m)) ? Number(m) : null,
+    invoicePayment: companySettingsInvoicePaymentFromRow(row.invoice_payment_config),
   }
 }
 
@@ -148,6 +153,9 @@ function companyToRow(company, userId) {
       row.default_estimate_markup_pct = Number.isFinite(pct) ? Math.min(500, Math.max(0, pct)) : null
     }
   }
+  if (company && 'invoicePayment' in company && company.invoicePayment != null) {
+    row.invoice_payment_config = companySettingsInvoicePaymentToRow(company.invoicePayment)
+  }
   return row
 }
 
@@ -168,6 +176,16 @@ router.put('/company', async (req, res, next) => {
         .maybeSingle()
       if (prev?.default_estimate_markup_pct != null) {
         row = { ...row, default_estimate_markup_pct: prev.default_estimate_markup_pct }
+      }
+    }
+    if (!('invoicePayment' in (req.body || {}))) {
+      const { data: prevPay } = await db
+        .from('company_settings')
+        .select('invoice_payment_config')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (prevPay?.invoice_payment_config != null) {
+        row = { ...row, invoice_payment_config: prevPay.invoice_payment_config }
       }
     }
     const { data, error } = await db

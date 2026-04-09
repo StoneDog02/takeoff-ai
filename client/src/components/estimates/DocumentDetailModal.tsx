@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import { settingsApi } from '@/api/settings'
-import type { Invoice, Job, CompanyProfile } from '@/types/global'
+import type { Invoice, Job, CompanyProfile, EstimateLineItem } from '@/types/global'
 import type { EstimateWithLines } from '@/api/estimates'
+import { lineItemsFromInvoice, attachmentSummariesFromInvoice } from '@/lib/invoiceLineItems'
 import { ConvertToInvoiceFlow } from './ConvertToInvoiceFlow'
 import { SendEstimateInvoice } from './SendEstimateInvoice'
 import { EstimateInvoiceFormView } from './EstimateInvoiceFormView'
@@ -119,6 +120,17 @@ export function DocumentDetailModal({
     type === 'estimate'
       ? (estimate?.recipient_emails ?? [])
       : (invoice?.recipient_emails ?? [])
+
+  const previewLineItems = useMemo((): EstimateLineItem[] => {
+    if (type === 'estimate' && estimate) return estimate.line_items ?? []
+    if (type === 'invoice' && invoice) return lineItemsFromInvoice(invoice)
+    return []
+  }, [type, estimate, invoice])
+
+  const invoiceAttachmentSummaries = useMemo(() => {
+    if (type === 'invoice' && invoice) return attachmentSummariesFromInvoice(invoice)
+    return []
+  }, [type, invoice])
 
   return (
     <div
@@ -322,12 +334,14 @@ export function DocumentDetailModal({
                 date={doc.created_at}
                 status={status}
                 recipientEmails={recipientEmails}
-                lineItems={type === 'estimate' && estimate ? estimate.line_items ?? [] : []}
+                lineItems={previewLineItems}
                 total={Number(total)}
                 dueDate={type === 'invoice' && invoice ? invoice.due_date ?? undefined : undefined}
                 embedded
                 variant="elevated"
                 company={company}
+                attachments={invoiceAttachmentSummaries}
+                invoiceIdForAttachments={type === 'invoice' ? id : null}
               />
             </div>
             {type === 'estimate' && estimate && (
@@ -394,7 +408,9 @@ export function DocumentDetailModal({
           document={doc}
           jobName={jobName}
           total={Number(total)}
-          lineItems={type === 'estimate' && estimate ? estimate.line_items : []}
+          lineItems={previewLineItems}
+          attachments={invoiceAttachmentSummaries}
+          invoiceIdForAttachments={type === 'invoice' ? id : null}
           onClose={() => setShowSend(false)}
           onSent={() => {
             setShowSend(false)

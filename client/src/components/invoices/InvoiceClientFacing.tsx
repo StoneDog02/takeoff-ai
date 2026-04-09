@@ -1,5 +1,7 @@
-import type { CSSProperties } from 'react'
-import type { InvoicePortalResponse, InvoicePortalScheduleRow } from '@/api/client'
+import { useState, useCallback, type CSSProperties } from 'react'
+import { api, type InvoicePortalResponse, type InvoicePortalScheduleRow, type InvoicePortalPaymentOptions } from '@/api/client'
+import { API_BASE } from '@/api/config'
+import { openOwnerInvoiceAttachment } from '@/lib/openOwnerInvoiceAttachment'
 import { formatPortalCurrency, formatPortalDate } from '@/components/estimates/EstimateClientFacingDocument'
 
 export type InvoiceTemplateStyle = 'standard' | 'minimal' | 'detailed'
@@ -64,14 +66,65 @@ type InvoiceClientFacingProps = {
   overdueDays?: number | null
   /** Portal: Pay column + schedule hint. Document viewer: readonly table. */
   interactiveSchedule: boolean
+  /** Public invoice link token — opens attachment URLs via portal (no auth). */
+  portalToken?: string | null
+  /** In-app viewer: authenticated attachment download links. */
+  invoiceIdForAttachments?: string | null
 }
 
 /**
  * Shared client invoice layout: public portal and in-app document viewer.
  * Template + accent come from `data.branding` (saved in Settings → Branding).
  */
-export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: InvoiceClientFacingProps) {
+function attachmentHref(
+  portalToken: string | null | undefined,
+  invoiceId: string | null | undefined,
+  attachmentId: string
+): string {
+  if (portalToken) {
+    return `${API_BASE}/invoices/portal/${encodeURIComponent(portalToken)}/attachment/${encodeURIComponent(attachmentId)}`
+  }
+  if (invoiceId) {
+    return `${API_BASE}/invoices/${encodeURIComponent(invoiceId)}/attachments/${encodeURIComponent(attachmentId)}/view`
+  }
+  return '#'
+}
+
+const defaultPaymentOptions: InvoicePortalPaymentOptions = {
+  cash: true,
+  check: true,
+  ach: true,
+  card: false,
+  check_instructions: null,
+  ach_instructions: null,
+  cash_note: null,
+}
+
+export function InvoiceClientFacing({
+  data,
+  overdueDays,
+  interactiveSchedule,
+  portalToken,
+  invoiceIdForAttachments,
+}: InvoiceClientFacingProps) {
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const pay = data.payment_options ?? defaultPaymentOptions
+  const startCardCheckout = useCallback(async () => {
+    if (!portalToken) return
+    setCheckoutLoading(true)
+    try {
+      const { url } = await api.invoicePortal.createCheckoutSession(portalToken)
+      if (url) window.location.href = url
+    } catch (e) {
+      console.error(e)
+      window.alert(e instanceof Error ? e.message : 'Could not start card payment.')
+    } finally {
+      setCheckoutLoading(false)
+    }
+  }, [portalToken])
+
   const { primaryColor, secondaryColor, invoiceTemplateStyle: tpl } = resolveInvoiceBranding(data)
+  const lineItems = data.line_items ?? []
   const accentVars: CSSProperties = {
     ['--invoice-accent' as string]: primaryColor,
     ['--invoice-accent-secondary' as string]: secondaryColor,
@@ -81,6 +134,16 @@ export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: 
   const showProgress = data.invoice_kind === 'progress_series' && (data.schedule_rows?.length ?? 0) > 0
   const company = data.company
   const openStatus = st === 'sent' || st === 'viewed' ? 'Open' : st
+
+  const showPaymentSection =
+    !invoicePaid &&
+    (pay.cash ||
+      pay.check ||
+      pay.ach ||
+      pay.card ||
+      (pay.check_instructions && pay.check_instructions.trim()) ||
+      (pay.ach_instructions && pay.ach_instructions.trim()) ||
+      (pay.cash_note && pay.cash_note.trim()))
 
   const headerStandard = (
     <>
@@ -215,6 +278,66 @@ export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: 
           ) : null}
         </div>
 
+        {showPaymentSection ? (
+          <section className="invoice-portal-pay" aria-labelledby="invoice-pay-heading">
+            <h2 id="invoice-pay-heading" className="invoice-portal-schedule__title">
+              How to pay
+            </h2>
+            <div className="invoice-portal-pay__grid">
+              {pay.cash ? (
+                <div className="invoice-portal-pay__method">
+                  <h3>Cash</h3>
+                  <p className="invoice-portal-pay__detail">
+                    {pay.cash_note?.trim()
+                      ? pay.cash_note
+                      : 'Coordinate with your contractor for in-person cash payment if they accept it.'}
+                  </p>
+                </div>
+              ) : null}
+              {pay.check ? (
+                <div className="invoice-portal-pay__method">
+                  <h3>Check</h3>
+                  {pay.check_instructions?.trim() ? (
+                    <p className="invoice-portal-pay__detail">{pay.check_instructions}</p>
+                  ) : (
+                    <p className="invoice-portal-pay__detail">
+                      Mail or deliver a check payable to {company?.name?.trim() || 'the contractor'} using the address on this invoice, unless they gave you other instructions.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {pay.ach ? (
+                <div className="invoice-portal-pay__method">
+                  <h3>ACH / wire transfer</h3>
+                  {pay.ach_instructions?.trim() ? (
+                    <p className="invoice-portal-pay__detail">{pay.ach_instructions}</p>
+                  ) : (
+                    <p className="invoice-portal-pay__detail">
+                      Request bank routing and account details from your contractor if you prefer ACH or wire.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {pay.card && portalToken ? (
+                <div className="invoice-portal-pay__card-actions">
+                  <button
+                    type="button"
+                    className="invoice-portal-pay__card-btn"
+                    disabled={checkoutLoading}
+                    onClick={() => void startCardCheckout()}
+                  >
+                    {checkoutLoading ? 'Redirecting…' : 'Pay with card'}
+                  </button>
+                  <p className="invoice-portal-pay__card-hint">
+                    Secure checkout by Stripe. If your contractor connected a Stripe account, funds route to them; otherwise
+                    payment is processed through the platform for their payout.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         {showProgress && (
           <section className="invoice-portal-schedule" aria-labelledby="invoice-schedule-heading">
             <h2 id="invoice-schedule-heading" className="invoice-portal-schedule__title">
@@ -299,7 +422,7 @@ export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: 
           </section>
         )}
 
-        {!showProgress && data.line_items.length > 0 && (
+        {lineItems.length > 0 && (
           <section className="invoice-portal-lines" aria-labelledby="invoice-lines-heading">
             <h2 id="invoice-lines-heading" className="invoice-portal-schedule__title">
               Line items
@@ -307,8 +430,8 @@ export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: 
             <div className="invoice-portal-lines-table">
               {tpl === 'detailed'
                 ? (() => {
-                    const bySection = new Map<string | null, typeof data.line_items>()
-                    for (const li of data.line_items) {
+                    const bySection = new Map<string | null, typeof lineItems>()
+                    for (const li of lineItems) {
                       const key = li.section ?? null
                       const list = bySection.get(key) ?? []
                       list.push(li)
@@ -332,7 +455,7 @@ export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: 
                       </div>
                     ))
                   })()
-                : data.line_items.map((li) => (
+                : lineItems.map((li) => (
                     <div key={li.id} className="invoice-portal-lines-table__row">
                       <div>
                         <div className="invoice-portal-lines-table__desc">{li.description}</div>
@@ -348,14 +471,46 @@ export function InvoiceClientFacing({ data, overdueDays, interactiveSchedule }: 
           </section>
         )}
 
-        {!showProgress && data.line_items.length === 0 && (
+        {!showProgress && lineItems.length === 0 && (
           <p className="invoice-portal-empty-lines">No line items on file for this invoice.</p>
         )}
 
-        {data.notes ? (
+        {data.notes || (data.attachments && data.attachments.length > 0) ? (
           <section className="invoice-portal-notes">
             <h3 className="invoice-portal-notes__title">Notes</h3>
-            <p className="invoice-portal-notes__body">{data.notes}</p>
+            {data.notes ? <p className="invoice-portal-notes__body">{data.notes}</p> : null}
+            {data.attachments && data.attachments.length > 0 ? (
+              <div className="invoice-portal-notes__attachments">
+                <p className="invoice-portal-notes__attachments-label">Supporting documents</p>
+                <ul className="invoice-portal-notes__attachments-list">
+                  {data.attachments.map((a) => (
+                    <li key={a.id}>
+                      {portalToken ? (
+                        <a
+                          href={attachmentHref(portalToken, invoiceIdForAttachments, a.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="invoice-portal-notes__attachment-link"
+                        >
+                          {a.label}
+                        </a>
+                      ) : invoiceIdForAttachments ? (
+                        <button
+                          type="button"
+                          className="invoice-portal-notes__attachment-link estimate-doc__attachment-btn"
+                          onClick={() => void openOwnerInvoiceAttachment(invoiceIdForAttachments, a.id)}
+                        >
+                          {a.label}
+                        </button>
+                      ) : (
+                        <span className="invoice-portal-notes__attachment-link">{a.label}</span>
+                      )}
+                      <span className="invoice-portal-notes__attachment-hint"> (opens in new tab)</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
         ) : null}
         {data.terms ? (

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import type { CompanyProfile, CompanyAddress } from '@/types/global'
+import type { CompanyProfile, CompanyAddress, CompanyInvoicePaymentSettings } from '@/types/global'
 import { settingsApi } from '@/api/settings'
 import {
   SectionHeader,
@@ -22,11 +22,23 @@ const defaultAddress: CompanyAddress = {
   zip: '',
 }
 
+const defaultInvoicePayment: CompanyInvoicePaymentSettings = {
+  cash: true,
+  check: true,
+  ach: true,
+  card: false,
+  checkInstructions: '',
+  achInstructions: '',
+  cashNote: '',
+  stripeConnectAccountId: null,
+}
+
 const defaultProfile: CompanyProfile = {
   name: '',
   address: { ...defaultAddress },
   phone: '',
   email: '',
+  invoicePayment: { ...defaultInvoicePayment },
 }
 
 export function CompanyProfileSection() {
@@ -55,6 +67,7 @@ export function CompanyProfileSection() {
             c.defaultEstimateMarkupPct != null && Number.isFinite(Number(c.defaultEstimateMarkupPct))
               ? Number(c.defaultEstimateMarkupPct)
               : null,
+          invoicePayment: c.invoicePayment ? { ...defaultInvoicePayment, ...c.invoicePayment } : { ...defaultInvoicePayment },
         })
         if (c.logoUrl) setLogoPreview(c.logoUrl)
       }
@@ -90,6 +103,13 @@ export function CompanyProfileSection() {
 
   const updateAddress = <K extends keyof CompanyAddress>(key: K, value: CompanyAddress[K]) => {
     setProfile((p) => ({ ...p, address: { ...p.address, [key]: value } }))
+  }
+
+  const updateInvoicePayment = <K extends keyof CompanyInvoicePaymentSettings>(key: K, value: CompanyInvoicePaymentSettings[K]) => {
+    setProfile((p) => ({
+      ...p,
+      invoicePayment: { ...defaultInvoicePayment, ...p.invoicePayment, [key]: value },
+    }))
   }
 
   const handleSave = async () => {
@@ -251,6 +271,106 @@ export function CompanyProfileSection() {
               />
             </Field>
           </FieldRow>
+          <SaveRow>
+            <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</Btn>
+          </SaveRow>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Customer invoice payments" />
+        <CardBody>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+            These options appear on the public invoice link your clients open from email. Enable card only if{' '}
+            <code style={{ fontSize: 12 }}>STRIPE_SECRET_KEY</code> is set on the server. For payouts directly to your bank,
+            add your Stripe Connect account id after onboarding at Stripe.
+          </p>
+          <FieldRow cols="1fr 1fr">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={profile.invoicePayment?.cash ?? true}
+                onChange={(e) => updateInvoicePayment('cash', e.target.checked)}
+              />
+              Cash
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={profile.invoicePayment?.check ?? true}
+                onChange={(e) => updateInvoicePayment('check', e.target.checked)}
+              />
+              Check
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={profile.invoicePayment?.ach ?? true}
+                onChange={(e) => updateInvoicePayment('ach', e.target.checked)}
+              />
+              ACH / wire
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={profile.invoicePayment?.card ?? false}
+                onChange={(e) => updateInvoicePayment('card', e.target.checked)}
+              />
+              Card (Stripe Checkout)
+            </label>
+          </FieldRow>
+          <Field label="Cash note" hint="optional — e.g. where to drop off payment">
+            <Input
+              value={profile.invoicePayment?.cashNote ?? ''}
+              onChange={(e) => updateInvoicePayment('cashNote', e.target.value)}
+              placeholder="e.g. Pay at our office front desk weekdays 8–5"
+            />
+          </Field>
+          <Field label="Check instructions" hint="payable to, mailing address">
+            <textarea
+              value={profile.invoicePayment?.checkInstructions ?? ''}
+              onChange={(e) => updateInvoicePayment('checkInstructions', e.target.value)}
+              rows={3}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                resize: 'vertical',
+              }}
+            />
+          </Field>
+          <Field label="ACH / wire instructions" hint="routing, account, reference to include">
+            <textarea
+              value={profile.invoicePayment?.achInstructions ?? ''}
+              onChange={(e) => updateInvoicePayment('achInstructions', e.target.value)}
+              rows={4}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                resize: 'vertical',
+              }}
+            />
+          </Field>
+          <Field
+            label="Stripe Connect account id"
+            hint="Optional — acct_… from Stripe Dashboard after Connect onboarding; sends card payments to that account."
+          >
+            <Input
+              value={profile.invoicePayment?.stripeConnectAccountId ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim()
+                updateInvoicePayment('stripeConnectAccountId', v === '' ? null : v)
+              }}
+              placeholder="acct_…"
+            />
+          </Field>
           <SaveRow>
             <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</Btn>
           </SaveRow>

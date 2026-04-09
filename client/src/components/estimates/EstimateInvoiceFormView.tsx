@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 import type { EstimateLineItem } from '@/types/global'
 import type { CompanyProfile } from '@/types/global'
 import { formatDate } from '@/lib/date'
+import { openOwnerInvoiceAttachment } from '@/lib/openOwnerInvoiceAttachment'
 
 function groupBySection(items: EstimateLineItem[]): { section: string; items: EstimateLineItem[] }[] {
   const map = new Map<string, EstimateLineItem[]>()
@@ -32,8 +33,12 @@ function getRecipientInitials(email: string): string {
   return (local.slice(0, 2) || '?').toUpperCase()
 }
 
-const DEFAULT_TERMS =
+const DEFAULT_TERMS_ESTIMATE =
   'Thank you for your business. Payment due within 30 days of acceptance. Work to begin within 5 business days of signed approval.'
+
+/** Invoices: payment-focused only (work has typically already started). */
+const DEFAULT_TERMS_INVOICE =
+  'Thank you for your business. Please remit payment by the due date on this invoice unless other terms apply.'
 
 export interface EstimateInvoiceFormViewProps {
   type: 'estimate' | 'invoice'
@@ -53,6 +58,10 @@ export interface EstimateInvoiceFormViewProps {
   company?: CompanyProfile | null
   /** Optional custom terms; used in elevated variant */
   terms?: string
+  /** From invoice `schedule_snapshot.client_attachments` — shown under Notes & Terms for invoices */
+  attachments?: { id: string; label: string }[]
+  /** When set with `attachments`, opens files using an authenticated API call (owner session). */
+  invoiceIdForAttachments?: string | null
 }
 
 export function EstimateInvoiceFormView({
@@ -68,8 +77,12 @@ export function EstimateInvoiceFormView({
   embedded,
   variant = 'default',
   company,
-  terms = DEFAULT_TERMS,
+  terms,
+  attachments = [],
+  invoiceIdForAttachments = null,
 }: EstimateInvoiceFormViewProps) {
+  const displayTerms =
+    terms !== undefined ? terms : type === 'invoice' ? DEFAULT_TERMS_INVOICE : DEFAULT_TERMS_ESTIMATE
   const docTitle = type === 'estimate' ? 'Estimate' : 'Invoice'
   const totalLabel = type === 'estimate' ? 'ESTIMATE TOTAL' : 'INVOICE TOTAL'
   const grouped = useMemo(() => groupBySection(lineItems), [lineItems])
@@ -220,7 +233,26 @@ export function EstimateInvoiceFormView({
         {/* Notes & Terms */}
         <footer className="estimate-doc__terms">
           <h3 className="estimate-doc__terms-title">NOTES & TERMS</h3>
-          <p className="estimate-doc__terms-text">{terms}</p>
+          <p className="estimate-doc__terms-text">{displayTerms}</p>
+          {type === 'invoice' && attachments.length > 0 && invoiceIdForAttachments ? (
+            <div className="invoice-portal-notes__attachments estimate-doc__terms-attachments">
+              <p className="invoice-portal-notes__attachments-label">Supporting documents</p>
+              <ul className="invoice-portal-notes__attachments-list">
+                {attachments.map((a) => (
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      className="estimate-doc__attachment-btn"
+                      onClick={() => void openOwnerInvoiceAttachment(invoiceIdForAttachments, a.id)}
+                    >
+                      {a.label}
+                    </button>
+                    <span className="invoice-portal-notes__attachment-hint"> (opens in new tab)</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </footer>
       </div>
     )
@@ -311,6 +343,25 @@ export function EstimateInvoiceFormView({
           </span>
         </div>
       </div>
+      {type === 'invoice' && attachments.length > 0 && invoiceIdForAttachments ? (
+        <div className="invoice-portal-notes__attachments estimate-invoice-form__attachments">
+          <p className="invoice-portal-notes__attachments-label">Supporting documents</p>
+          <ul className="invoice-portal-notes__attachments-list">
+            {attachments.map((a) => (
+              <li key={a.id}>
+                <button
+                  type="button"
+                  className="estimate-doc__attachment-btn"
+                  onClick={() => void openOwnerInvoiceAttachment(invoiceIdForAttachments, a.id)}
+                >
+                  {a.label}
+                </button>
+                <span className="invoice-portal-notes__attachment-hint"> (opens in new tab)</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <footer className="estimate-invoice-form__footer">
         <p className="estimate-invoice-form__thanks">Thank you for your business.</p>
       </footer>

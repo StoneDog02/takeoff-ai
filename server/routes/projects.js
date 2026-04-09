@@ -2183,6 +2183,50 @@ router.delete('/:id/work-types/:wtId', loadProject, async (req, res, next) => {
   }
 })
 
+// --- Invoice attachment candidates (awarded sub quotes + project bid files) ---
+router.get('/:id/invoice-attachment-candidates', loadProject, async (req, res, next) => {
+  try {
+    const supabase = req.supabase || defaultSupabase
+    const projectId = req.params.id
+    const { data: pkgs } = await supabase.from('trade_packages').select('id, trade_tag').eq('project_id', projectId)
+    const pkgList = pkgs || []
+    const tradeByPkg = new Map(pkgList.map((p) => [p.id, String(p.trade_tag || '').trim() || 'Trade']))
+    const pkgIds = pkgList.map((p) => p.id)
+    const awarded_quotes = []
+    if (pkgIds.length) {
+      const { data: bids } = await supabase
+        .from('sub_bids')
+        .select('id, quote_url, subcontractor_id, trade_package_id, awarded')
+        .in('trade_package_id', pkgIds)
+        .eq('awarded', true)
+      const { data: subs } = await supabase.from('subcontractors').select('id, name').eq('project_id', projectId)
+      const subById = new Map((subs || []).map((s) => [s.id, String(s.name || '').trim() || 'Subcontractor']))
+      for (const b of bids || []) {
+        const q = b.quote_url != null ? String(b.quote_url).trim() : ''
+        if (!q) continue
+        const trade = tradeByPkg.get(b.trade_package_id) || 'Trade'
+        const subName = subById.get(b.subcontractor_id) || 'Subcontractor'
+        awarded_quotes.push({
+          sub_bid_id: b.id,
+          label: `Awarded quote — ${trade} — ${subName}`,
+        })
+      }
+    }
+    const { data: docs } = await supabase
+      .from('project_bid_documents')
+      .select('id, file_name')
+      .eq('project_id', projectId)
+      .order('uploaded_at', { ascending: false })
+    const bid_documents = (docs || []).map((d) => ({
+      project_bid_document_id: d.id,
+      label: String(d.file_name || '').trim() || 'Bid document',
+    }))
+    res.json({ awarded_quotes, bid_documents })
+  } catch (err) {
+    next(err)
+  }
+})
+
 // --- Bid documents (uploaded bids from subs for reference) ---
 const BID_DOCUMENTS_PATH_PREFIX = 'bid-documents'
 

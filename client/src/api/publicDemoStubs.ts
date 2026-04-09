@@ -338,6 +338,12 @@ export const publicDemoApi = {
     deleteBuildPlan(): Promise<void> {
       return Promise.resolve()
     },
+    getInvoiceAttachmentCandidates(): Promise<{
+      awarded_quotes: { sub_bid_id: string; label: string }[]
+      bid_documents: { project_bid_document_id: string; label: string }[]
+    }> {
+      return Promise.resolve({ awarded_quotes: [], bid_documents: [] })
+    },
     getBidDocuments(): Promise<BidDocument[]> {
       return Promise.resolve([])
     },

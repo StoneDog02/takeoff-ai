@@ -1,6 +1,7 @@
 /**
  * Send portal emails via Resend using the email templates.
- * - Estimate portal: client email when GC sends estimate
+ * - Estimate portal: client email when GC sends estimate / change order
+ * - Invoice portal: client email when GC sends invoice (POST /api/invoices/:id/send)
  * - Bid portal: sub email when GC dispatches or resends bid link
  *
  * Env: RESEND_API_KEY (required to send). PORTAL_EMAIL_FROM (optional; defaults to INVITE_EMAIL_FROM).

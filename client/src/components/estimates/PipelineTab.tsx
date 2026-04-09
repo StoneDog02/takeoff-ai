@@ -157,7 +157,7 @@ export function PipelineTab({ invoices, jobFilterId, jobs, onPipelineRefresh }: 
                   </div>
                 )}
                 {items.map((inv) => {
-                  const projectName = jobMap.get(inv.job_id) || inv.job_id
+                  const projectName = inv.job_id ? jobMap.get(inv.job_id) || inv.job_id : 'No project'
                   const clientName = formatClientName(inv)
                   const overdueDays = daysOverdue(inv.due_date)
                   const isOverdue = inv.status === 'overdue' || overdueDays > 0

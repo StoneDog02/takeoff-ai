@@ -406,8 +406,8 @@ export interface PipelineItem {
 
 export interface Invoice {
   id: string
-  estimate_id: string
-  job_id: string
+  estimate_id: string | null
+  job_id: string | null
   status: InvoiceStatus
   total_amount: number
   recipient_emails: string[]
@@ -419,8 +419,8 @@ export interface Invoice {
   /** Public portal token; set when invoice is sent. */
   client_token?: string | null
   viewed_at?: string | null
-  /** Progress / milestone invoice: frozen rows at send time. */
-  schedule_snapshot?: { rows?: unknown[] } | null
+  /** Progress milestones or manual line items / notes at create/send time. */
+  schedule_snapshot?: Record<string, unknown> | null
 }
 
 export type CustomProductItemType = 'service' | 'product' | 'labor' | 'sub' | 'material' | 'equipment'
@@ -488,6 +488,20 @@ export interface CompanyAddress {
   zip: string
 }
 
+/** Shown on the customer invoice portal (how to pay + optional Stripe Checkout). */
+export interface CompanyInvoicePaymentSettings {
+  cash: boolean
+  check: boolean
+  ach: boolean
+  /** Requires STRIPE_SECRET_KEY and Stripe Checkout; optional Connect account id for payouts. */
+  card: boolean
+  checkInstructions: string
+  achInstructions: string
+  cashNote: string
+  /** Stripe Connect Express / Standard account id (acct_…) so card charges transfer to the GC. */
+  stripeConnectAccountId?: string | null
+}
+
 export interface CompanyProfile {
   name: string
   logoUrl?: string
@@ -498,6 +512,7 @@ export interface CompanyProfile {
   website?: string
   /** Default % markup for takeoff/bid category rows in Build Estimate; null = use app default (15%). */
   defaultEstimateMarkupPct?: number | null
+  invoicePayment?: CompanyInvoicePaymentSettings
 }
 
 /** Company branding returned by public token portals and document viewer (from Company Profile settings). */

@@ -24,7 +24,10 @@ export function FinancialsLayout() {
     <div>
       <div className="w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 pt-6">
         <div className="estimates-page__tabs-row">
-          <nav className="estimates-page__tabs estimates-page__tabs--bar" aria-label="Financials sections">
+          <nav
+            className="estimates-page__tabs estimates-page__tabs--bar financials-page__tabs"
+            aria-label="Financials sections"
+          >
             <NavLink to="/financials/overview" className={({ isActive }) => `estimates-page__tab ${isActive ? 'active' : ''}`}>
               Overview
             </NavLink>

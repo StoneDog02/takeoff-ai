@@ -93,13 +93,13 @@ export function buildPipelineItems(
 
   invoices.forEach((i) => {
     const stage = invoiceStatusToStage(i.status)
-    const jobName = jobMap.get(i.job_id) ?? i.job_id
+    const jobName = i.job_id ? (jobMap.get(i.job_id) ?? i.job_id) : 'No project'
     const client = i.recipient_emails?.[0] ?? null
     const paid = i.status === 'paid' ? Number(i.total_amount) : 0
     items.push({
       id: i.id,
       type: 'invoice',
-      job_id: i.job_id,
+      job_id: i.job_id ?? '',
       jobName,
       client,
       date: i.created_at,

@@ -92,7 +92,7 @@ export function EstimatesInvoicesLedger({
       out.push({
         id: i.id,
         type: 'invoice',
-        jobName: jobMap[i.job_id] || i.job_id.slice(0, 8),
+        jobName: i.job_id ? jobMap[i.job_id] || i.job_id.slice(0, 8) : 'No project',
         date: i.created_at,
         recipient: (i.recipient_emails && i.recipient_emails[0]) || '—',
         amount: Number(i.total_amount),
