@@ -5,7 +5,7 @@ const express = require('express')
 const { supabase: supabaseAdmin } = require('../db/supabase')
 const { requireAuth } = require('../middleware/auth')
 const { publicAppOrigin } = require('../lib/affiliatePortalTokens')
-const { applyReferralViaEdgeFunction, buildReferralInviteEmailHtml } = require('./referrals')
+const { buildReferralInviteEmailHtml } = require('./referrals')
 const { sendEmail } = require('../lib/emailUtils')
 
 const router = express.Router()
@@ -279,13 +279,38 @@ router.post('/send-invite', requireAuth, requireAffiliate, async (req, res, next
     if (!codeRow?.code) {
       return res.status(404).json({ error: 'No referral code found for your account' })
     }
-    const code = codeRow.code
+    const code = String(codeRow.code).trim()
 
-    const { ok, status, json } = await applyReferralViaEdgeFunction(code, emailRaw)
-    if (!ok) {
-      const msg = json?.error || json?.message || 'Could not record referral'
-      if (status === 409) return res.status(409).json({ error: msg })
-      return res.status(status >= 400 ? status : 500).json({ error: msg })
+    // Record pending email invite in DB here (do not rely on apply-referral edge function for
+    // affiliates — older deployments only looked up user_id and returned "Referral code not found").
+    const commissionRate = aff.commission_rate != null ? Number(aff.commission_rate) : null
+
+    const { data: dupRow } = await supabaseAdmin
+      .from('referrals')
+      .select('id')
+      .eq('affiliate_id', aff.id)
+      .eq('referee_email', emailRaw)
+      .maybeSingle()
+    if (dupRow?.id) {
+      return res.status(409).json({ error: 'A referral for this email already exists' })
+    }
+
+    const { error: insErr } = await supabaseAdmin.from('referrals').insert({
+      referrer_id: null,
+      affiliate_id: aff.id,
+      affiliate_commission_rate: Number.isFinite(commissionRate) ? commissionRate : null,
+      referee_id: null,
+      referee_email: emailRaw,
+      code,
+      status: 'pending',
+      completed_at: null,
+    })
+    if (insErr) {
+      if (insErr.code === '23505') {
+        return res.status(409).json({ error: 'A referral for this email already exists' })
+      }
+      console.error('[affiliates/portal/send-invite] insert referral:', insErr)
+      return res.status(500).json({ error: insErr.message || 'Could not record referral' })
     }
 
     let trackingPixelUrl = ''
