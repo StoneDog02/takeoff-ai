@@ -3,8 +3,12 @@ import {
   createAdminAffiliate,
   deleteAdminAffiliate,
   getAdminAffiliates,
+  getAdminMyInvite,
   patchAdminAffiliate,
+  postAdminMyInviteSendInvite,
+  provisionAdminMyInvite,
   type AdminAffiliate,
+  type AdminMyInviteResponse,
 } from '@/api/admin'
 import { Card, CardBody, CardHeader } from '@/components/settings/SettingsPrimitives'
 
@@ -24,6 +28,13 @@ export function AffiliatesAdminPage() {
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [myInvite, setMyInvite] = useState<AdminMyInviteResponse | null>(null)
+  const [myInviteLoading, setMyInviteLoading] = useState(true)
+  const [provisionLoading, setProvisionLoading] = useState(false)
+  const [provisionName, setProvisionName] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteNotice, setInviteNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -35,6 +46,11 @@ export function AffiliatesAdminPage() {
     setError(null)
     const data = await getAdminAffiliates()
     setAffiliates(data.affiliates)
+  }, [])
+
+  const loadMyInvite = useCallback(async () => {
+    const m = await getAdminMyInvite()
+    setMyInvite(m)
   }, [])
 
   useEffect(() => {
@@ -51,6 +67,21 @@ export function AffiliatesAdminPage() {
       cancelled = true
     }
   }, [load])
+
+  useEffect(() => {
+    let cancelled = false
+    setMyInviteLoading(true)
+    loadMyInvite()
+      .catch(() => {
+        if (!cancelled) setMyInvite(null)
+      })
+      .finally(() => {
+        if (!cancelled) setMyInviteLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [loadMyInvite])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -120,9 +151,191 @@ export function AffiliatesAdminPage() {
           <h1 className="page-title">Affiliates</h1>
           <p className="page-sub">
             Create referral codes for partners. Signups use the same <code className="text-[13px]">?ref=</code> flow;
-            commission accrues as a percentage of each paid subscription invoice (Stripe).
+            commission accrues as a percentage of each paid subscription invoice (Stripe). Admins can use{' '}
+            <strong>Your invite</strong> below for a personal code (invite-only, no commission) without the partner
+            portal.
           </p>
         </div>
+
+        <Card style={{ marginBottom: 24 }}>
+          <CardHeader
+            title="Your invite"
+            desc="Your own referral link and email invites. Invite-only means no commission is tracked for your code—you still appear in the partners list if you have a partner record."
+          />
+          <CardBody>
+            {myInviteLoading && (
+              <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>Loading…</p>
+            )}
+            {!myInviteLoading && myInvite && !myInvite.has_invite && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 420 }}>
+                <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>
+                  You don&apos;t have a personal referral code yet. Create one to copy a sign-up link or email invites
+                  from this page (no commission).
+                </p>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Display name (optional)</span>
+                  <input
+                    className="input"
+                    value={provisionName}
+                    onChange={(e) => setProvisionName(e.target.value)}
+                    placeholder="e.g. Stoney Harward"
+                    autoComplete="name"
+                  />
+                </label>
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={provisionLoading}
+                    onClick={async () => {
+                      setError(null)
+                      setInviteNotice(null)
+                      setProvisionLoading(true)
+                      try {
+                        await provisionAdminMyInvite({
+                          name: provisionName.trim() || undefined,
+                        })
+                        setProvisionName('')
+                        await loadMyInvite()
+                        await load()
+                        setNotice('Your personal invite code is ready.')
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Could not create invite')
+                      } finally {
+                        setProvisionLoading(false)
+                      }
+                    }}
+                  >
+                    {provisionLoading ? 'Creating…' : 'Create my invite link'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {!myInviteLoading && myInvite && myInvite.has_invite && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {!myInvite.affiliate.active && (
+                  <p style={{ margin: 0, fontSize: 14, color: 'var(--red, #b91c1c)' }}>
+                    Your partner record is inactive; turn it on in the table below or ask another admin.
+                  </p>
+                )}
+                {myInvite.affiliate.tracks_commission === false && (
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                    Invite-only: no commission percentage is shown or accrued for your code.
+                  </p>
+                )}
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Referral code</div>
+                  <code
+                    style={{
+                      fontFamily: 'ui-monospace, monospace',
+                      letterSpacing: '0.06em',
+                      fontSize: 16,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {myInvite.referral_code ?? '—'}
+                  </code>
+                </div>
+                {myInvite.referral_share_url ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                    <code
+                      style={{
+                        flex: '1 1 200px',
+                        fontSize: 12,
+                        wordBreak: 'break-all',
+                        background: 'var(--bg-muted, #f4f4f5)',
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                      }}
+                    >
+                      {myInvite.referral_share_url}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() =>
+                        navigator.clipboard.writeText(myInvite.referral_share_url!).catch(() => {})
+                      }
+                    >
+                      Copy link
+                    </button>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                    Share URL unavailable until PUBLIC_APP_URL (or equivalent) is set on the API server.
+                  </p>
+                )}
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  Sign-ups: {myInvite.signup_count} · Completed paid cycle: {myInvite.completed_referrals}
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Email an invite</div>
+                  <form
+                    style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', maxWidth: 520 }}
+                    onSubmit={async (e) => {
+                      e.preventDefault()
+                      const email = inviteEmail.trim().toLowerCase()
+                      if (!email.includes('@')) {
+                        setInviteNotice({ type: 'err', text: 'Enter a valid email.' })
+                        return
+                      }
+                      setInviteLoading(true)
+                      setInviteNotice(null)
+                      try {
+                        const r = await postAdminMyInviteSendInvite(email)
+                        setInviteNotice({
+                          type: 'ok',
+                          text: r.message || 'Invite sent.',
+                        })
+                        setInviteEmail('')
+                        await loadMyInvite()
+                        await load()
+                      } catch (err) {
+                        setInviteNotice({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Could not send invite.',
+                        })
+                      } finally {
+                        setInviteLoading(false)
+                      }
+                    }}
+                  >
+                    <label style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Recipient</span>
+                      <input
+                        className="input"
+                        type="email"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        disabled={inviteLoading || !myInvite.affiliate.active}
+                        autoComplete="email"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={inviteLoading || !myInvite.affiliate.active}
+                    >
+                      {inviteLoading ? 'Sending…' : 'Send invite'}
+                    </button>
+                  </form>
+                  {inviteNotice && (
+                    <p
+                      style={{
+                        marginTop: 10,
+                        marginBottom: 0,
+                        fontSize: 13,
+                        color: inviteNotice.type === 'ok' ? 'var(--green-700, #15803d)' : 'var(--red, #b91c1c)',
+                      }}
+                    >
+                      {inviteNotice.text}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
 
         {error && (
           <div
@@ -275,6 +488,7 @@ function AffiliateRow({
   onSaveCommission: (id: string, percentStr: string) => Promise<void>
   onRemove: () => Promise<void>
 }) {
+  const tracksCommission = a.tracks_commission !== false
   const [pctDraft, setPctDraft] = useState(String(Math.round((a.commission_rate ?? 0) * 1000) / 10))
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
@@ -319,37 +533,43 @@ function AffiliateRow({
       <td>{a.signup_count}</td>
       <td>{a.completed_referrals}</td>
       <td>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input
-            className="input"
-            type="number"
-            min={0}
-            max={100}
-            step={0.5}
-            style={{ width: 88, padding: '6px 8px', fontSize: 13 }}
-            value={pctDraft}
-            onChange={(e) => setPctDraft(e.target.value)}
-            disabled={saving || !a.active}
-            aria-label="Commission percent"
-          />
-          <button
-            type="button"
-            className="btn btn-sm"
-            disabled={saving || !a.active}
-            onClick={async () => {
-              setSaving(true)
-              try {
-                await onSaveCommission(a.id, pctDraft)
-              } finally {
-                setSaving(false)
-              }
-            }}
-          >
-            {saving ? '…' : 'Save'}
-          </button>
-        </div>
+        {tracksCommission ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              style={{ width: 88, padding: '6px 8px', fontSize: 13 }}
+              value={pctDraft}
+              onChange={(e) => setPctDraft(e.target.value)}
+              disabled={saving || !a.active}
+              aria-label="Commission percent"
+            />
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={saving || !a.active}
+              onClick={async () => {
+                setSaving(true)
+                try {
+                  await onSaveCommission(a.id, pctDraft)
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              {saving ? '…' : 'Save'}
+            </button>
+          </div>
+        ) : (
+          <span style={{ color: 'var(--text-muted)', fontSize: 13 }} title="No commission tracking for this partner">
+            Invite-only
+          </span>
+        )}
       </td>
-      <td>{formatMoney(a.commission_cents_total)}</td>
+      <td>{tracksCommission ? formatMoney(a.commission_cents_total) : '—'}</td>
       <td>
         <button
           type="button"

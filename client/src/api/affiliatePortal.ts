@@ -5,7 +5,9 @@ export interface AffiliateSetupValidation {
   valid: boolean
   name?: string
   email?: string
-  commission_percent?: number
+  commission_percent?: number | null
+  /** false = invite-only partner; no commission rate or accrual */
+  tracks_commission?: boolean
   error?: string
 }
 
@@ -39,8 +41,9 @@ export interface AffiliatePortalSummary {
     id: string
     name: string
     email: string
-    commission_percent: number
+    commission_percent: number | null
     active: boolean
+    tracks_commission?: boolean
   }
   referral_code: string | null
   referral_share_url: string | null

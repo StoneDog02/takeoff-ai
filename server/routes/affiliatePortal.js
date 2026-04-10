@@ -5,16 +5,9 @@ const express = require('express')
 const { supabase: supabaseAdmin } = require('../db/supabase')
 const { requireAuth } = require('../middleware/auth')
 const { publicAppOrigin } = require('../lib/affiliatePortalTokens')
-const { buildReferralInviteEmailHtml } = require('./referrals')
-const { sendEmail } = require('../lib/emailUtils')
+const { sendAffiliateReferralInviteEmail } = require('../lib/affiliateInviteSend')
 
 const router = express.Router()
-
-function trackingPublicBaseUrl() {
-  const raw = (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || '').trim().replace(/\/$/, '')
-  if (!raw) return ''
-  return raw.startsWith('http') ? raw : `https://${raw}`
-}
 
 async function requireAffiliate(req, res, next) {
   try {
@@ -49,7 +42,9 @@ router.get('/setup', async (req, res, next) => {
     }
     const { data: row, error } = await supabaseAdmin
       .from('affiliates')
-      .select('id, name, email, commission_rate, auth_user_id, portal_setup_token_expires_at')
+      .select(
+        'id, name, email, commission_rate, tracks_commission, auth_user_id, portal_setup_token_expires_at'
+      )
       .eq('portal_setup_token', token)
       .maybeSingle()
     if (error) throw error
@@ -60,12 +55,17 @@ router.get('/setup', async (req, res, next) => {
     if (exp && exp < new Date()) {
       return res.json({ valid: false, error: 'This setup link has expired. Ask an admin to resend your invite.' })
     }
-    const pct = row.commission_rate != null ? Math.round(Number(row.commission_rate) * 10000) / 100 : 0
+    const tracksCommission = row.tracks_commission !== false
+    const pct =
+      tracksCommission && row.commission_rate != null
+        ? Math.round(Number(row.commission_rate) * 10000) / 100
+        : null
     res.json({
       valid: true,
       name: row.name,
       email: row.email,
       commission_percent: pct,
+      tracks_commission: tracksCommission,
     })
   } catch (err) {
     next(err)
@@ -205,15 +205,17 @@ router.get('/summary', requireAuth, requireAffiliate, async (req, res, next) => 
       .order('created_at', { ascending: false })
     if (refErr) throw refErr
 
-    const { data: commRows, error: commErr } = await supabaseAdmin
-      .from('affiliate_commission_events')
-      .select('amount_cents')
-      .eq('affiliate_id', aff.id)
-    if (commErr) throw commErr
-
+    const tracksCommission = aff.tracks_commission !== false
     let commissionCentsTotal = 0
-    for (const c of commRows || []) {
-      commissionCentsTotal += typeof c.amount_cents === 'number' ? c.amount_cents : Number(c.amount_cents) || 0
+    if (tracksCommission) {
+      const { data: commRows, error: commErr } = await supabaseAdmin
+        .from('affiliate_commission_events')
+        .select('amount_cents')
+        .eq('affiliate_id', aff.id)
+      if (commErr) throw commErr
+      for (const c of commRows || []) {
+        commissionCentsTotal += typeof c.amount_cents === 'number' ? c.amount_cents : Number(c.amount_cents) || 0
+      }
     }
 
     const referrals = (refRows || []).map((r) => ({
@@ -225,7 +227,10 @@ router.get('/summary', requireAuth, requireAffiliate, async (req, res, next) => 
       created_at: r.created_at,
     }))
 
-    const pct = aff.commission_rate != null ? Math.round(Number(aff.commission_rate) * 10000) / 100 : 0
+    const pct =
+      tracksCommission && aff.commission_rate != null
+        ? Math.round(Number(aff.commission_rate) * 10000) / 100
+        : null
     const base = publicAppOrigin()
     const referralShareUrl = base && codeRow?.code ? `${base}/sign-up?ref=${encodeURIComponent(codeRow.code)}` : null
 
@@ -236,12 +241,13 @@ router.get('/summary', requireAuth, requireAffiliate, async (req, res, next) => 
         email: aff.email,
         commission_percent: pct,
         active: aff.active,
+        tracks_commission: tracksCommission,
       },
       referral_code: codeRow?.code ?? null,
       referral_share_url: referralShareUrl,
       signup_count: referrals.filter((x) => x.signed_up_at).length,
       completed_referrals: referrals.filter((x) => x.status === 'completed').length,
-      commission_cents_total: commissionCentsTotal,
+      commission_cents_total: tracksCommission ? commissionCentsTotal : 0,
       referrals,
     })
   } catch (err) {
@@ -257,114 +263,14 @@ router.get('/summary', requireAuth, requireAffiliate, async (req, res, next) => 
 router.post('/send-invite', requireAuth, requireAffiliate, async (req, res, next) => {
   try {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Database not configured' })
-    const aff = req.affiliate
-    if (!aff.active) {
-      return res.status(403).json({ error: 'Your partner account is inactive.' })
-    }
-
     const emailRaw = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
-    if (!emailRaw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
-      return res.status(400).json({ error: 'Valid email is required' })
+    const result = await sendAffiliateReferralInviteEmail(supabaseAdmin, req.affiliate, emailRaw)
+    if (!result.ok) {
+      const body = { error: result.error }
+      if (result.code) body.code = result.code
+      return res.status(result.status).json(body)
     }
-    if (emailRaw === (aff.email || '').toLowerCase()) {
-      return res.status(400).json({ error: 'You cannot invite your own email address.' })
-    }
-
-    const { data: codeRow, error: codeErr } = await supabaseAdmin
-      .from('referral_codes')
-      .select('code')
-      .eq('affiliate_id', aff.id)
-      .maybeSingle()
-    if (codeErr) throw codeErr
-    if (!codeRow?.code) {
-      return res.status(404).json({ error: 'No referral code found for your account' })
-    }
-    const code = String(codeRow.code).trim()
-
-    // Record pending email invite in DB here (do not rely on apply-referral edge function for
-    // affiliates — older deployments only looked up user_id and returned "Referral code not found").
-    const commissionRate = aff.commission_rate != null ? Number(aff.commission_rate) : null
-
-    const { data: dupRow } = await supabaseAdmin
-      .from('referrals')
-      .select('id')
-      .eq('affiliate_id', aff.id)
-      .eq('referee_email', emailRaw)
-      .maybeSingle()
-    if (dupRow?.id) {
-      return res.status(409).json({ error: 'A referral for this email already exists' })
-    }
-
-    const { error: insErr } = await supabaseAdmin.from('referrals').insert({
-      referrer_id: null,
-      affiliate_id: aff.id,
-      affiliate_commission_rate: Number.isFinite(commissionRate) ? commissionRate : null,
-      referee_id: null,
-      referee_email: emailRaw,
-      code,
-      status: 'pending',
-      completed_at: null,
-    })
-    if (insErr) {
-      if (insErr.code === '23505') {
-        return res.status(409).json({ error: 'A referral for this email already exists' })
-      }
-      console.error('[affiliates/portal/send-invite] insert referral:', insErr)
-      return res.status(500).json({ error: insErr.message || 'Could not record referral' })
-    }
-
-    let trackingPixelUrl = ''
-    const apiBase = trackingPublicBaseUrl()
-    if (apiBase) {
-      const { data: refRow } = await supabaseAdmin
-        .from('referrals')
-        .select('invite_token')
-        .eq('affiliate_id', aff.id)
-        .eq('referee_email', emailRaw)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (refRow?.invite_token) {
-        trackingPixelUrl = `${apiBase}/api/referrals/track-email-open?t=${encodeURIComponent(refRow.invite_token)}`
-      }
-    }
-
-    const base = publicAppOrigin()
-    const signUpUrl = base ? `${base}/sign-up?ref=${encodeURIComponent(code)}` : ''
-
-    const inviterLabel = (aff.name && String(aff.name).trim()) || aff.email || 'Someone'
-    const from = process.env.INVITE_EMAIL_FROM || 'onboarding@resend.dev'
-    const productName = process.env.APP_NAME || 'Proj-X'
-
-    const html = buildReferralInviteEmailHtml({
-      inviterLabel,
-      productName,
-      signUpUrl,
-      code,
-      trackingPixelUrl,
-    })
-
-    const { sent, error: sendErr } = await sendEmail({
-      from,
-      to: emailRaw,
-      subject: `${inviterLabel} invited you to ${productName}`,
-      html,
-    })
-
-    if (!sent) {
-      console.error('[affiliates/portal/send-invite] Resend failed:', sendErr)
-      return res.status(503).json({
-        error:
-          'Referral was saved, but the email could not be sent. Ask your administrator to set RESEND_API_KEY and INVITE_EMAIL_FROM.',
-        code: 'email_failed',
-        success: false,
-      })
-    }
-
-    res.json({
-      success: true,
-      message: 'We sent an email with a sign-up link that includes your referral.',
-    })
+    res.json({ success: true, message: result.message })
   } catch (err) {
     console.error('[affiliates/portal/send-invite]', err)
     next(err)

@@ -11,6 +11,7 @@ export function AffiliateSetupPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [commissionPct, setCommissionPct] = useState<number | null>(null)
+  const [tracksCommission, setTracksCommission] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -33,6 +34,7 @@ export function AffiliateSetupPage() {
           setName(r.name ?? '')
           setEmail(r.email ?? '')
           setCommissionPct(r.commission_percent ?? null)
+          setTracksCommission(r.tracks_commission !== false)
         } else {
           setValid(false)
           setError(r.error || 'This link is invalid or has already been used.')
@@ -79,7 +81,9 @@ export function AffiliateSetupPage() {
             Partner portal
           </h1>
           <p className="text-white-dim text-sm mb-8">
-            Create a password to view sign-ups and commissions for your referral code.
+            {tracksCommission
+              ? 'Create a password to view sign-ups and commissions for your referral code.'
+              : 'Create a password to view sign-ups and send invites with your referral code.'}
           </p>
 
           {loading && <p className="text-white-dim text-sm">Checking your link…</p>}

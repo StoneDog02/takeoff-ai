@@ -117,89 +117,61 @@ async function trackReferralEmailOpen(req, res) {
   res.send(TRANSPARENT_GIF)
 }
 
-/** Inline HTML for transactional email (table layout + inline styles for client compatibility). */
+/**
+ * Plain-text body for referral invites (helps inbox placement vs HTML-only “newsletter” signals).
+ */
+function buildReferralInviteEmailText({ inviterLabel, productName, signUpUrl, code }) {
+  const inviter = inviterLabel || 'Someone'
+  const brand = productName || 'the app'
+  const lines = [
+    `Hi,`,
+    ``,
+    `${inviter} invited you to join ${brand}.`,
+    ``,
+  ]
+  if (signUpUrl) {
+    lines.push(`Use this link to create your account (your referral is already included):`)
+    lines.push(signUpUrl)
+    lines.push(``)
+  }
+  lines.push(`Referral code: ${code}`)
+  if (!signUpUrl) {
+    lines.push(``)
+    lines.push(`Enter that code during sign-up for ${brand}.`)
+  }
+  lines.push(``, `If you didn’t expect this message, you can ignore it.`)
+  return lines.join('\n')
+}
+
+/**
+ * Minimal HTML for referral invites — avoids heavy “marketing” layout (big buttons, banners, promos)
+ * that often land referral mail in Gmail’s Promotions tab. No guarantee of Primary; improves odds.
+ */
 function buildReferralInviteEmailHtml({ inviterLabel, productName, signUpUrl, code, trackingPixelUrl }) {
   const inviter = escapeHtml(inviterLabel)
   const brand = escapeHtml(productName)
   const safeCode = escapeHtml(code)
   const href = signUpUrl ? escapeHtml(signUpUrl) : ''
 
-  const bgPage = '#ede9e3'
-  const bgCard = '#ffffff'
-  const textPrimary = '#1a1a24'
-  const textMuted = '#64748b'
-  const accent = '#c0392b'
-  const headerDark = '#0b0e14'
-  const border = '#e2e8f0'
-  const font =
-    "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+  const linkBlock = signUpUrl
+    ? `<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#1a1a24;">Use this link to create your account (your referral is already included):<br /><a href="${href}" style="color:#1d4ed8;word-break:break-all;">${href}</a></p>`
+    : `<p style="margin:0 0 8px;font-size:16px;line-height:1.55;color:#1a1a24;">Sign up for ${brand} and enter your referral code when asked.</p><p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#475569;">Ask your administrator if you need a direct sign-up link.</p>`
 
-  const ctaBlock = signUpUrl
-    ? `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
-    <tr>
-      <td align="center">
-        <a href="${href}" style="display:inline-block;padding:14px 28px;background-color:${accent};color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;line-height:1.2;">
-          Create your account
-        </a>
-      </td>
-    </tr>
-  </table>
-  <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:${textMuted};text-align:center;">
-    Your referral is included in this link—no code to copy.
-  </p>`
-    : `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px;background:${bgPage};border-radius:10px;border:1px solid ${border};">
-    <tr>
-      <td style="padding:20px 24px;text-align:center;">
-        <p style="margin:0 0 8px;font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${textMuted};">Referral code</p>
-        <p style="margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:20px;font-weight:700;color:${textPrimary};letter-spacing:0.04em;">${safeCode}</p>
-      </td>
-    </tr>
-  </table>
-  <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:${textMuted};text-align:center;">
-    Add this code when you sign up for ${brand}. Ask your admin to set <strong>PUBLIC_APP_URL</strong> for one-click invite links.
-  </p>`
+  const pixel =
+    trackingPixelUrl
+      ? `<img src="${escapeHtml(trackingPixelUrl)}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px;overflow:hidden;margin:0;padding:0;" />`
+      : ''
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background-color:${bgPage};font-family:${font};">
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:${bgPage};padding:32px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;background-color:${bgCard};border-radius:14px;overflow:hidden;box-shadow:0 4px 24px rgba(11,14,20,0.08);border:1px solid ${border};">
-          <tr>
-            <td style="background-color:${headerDark};padding:22px 28px;border-bottom:3px solid ${accent};">
-              <p style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#f5f3ef;">${brand}</p>
-              <p style="margin:6px 0 0;font-size:12px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:rgba(245,243,239,0.55);">Referral invite</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:32px 28px 28px;">
-              <p style="margin:0 0 16px;font-size:16px;line-height:1.5;color:${textPrimary};">
-                <strong style="color:${textPrimary};">${inviter}</strong> invited you to join <strong style="color:${accent};">${brand}</strong>.
-              </p>
-              <p style="margin:0 0 28px;font-size:15px;line-height:1.55;color:${textMuted};">
-                Create a free account to get started. When you subscribe, your referral helps both of you earn discount credits on eligible billing.
-              </p>
-              ${ctaBlock}
-              <p style="margin:24px 0 0;font-size:12px;line-height:1.5;color:${textMuted};text-align:center;border-top:1px solid ${border};padding-top:20px;">
-                If you didn’t expect this email, you can ignore it.
-              </p>
-              ${
-                trackingPixelUrl
-                  ? `<img src="${escapeHtml(trackingPixelUrl)}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px;overflow:hidden;margin:0;padding:0;" />`
-                  : ''
-              }
-            </td>
-          </tr>
-        </table>
-        <p style="margin:20px 0 0;font-size:11px;color:#94a3b8;">Sent by ${brand}</p>
-      </td>
-    </tr>
-  </table>
+<body style="margin:0;padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1a1a24;background:#fafafa;">
+<p style="margin:0 0 12px;">Hi,</p>
+<p style="margin:0 0 16px;"><strong>${inviter}</strong> invited you to join <strong>${brand}</strong>.</p>
+${linkBlock}
+<p style="margin:0 0 8px;font-size:14px;line-height:1.5;color:#475569;">Referral code: <strong style="font-family:ui-monospace,Menlo,monospace;">${safeCode}</strong></p>
+<p style="margin:20px 0 0;font-size:14px;line-height:1.5;color:#64748b;">If you didn’t expect this email, you can ignore it.</p>
+${pixel}
 </body>
 </html>`
 }
@@ -267,12 +239,19 @@ router.post('/send-invite', async (req, res) => {
       code,
       trackingPixelUrl,
     })
+    const text = buildReferralInviteEmailText({
+      inviterLabel,
+      productName,
+      signUpUrl,
+      code,
+    })
 
     const { sent, error: sendErr } = await sendEmail({
       from,
       to: emailRaw,
       subject: `${inviterLabel} invited you to ${productName}`,
       html,
+      text,
     })
 
     if (!sent) {
@@ -334,4 +313,5 @@ module.exports = {
   buildReferralCode,
   applyReferralViaEdgeFunction,
   buildReferralInviteEmailHtml,
+  buildReferralInviteEmailText,
 }

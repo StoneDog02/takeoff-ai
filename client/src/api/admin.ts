@@ -59,6 +59,8 @@ export interface AdminAffiliate {
   email: string
   phone: string | null
   commission_rate: number
+  /** false = invite-only; no commission accrual */
+  tracks_commission?: boolean
   active: boolean
   created_at: string
   updated_at: string
@@ -76,6 +78,63 @@ export async function getAdminAffiliates(): Promise<{ affiliates: AdminAffiliate
     throw new Error((data as { error?: string }).error || res.statusText)
   }
   return res.json() as Promise<{ affiliates: AdminAffiliate[] }>
+}
+
+export type AdminMyInviteResponse =
+  | { has_invite: false }
+  | {
+      has_invite: true
+      affiliate: {
+        id: string
+        name: string
+        email: string
+        active: boolean
+        tracks_commission: boolean
+      }
+      referral_code: string | null
+      referral_share_url: string | null
+      signup_count: number
+      completed_referrals: number
+    }
+
+export async function getAdminMyInvite(): Promise<AdminMyInviteResponse> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates/my-invite`, { headers })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || res.statusText)
+  }
+  return res.json() as Promise<AdminMyInviteResponse>
+}
+
+export async function provisionAdminMyInvite(body?: { name?: string }): Promise<{ affiliate: AdminAffiliate }> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates/my-invite/provision`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || res.statusText)
+  }
+  return res.json() as Promise<{ affiliate: AdminAffiliate }>
+}
+
+export async function postAdminMyInviteSendInvite(
+  email: string
+): Promise<{ success: boolean; message?: string }> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_BASE}/admin/affiliates/my-invite/send-invite`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  })
+  const json = (await res.json().catch(() => ({}))) as { error?: string; success?: boolean; message?: string; code?: string }
+  if (!res.ok) {
+    throw new Error(json.error || res.statusText)
+  }
+  return { success: Boolean(json.success), message: json.message }
 }
 
 export async function createAdminAffiliate(body: {
@@ -105,6 +164,7 @@ export async function patchAdminAffiliate(
     phone: string | null
     commission_rate: number
     active: boolean
+    tracks_commission: boolean
   }>
 ): Promise<{ affiliate: AdminAffiliate }> {
   const headers = await getAuthHeaders()

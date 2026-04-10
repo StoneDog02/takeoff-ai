@@ -5,6 +5,7 @@ const { buildReferralCode } = require('./referrals')
 const { sendEmail } = require('../lib/emailUtils')
 const { buildAffiliateWelcomeEmailHtml } = require('../lib/affiliateWelcomeEmail')
 const { generateSetupToken, setupExpiresAtIso, publicAppOrigin } = require('../lib/affiliatePortalTokens')
+const { sendAffiliateReferralInviteEmail } = require('../lib/affiliateInviteSend')
 
 const PER_PAGE = 50
 
@@ -111,8 +112,18 @@ async function insertUniqueAffiliateReferralCode(affiliateId, emailForPrefix) {
   throw new Error('Could not create unique referral code')
 }
 
+async function affiliateRowForSessionUser(user) {
+  if (!supabaseAdmin) return null
+  const email = (user?.email || '').trim().toLowerCase()
+  if (!email) return null
+  const { data: rows, error } = await supabaseAdmin.from('affiliates').select('*').ilike('email', email).limit(1)
+  if (error) throw error
+  return rows?.[0] ?? null
+}
+
 async function buildAffiliateAdminPayload(affiliateRow, referralCode) {
   const id = affiliateRow.id
+  const tracksCommission = affiliateRow.tracks_commission !== false
   const { data: refRows } = await supabaseAdmin
     .from('referrals')
     .select('signed_up_at, status')
@@ -123,13 +134,15 @@ async function buildAffiliateAdminPayload(affiliateRow, referralCode) {
     if (r.signed_up_at) signupCount++
     if (r.status === 'completed') completedCount++
   }
-  const { data: commRows } = await supabaseAdmin
-    .from('affiliate_commission_events')
-    .select('amount_cents')
-    .eq('affiliate_id', id)
   let commissionCentsTotal = 0
-  for (const c of commRows || []) {
-    commissionCentsTotal += typeof c.amount_cents === 'number' ? c.amount_cents : Number(c.amount_cents) || 0
+  if (tracksCommission) {
+    const { data: commRows } = await supabaseAdmin
+      .from('affiliate_commission_events')
+      .select('amount_cents')
+      .eq('affiliate_id', id)
+    for (const c of commRows || []) {
+      commissionCentsTotal += typeof c.amount_cents === 'number' ? c.amount_cents : Number(c.amount_cents) || 0
+    }
   }
   return {
     ...affiliateRow,
@@ -191,13 +204,16 @@ router.get('/affiliates', async (req, res, next) => {
       commissionSumCents.set(aid, (commissionSumCents.get(aid) || 0) + add)
     }
 
-    const list = (affiliates || []).map((a) => ({
-      ...a,
-      referral_code: codeByAffiliate.get(a.id) ?? null,
-      signup_count: signupCount.get(a.id) || 0,
-      completed_referrals: completedCount.get(a.id) || 0,
-      commission_cents_total: commissionSumCents.get(a.id) || 0,
-    }))
+    const list = (affiliates || []).map((a) => {
+      const tracksCommission = a.tracks_commission !== false
+      return {
+        ...a,
+        referral_code: codeByAffiliate.get(a.id) ?? null,
+        signup_count: signupCount.get(a.id) || 0,
+        completed_referrals: completedCount.get(a.id) || 0,
+        commission_cents_total: tracksCommission ? commissionSumCents.get(a.id) || 0 : 0,
+      }
+    })
 
     res.json({ affiliates: list })
   } catch (err) {
@@ -298,6 +314,126 @@ router.post('/affiliates', async (req, res, next) => {
   }
 })
 
+/** GET /api/admin/affiliates/my-invite — partner row for the signed-in admin (matched by email): share link + email invites without the affiliate portal role. */
+router.get('/affiliates/my-invite', async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Admin client not configured' })
+    const aff = await affiliateRowForSessionUser(req.user)
+    if (!aff) {
+      return res.json({ has_invite: false })
+    }
+    const { data: codeRow } = await supabaseAdmin
+      .from('referral_codes')
+      .select('code')
+      .eq('affiliate_id', aff.id)
+      .maybeSingle()
+    const { data: refRows, error: refErr } = await supabaseAdmin
+      .from('referrals')
+      .select('signed_up_at, status')
+      .eq('affiliate_id', aff.id)
+    if (refErr) throw refErr
+    let signupCount = 0
+    let completed = 0
+    for (const r of refRows || []) {
+      if (r.signed_up_at) signupCount++
+      if (r.status === 'completed') completed++
+    }
+    const tracksCommission = aff.tracks_commission !== false
+    const base = publicAppOrigin()
+    const code = codeRow?.code ?? null
+    const referralShareUrl = base && code ? `${base}/sign-up?ref=${encodeURIComponent(code)}` : null
+    res.json({
+      has_invite: true,
+      affiliate: {
+        id: aff.id,
+        name: aff.name,
+        email: aff.email,
+        active: aff.active,
+        tracks_commission: tracksCommission,
+      },
+      referral_code: code,
+      referral_share_url: referralShareUrl,
+      signup_count: signupCount,
+      completed_referrals: completed,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** POST /api/admin/affiliates/my-invite/provision — create invite-only partner row + code for this admin (0% commission, no portal email). */
+router.post('/affiliates/my-invite/provision', async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Admin client not configured' })
+    const existing = await affiliateRowForSessionUser(req.user)
+    if (existing) {
+      return res.status(409).json({ error: 'You already have a referral code on your account' })
+    }
+    const email = (req.user?.email || '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Your session has no valid email' })
+    }
+    const meta = req.user?.user_metadata || {}
+    const bodyName = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+    const local = email.split('@')[0] || 'Partner'
+    const name =
+      bodyName ||
+      (meta.full_name || meta.name || '').trim() ||
+      local.charAt(0).toUpperCase() + local.slice(1).toLowerCase()
+    const nowIso = new Date().toISOString()
+    const { data: created, error: insErr } = await supabaseAdmin
+      .from('affiliates')
+      .insert({
+        name,
+        email,
+        phone: null,
+        commission_rate: 0,
+        tracks_commission: false,
+        active: true,
+        auth_user_id: req.user.id,
+        updated_at: nowIso,
+      })
+      .select()
+      .single()
+    if (insErr) throw insErr
+
+    let code
+    try {
+      code = await insertUniqueAffiliateReferralCode(created.id, email)
+    } catch (codeErr) {
+      await supabaseAdmin.from('affiliates').delete().eq('id', created.id)
+      throw codeErr
+    }
+
+    const { data: row } = await supabaseAdmin.from('affiliates').select('*').eq('id', created.id).single()
+    const payload = await buildAffiliateAdminPayload(row || created, code)
+    res.status(201).json({ affiliate: payload })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** POST /api/admin/affiliates/my-invite/send-invite — same as partner portal; allowed when affiliates.email matches the admin session. */
+router.post('/affiliates/my-invite/send-invite', async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Admin client not configured' })
+    const aff = await affiliateRowForSessionUser(req.user)
+    if (!aff) {
+      return res.status(404).json({ error: 'No referral profile for your account. Create one first.' })
+    }
+    const emailRaw = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    const result = await sendAffiliateReferralInviteEmail(supabaseAdmin, aff, emailRaw)
+    if (!result.ok) {
+      const body = { error: result.error }
+      if (result.code) body.code = result.code
+      return res.status(result.status).json(body)
+    }
+    res.json({ success: true, message: result.message })
+  } catch (err) {
+    next(err)
+  }
+})
+
 /** PATCH /api/admin/affiliates/:id */
 router.patch('/affiliates/:id', async (req, res, next) => {
   try {
@@ -346,6 +482,9 @@ router.patch('/affiliates/:id', async (req, res, next) => {
     if (body.active !== undefined) {
       patch.active = Boolean(body.active)
     }
+    if (body.tracks_commission !== undefined) {
+      patch.tracks_commission = Boolean(body.tracks_commission)
+    }
 
     const patchFields = Object.keys(patch).filter((k) => k !== 'updated_at')
     if (patchFields.length === 0) {
@@ -361,6 +500,14 @@ router.patch('/affiliates/:id', async (req, res, next) => {
 
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Not found' })
+
+    if (patch.tracks_commission === false) {
+      const { error: refRateErr } = await supabaseAdmin
+        .from('referrals')
+        .update({ affiliate_commission_rate: null })
+        .eq('affiliate_id', id)
+      if (refRateErr) throw refRateErr
+    }
 
     const { data: codeRow } = await supabaseAdmin
       .from('referral_codes')

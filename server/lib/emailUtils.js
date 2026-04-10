@@ -24,10 +24,10 @@ function getPortalFrom() {
 
 /**
  * Send an email via Resend.
- * @param {{ from: string, to: string | string[], subject: string, html: string, text?: string }} opts
+ * @param {{ from: string, to: string | string[], subject: string, html: string, text?: string, headers?: Record<string, string> }} opts
  * @returns {{ sent: boolean, error?: unknown }}
  */
-async function sendEmail({ from, to, subject, html, text }) {
+async function sendEmail({ from, to, subject, html, text, headers }) {
   const resend = getResendClient()
   if (!resend) {
     console.warn('[sendEmail] RESEND_API_KEY is not set; skipping send')
@@ -35,13 +35,17 @@ async function sendEmail({ from, to, subject, html, text }) {
   }
   const toList = Array.isArray(to) ? to : [to]
   try {
-    const { error } = await resend.emails.send({
+    const payload = {
       from,
       to: toList,
       subject,
       html,
       text: text || stripHtml(html),
-    })
+    }
+    if (headers && typeof headers === 'object' && Object.keys(headers).length > 0) {
+      payload.headers = headers
+    }
+    const { error } = await resend.emails.send(payload)
     if (error) {
       console.error('[sendEmail] Resend error:', error)
       return { sent: false, error }

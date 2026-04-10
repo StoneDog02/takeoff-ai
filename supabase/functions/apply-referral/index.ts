@@ -82,11 +82,12 @@ serve(async (req) => {
   if (affiliateId) {
     const { data: aff, error: affErr } = await supabaseAdmin
       .from('affiliates')
-      .select('commission_rate')
+      .select('commission_rate, tracks_commission')
       .eq('id', affiliateId)
       .maybeSingle()
     if (affErr) return jsonResponse({ error: 'Failed to load affiliate' }, 500)
-    if (aff?.commission_rate != null) affiliateCommissionRate = Number(aff.commission_rate)
+    const tracks = aff?.tracks_commission !== false
+    if (tracks && aff?.commission_rate != null) affiliateCommissionRate = Number(aff.commission_rate)
   }
 
   if (refereeId && referrerId && refereeId === referrerId) {

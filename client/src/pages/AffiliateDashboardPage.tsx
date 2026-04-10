@@ -68,17 +68,22 @@ export function AffiliateDashboardPage() {
   }
 
   const { affiliate, referral_code, referral_share_url, signup_count, completed_referrals, commission_cents_total, referrals } = data
+  const tracksCommission = affiliate.tracks_commission !== false
 
   return (
     <div className="space-y-8">
       <div>
         <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-1">Hi, {affiliate.name}</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Track sign-ups that used your code and commissions accrued from their paid subscriptions.
+          {tracksCommission
+            ? 'Track sign-ups that used your code and commissions accrued from their paid subscriptions.'
+            : 'Share your link or email invites—sign-ups are attributed to your referral code.'}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${tracksCommission ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}
+      >
         <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Referral code</div>
           <div className="mt-1 font-mono text-lg font-bold text-[var(--text-primary)] tracking-wider">
@@ -93,10 +98,12 @@ export function AffiliateDashboardPage() {
           <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Completed (paid cycle)</div>
           <div className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{completed_referrals}</div>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Accrued commission</div>
-          <div className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{formatMoney(commission_cents_total)}</div>
-        </div>
+        {tracksCommission && (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Accrued commission</div>
+            <div className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{formatMoney(commission_cents_total)}</div>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -119,7 +126,11 @@ export function AffiliateDashboardPage() {
           ) : (
             <p className="text-sm text-[var(--text-muted)]">Share URL unavailable (app URL not configured on server).</p>
           )}
-          <p className="text-xs text-[var(--text-muted)] mt-2">Your rate: {affiliate.commission_percent}% of eligible subscription invoice amounts.</p>
+          {tracksCommission && affiliate.commission_percent != null && (
+            <p className="text-xs text-[var(--text-muted)] mt-2">
+              Your rate: {affiliate.commission_percent}% of eligible subscription invoice amounts.
+            </p>
+          )}
         </CardBody>
       </Card>
 
