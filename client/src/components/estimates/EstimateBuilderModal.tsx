@@ -2637,7 +2637,7 @@ function Step2LineItems({
                         min={0}
                         max={100}
                         step={0.5}
-                        value={item.unitCost === 0 ? '' : item.unitCost}
+                        value={item.unitCost}
                         onChange={(e) =>
                           updateCustomGroupItem(group.id, {
                             unitCost: cappedPctValue(
@@ -2668,7 +2668,7 @@ function Step2LineItems({
                       type="number"
                       min={0}
                       step={0.01}
-                      value={item.unitCost === 0 ? '' : item.unitCost}
+                      value={item.unitCost}
                       onChange={(e) => {
                         const raw = e.target.value
                         const n = raw === '' ? 0 : Number(raw)

@@ -194,7 +194,8 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   const [projectClientEmailSnapshot, setProjectClientEmailSnapshot] = useState('')
   /** When false and email matches snapshot, show green prefilled state; “Change” sets true */
   const [recipientEmailUnlocked, setRecipientEmailUnlocked] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [saveBusyKind, setSaveBusyKind] = useState<'draft' | 'send' | null>(null)
+  const saving = saveBusyKind !== null
   const [error, setError] = useState<string | null>(null)
 
   type AttachmentCandidates = {
@@ -528,6 +529,18 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     ? products.filter((p) => `${p.name} ${p.description || ''}`.toLowerCase().includes(catalogQuery.toLowerCase()))
     : products
 
+  const reviewProgressScheduleValid = useMemo(() => {
+    if (pathType !== 'progress') return true
+    return selectedMilestones.every((id) => {
+      const row = progressPaymentSchedule[id] ?? defaultPaymentScheduleRow()
+      if (row.mode === 'specific_date' && !row.specificDate?.trim()) return false
+      return true
+    })
+  }, [pathType, selectedMilestones, progressPaymentSchedule])
+
+  const canSaveDraftOnReview = lineSubtotal > 0 && reviewProgressScheduleValid
+  const canSendOnReview = canSaveDraftOnReview && !!clientEmail.trim()
+
   const goProgress = () => {
     setPathType('progress')
     setStep('progress')
@@ -577,19 +590,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       if (progressSplit.total <= 0) return false
       return true
     }
-    if (step === 'manual-info') return !!clientEmail.trim()
+    if (step === 'manual-info') return true
     if (step === 'manual-lines') return manualLines.some((l) => l.description.trim() && l.qty > 0)
-    if (step === 'review') {
-      if (lineSubtotal <= 0 || !clientEmail.trim()) return false
-      if (pathType === 'progress') {
-        for (const id of selectedMilestones) {
-          const row = progressPaymentSchedule[id] ?? defaultPaymentScheduleRow()
-          if (row.mode === 'specific_date' && !row.specificDate?.trim()) return false
-        }
-        return true
-      }
-      return true
-    }
+    if (step === 'review') return false
     return false
   }
 
@@ -628,8 +631,12 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     onClose()
   }
 
-  const handleCreateAndSend = async () => {
-    setSaving(true)
+  const finalizeInvoice = async (sendToClient: boolean) => {
+    if (sendToClient && !clientEmail.trim()) {
+      setError('Enter a recipient email to send the invoice.')
+      return
+    }
+    setSaveBusyKind(sendToClient ? 'send' : 'draft')
     setError(null)
     try {
       if (pathType === 'progress') {
@@ -665,8 +672,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
           amount,
           schedule_snapshot,
         })
+        const toList = clientEmail.trim() ? [clientEmail.trim()] : []
         await estimatesApi.updateInvoice(result.invoice.id, {
-          recipient_emails: [clientEmail.trim()],
+          recipient_emails: toList,
           due_date: progressDue,
         })
         const updatedMilestones = milestones.map((m) => {
@@ -689,7 +697,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         await estimatesApi.updateEstimate(estimateForProgress.id, {
           estimate_groups_meta: nextMeta,
         })
-        await estimatesApi.sendInvoice(result.invoice.id, [clientEmail.trim()])
+        if (sendToClient) {
+          await estimatesApi.sendInvoice(result.invoice.id, [clientEmail.trim()])
+        }
       } else {
         const manualLinePayload = manualLines
           .filter((l) => l.description.trim() && l.qty > 0)
@@ -739,7 +749,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         const created = await estimatesApi.createInvoice({
           ...(activeJobId ? { job_id: activeJobId } : {}),
           total_amount: lineSubtotal,
-          recipient_emails: [clientEmail.trim()],
+          recipient_emails: clientEmail.trim() ? [clientEmail.trim()] : [],
           due_date: dueDate || undefined,
           status: 'draft',
           schedule_snapshot: schedule_snapshot as Record<string, unknown>,
@@ -747,14 +757,16 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         for (const file of invoiceExtraFiles) {
           await estimatesApi.uploadInvoiceAttachment(created.id, file)
         }
-        await estimatesApi.sendInvoice(created.id, [clientEmail.trim()])
+        if (sendToClient) {
+          await estimatesApi.sendInvoice(created.id, [clientEmail.trim()])
+        }
       }
       onSaved?.()
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create invoice')
     } finally {
-      setSaving(false)
+      setSaveBusyKind(null)
     }
   }
 
@@ -1012,6 +1024,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                 <div className="estimate-wizard-field">
                   <label className="estimate-wizard-label">Client Email</label>
                   <input className="estimate-wizard-input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
+                  <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>
+                    Optional if you only save a draft; required to send from the final step.
+                  </p>
                 </div>
                 <div className="estimate-wizard-field">
                   <label className="estimate-wizard-label">Client Phone</label>
@@ -1279,7 +1294,8 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                         Recipient email
                       </label>
                       <p className="estimate-wizard-helper" style={{ marginTop: 0 }}>
-                        Applies to this invoice and the whole progress series for this estimate.
+                        Applies to this invoice and the whole progress series for this estimate. Required to email the
+                        client; optional if you only save a draft.
                       </p>
                       {recipientEmailPrefilled ? (
                         <div className="new-invoice-recipient-email-inner new-invoice-recipient-email-inner--prefilled">
@@ -1419,6 +1435,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                     <div className="estimate-wizard-field">
                       <label className="estimate-wizard-label">Recipient email</label>
                       <input className="estimate-wizard-input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
+                      <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>
+                        Optional for a draft; add before using Create &amp; send.
+                      </p>
                     </div>
                   </div>
                   <div className="estimate-wizard-field estimate-wizard-field--full">
@@ -1444,6 +1463,11 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                 </>
               )}
               {error && <div className="new-invoice-error">{error}</div>}
+              {step === 'review' && (
+                <p className="estimate-wizard-helper" style={{ marginTop: 8, marginBottom: 0 }}>
+                  Save a draft to finish later (from Estimates / Pipeline), or send the portal link to your client now.
+                </p>
+              )}
             </div>
           )}
 
@@ -1456,9 +1480,24 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                   Continue →
                 </button>
               ) : (
-                <button type="button" className="estimate-wizard-nav-next btn btn-primary" disabled={!canContinue() || saving} onClick={handleCreateAndSend}>
-                  {saving ? 'Sending…' : 'Create & Send'}
-                </button>
+                <div className="estimate-wizard-nav-final">
+                  <button
+                    type="button"
+                    className="estimate-wizard-nav-back"
+                    disabled={!canSaveDraftOnReview || saving}
+                    onClick={() => finalizeInvoice(false)}
+                  >
+                    {saveBusyKind === 'draft' ? 'Saving…' : 'Save draft'}
+                  </button>
+                  <button
+                    type="button"
+                    className="estimate-wizard-nav-next btn btn-primary"
+                    disabled={!canSendOnReview || saving}
+                    onClick={() => finalizeInvoice(true)}
+                  >
+                    {saveBusyKind === 'send' ? 'Sending…' : 'Create & send'}
+                  </button>
+                </div>
               )}
             </div>
           )}
