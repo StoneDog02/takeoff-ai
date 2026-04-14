@@ -82,13 +82,25 @@ export function AffiliateDashboardPage() {
       </div>
 
       <div
-        className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${tracksCommission ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}
+        className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${tracksCommission ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
       >
         <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Referral code</div>
           <div className="mt-1 font-mono text-lg font-bold text-[var(--text-primary)] tracking-wider">
             {referral_code ?? '—'}
           </div>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Your rate</div>
+          <div className="mt-1 text-2xl font-bold text-[var(--text-primary)] tabular-nums">
+            {tracksCommission && affiliate.commission_percent != null ? `${affiliate.commission_percent}%` : '—'}
+          </div>
+          {!tracksCommission && (
+            <p className="mt-1 text-xs text-[var(--text-muted)] leading-snug">Invite-only; no commission on this code.</p>
+          )}
+          {tracksCommission && affiliate.commission_percent != null && (
+            <p className="mt-1 text-xs text-[var(--text-muted)] leading-snug">Per eligible subscription invoice.</p>
+          )}
         </div>
         <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Sign-ups</div>
@@ -125,11 +137,6 @@ export function AffiliateDashboardPage() {
             </div>
           ) : (
             <p className="text-sm text-[var(--text-muted)]">Share URL unavailable (app URL not configured on server).</p>
-          )}
-          {tracksCommission && affiliate.commission_percent != null && (
-            <p className="text-xs text-[var(--text-muted)] mt-2">
-              Your rate: {affiliate.commission_percent}% of eligible subscription invoice amounts.
-            </p>
           )}
         </CardBody>
       </Card>

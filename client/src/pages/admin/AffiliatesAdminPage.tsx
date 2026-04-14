@@ -218,6 +218,28 @@ export function AffiliatesAdminPage() {
                     Your partner record is inactive; turn it on in the table below or ask another admin.
                   </p>
                 )}
+                {myInvite.affiliate.tracks_commission !== false && myInvite.commission_percent != null && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'baseline',
+                      gap: '8px 12px',
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      background: 'var(--bg-muted, #f4f4f5)',
+                      border: '1px solid var(--border, #e4e4e7)',
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Your commission rate</span>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                      {myInvite.commission_percent}%
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: '1 1 100%' }}>
+                      of eligible paid subscription invoice amounts attributed to your code.
+                    </span>
+                  </div>
+                )}
                 {myInvite.affiliate.tracks_commission === false && (
                   <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
                     Invite-only: no commission percentage is shown or accrued for your code.

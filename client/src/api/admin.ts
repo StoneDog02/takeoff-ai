@@ -91,6 +91,8 @@ export type AdminMyInviteResponse =
         active: boolean
         tracks_commission: boolean
       }
+      /** Eligible subscription invoice share, when commission is tracked; null if invite-only */
+      commission_percent: number | null
       referral_code: string | null
       referral_share_url: string | null
       signup_count: number

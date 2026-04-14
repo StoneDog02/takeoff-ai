@@ -339,6 +339,10 @@ router.get('/affiliates/my-invite', async (req, res, next) => {
       if (r.status === 'completed') completed++
     }
     const tracksCommission = aff.tracks_commission !== false
+    const commissionPercent =
+      tracksCommission && aff.commission_rate != null
+        ? Math.round(Number(aff.commission_rate) * 10000) / 100
+        : null
     const base = publicAppOrigin()
     const code = codeRow?.code ?? null
     const referralShareUrl = base && code ? `${base}/sign-up?ref=${encodeURIComponent(code)}` : null
@@ -351,6 +355,7 @@ router.get('/affiliates/my-invite', async (req, res, next) => {
         active: aff.active,
         tracks_commission: tracksCommission,
       },
+      commission_percent: commissionPercent,
       referral_code: code,
       referral_share_url: referralShareUrl,
       signup_count: signupCount,
