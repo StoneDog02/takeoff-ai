@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { estimatesApi } from '@/api/estimates'
 import { settingsApi } from '@/api/settings'
 import type { Invoice, Job, CompanyProfile, EstimateLineItem } from '@/types/global'
@@ -27,6 +28,7 @@ export function DocumentDetailModal({
   onConvertToInvoice,
   onSent,
 }: DocumentDetailModalProps) {
+  const navigate = useNavigate()
   const [estimate, setEstimate] = useState<EstimateWithLines | null>(null)
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [company, setCompany] = useState<CompanyProfile | null>(null)
@@ -236,6 +238,21 @@ export function DocumentDetailModal({
                       Mark as declined
                     </button>
                     </>
+                  )}
+                  {type === 'estimate' && estimate?.status === 'accepted' && estimate.job_id && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="document-detail-modal__menu-item"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        const jid = estimate.job_id as string
+                        navigate(`/projects/${jid}?editEstimate=${encodeURIComponent(estimate.id)}`)
+                        onClose()
+                      }}
+                    >
+                      Edit line items &amp; pricing
+                    </button>
                   )}
                   {type === 'estimate' && estimate?.status === 'accepted' && (
                     <button type="button" role="menuitem" className="document-detail-modal__menu-item" onClick={() => { setMenuOpen(false); setShowConvert(true) }}>

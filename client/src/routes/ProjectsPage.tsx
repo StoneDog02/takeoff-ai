@@ -651,6 +651,30 @@ export function ProjectsPage() {
     }
   }, [id, detailRefreshTrigger])
 
+  const openReviseAcceptedEstimate = useCallback(
+    (estimateIdOverride?: string) => {
+      const eid = estimateIdOverride ?? acceptedEstimate?.id
+      if (!eid || !id) return
+      buildEstimatePreferredEstimateIdRef.current = eid
+      setBuildEstimateBlankMode(false)
+      setBuildEstimateOpen(true)
+    },
+    [acceptedEstimate?.id, id]
+  )
+
+  /** Deep link: /projects/:id?editEstimate=<uuid> opens the estimate builder (e.g. from document viewer). */
+  useEffect(() => {
+    const eid = searchParams.get('editEstimate')
+    if (!eid || !id) return
+    if (!project || project.id !== id) return
+    buildEstimatePreferredEstimateIdRef.current = eid
+    setBuildEstimateBlankMode(false)
+    setBuildEstimateOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('editEstimate')
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [id, project?.id, searchParams, setSearchParams, project])
+
   useEffect(() => {
     if (!id || !project?.id) {
       setAwaitingApprovalEstimatePreview(null)
@@ -2275,6 +2299,17 @@ export function ProjectsPage() {
     : 0
 
   const statusKey = (project?.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
+  const showAcceptedEstimateEditCta =
+    Boolean(acceptedEstimate?.id) &&
+    [
+      'backlog',
+      'awaiting_job_creation',
+      'planning',
+      'active',
+      'on_hold',
+      'completed',
+      'awaiting_approval',
+    ].includes(statusKey)
   const budgetShowsAwaitingApproval = statusKey === 'awaiting_approval'
   const hasEstimateBudgetPreview =
     budgetShowsAwaitingApproval &&
@@ -2418,14 +2453,34 @@ export function ProjectsPage() {
                 </button>
               </>
             )}
-            {project?.status === 'backlog' && (
+            {showAcceptedEstimateEditCta && project?.status !== 'backlog' && (
               <button
                 type="button"
-                className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate"
-                onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
+                className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
+                onClick={() => openReviseAcceptedEstimate()}
               >
-                Activate Project →
+                Edit accepted estimate →
               </button>
+            )}
+            {project?.status === 'backlog' && (
+              <>
+                {showAcceptedEstimateEditCta && (
+                  <button
+                    type="button"
+                    className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
+                    onClick={() => openReviseAcceptedEstimate()}
+                  >
+                    Edit accepted estimate →
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-btn-activate"
+                  onClick={() => { setPendingActivateProjectId(null); setActivateModalOpen(true) }}
+                >
+                  Activate Project →
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -2440,6 +2495,19 @@ export function ProjectsPage() {
             {heroMenuOpen && (
               <div className="project-overview-hero-menu" role="menu">
                 <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
+                {showAcceptedEstimateEditCta && (
+                  <button
+                    type="button"
+                    className="project-overview-hero-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setHeroMenuOpen(false)
+                      openReviseAcceptedEstimate()
+                    }}
+                  >
+                    Edit accepted estimate
+                  </button>
+                )}
                 {project?.status !== 'estimating' && (
                   <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false) }}>Share</button>
                 )}
@@ -2728,6 +2796,19 @@ export function ProjectsPage() {
             {heroMenuOpen && (
               <div className="project-overview-hero-menu" role="menu">
                 <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
+                {showAcceptedEstimateEditCta && (
+                  <button
+                    type="button"
+                    className="project-overview-hero-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setHeroMenuOpen(false)
+                      openReviseAcceptedEstimate()
+                    }}
+                  >
+                    Edit accepted estimate
+                  </button>
+                )}
                 {project?.status !== 'estimating' && (
                   <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false) }}>Share</button>
                 )}
@@ -2740,8 +2821,17 @@ export function ProjectsPage() {
           </div>
         </div>
 
-        {(project?.status === 'estimating' || project?.status === 'backlog') && (
+        {(project?.status === 'estimating' || project?.status === 'backlog' || showAcceptedEstimateEditCta) && (
           <div className="project-overview-hero-cta-strip">
+            {showAcceptedEstimateEditCta && project?.status !== 'estimating' && (
+              <button
+                type="button"
+                className="project-overview-hero-btn project-overview-hero-build-estimate-secondary w-full sm:w-auto flex-1 min-w-0 justify-center"
+                onClick={() => openReviseAcceptedEstimate()}
+              >
+                Edit accepted estimate →
+              </button>
+            )}
             {project?.status === 'estimating' && (
               <>
                 <button
