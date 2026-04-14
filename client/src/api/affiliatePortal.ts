@@ -27,6 +27,19 @@ export async function completeAffiliateSetup(token: string, password: string): P
   return json as { success: boolean }
 }
 
+/** Link the signed-in user to this partner row (same email as invite). Keeps existing profiles.role. */
+export async function claimAffiliatePortalWithToken(token: string): Promise<{ success: boolean }> {
+  const headers = await getSessionAuthHeaders()
+  const res = await fetch(`${API_BASE}/affiliates/portal/claim-setup-token`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  const json = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) throw new Error(json.error || res.statusText)
+  return json as { success: boolean }
+}
+
 export interface AffiliatePortalReferralRow {
   id: string
   referee_email: string | null

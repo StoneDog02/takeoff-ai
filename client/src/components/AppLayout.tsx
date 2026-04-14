@@ -28,18 +28,12 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const isFinancialsActive = location.pathname.startsWith('/financials')
-  const { user, isAdmin, type, role_label, employee, loading } = useAuth()
+  const isAffiliateActive = location.pathname.startsWith('/affiliate')
+  const { user, isAdmin, type, role_label, employee, loading, has_affiliate_portal } = useAuth()
   const { previewRole } = usePreview()
   const showAdminNavEnabled = isAdmin && previewRole !== 'project_manager'
   const supportNewCount = useSupportNewCount(showAdminNavEnabled)
   const { isOnline, syncPending, syncing } = useOfflineSync()
-
-  useEffect(() => {
-    if (loading) return
-    if (!isPublicDemo() && type === 'affiliate') {
-      navigate('/affiliate', { replace: true })
-    }
-  }, [loading, type, navigate])
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -202,6 +196,22 @@ export function AppLayout() {
                   <span className="nav-label">Directory</span>
                 </NavLink>
 
+                <div className="nav-divider" />
+              </>
+            )}
+            {has_affiliate_portal && (
+              <>
+                <div className="nav-section-label">Partner</div>
+                <NavLink
+                  to="/affiliate"
+                  className={() => `nav-item ${isAffiliateActive ? 'active' : ''}`}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                    <path d="M8 1.5 14 5v6l-6 3.5L2 11V5l6-3.5z" />
+                    <path d="M8 1.5v13M2 5l6 3.5L14 5" />
+                  </svg>
+                  <span className="nav-label">Referrals</span>
+                </NavLink>
                 <div className="nav-divider" />
               </>
             )}

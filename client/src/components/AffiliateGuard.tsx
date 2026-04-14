@@ -6,17 +6,17 @@ interface AffiliateGuardProps {
   children: ReactNode
 }
 
-/** Redirects to sign-in if the user is not an affiliate (partner portal). */
+/** Redirects to sign-in if the user has no linked partner (affiliates) portal. */
 export function AffiliateGuard({ children }: AffiliateGuardProps) {
-  const { type, loading } = useAuth()
+  const { has_affiliate_portal, loading } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
     if (loading) return
-    if (type !== 'affiliate') {
+    if (!has_affiliate_portal) {
       navigate('/sign-in', { replace: true })
     }
-  }, [type, loading, navigate])
+  }, [has_affiliate_portal, loading, navigate])
 
   if (loading) {
     return (
@@ -25,7 +25,7 @@ export function AffiliateGuard({ children }: AffiliateGuardProps) {
       </div>
     )
   }
-  if (type !== 'affiliate') {
+  if (!has_affiliate_portal) {
     return null
   }
   return <>{children}</>

@@ -1,8 +1,15 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { getMe } from '@/api/me'
 import { AuthPageLayout } from '@/components/landing/AuthPageLayout'
 import { supabase } from '@/lib/supabaseClient'
+
+function safeInternalNext(raw: string | null): string | null {
+  if (!raw || typeof raw !== 'string') return null
+  const t = raw.trim()
+  if (!t.startsWith('/') || t.startsWith('//')) return null
+  return t
+}
 
 export function SignInPage() {
   const [email, setEmail] = useState('')
@@ -10,6 +17,8 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const nextPath = safeInternalNext(searchParams.get('next'))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -33,8 +42,11 @@ export function SignInPage() {
       }
       try {
         const me = await getMe()
+        if (nextPath) {
+          navigate(nextPath, { replace: true })
+          return
+        }
         if (me.type === 'employee') navigate('/employee/clock', { replace: true })
-        else if (me.type === 'affiliate') navigate('/affiliate', { replace: true })
         else if (me.isAdmin) {
           try {
             sessionStorage.removeItem('takeoff-admin-preview')

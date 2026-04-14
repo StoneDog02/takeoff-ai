@@ -1,4 +1,5 @@
 const express = require('express')
+const { supabase: supabaseAdmin } = require('../db/supabase')
 const router = express.Router()
 
 /** GET /api/me - Uses profiles.role for type (contractor vs employee) and isAdmin; employee details from employees when role is employee. */
@@ -47,6 +48,17 @@ router.get('/', async (req, res, next) => {
       : null
     const profile = req.profile
     const isAdmin = profile?.role === 'admin'
+
+    let hasAffiliatePortal = false
+    if (user?.id && supabaseAdmin) {
+      const { data: affRow } = await supabaseAdmin
+        .from('affiliates')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .maybeSingle()
+      hasAffiliatePortal = Boolean(affRow)
+    }
+
     if (req.actingAsEmployee && req.employee) {
       const { id, name, email, role, phone, status, current_compensation, created_at, updated_at } = req.employee
       return res.json({
@@ -66,6 +78,7 @@ router.get('/', async (req, res, next) => {
           updated_at,
         },
         acting_as_employee: true,
+        has_affiliate_portal: hasAffiliatePortal,
       })
     }
     if (profile?.role === 'employee') {
@@ -87,16 +100,20 @@ router.get('/', async (req, res, next) => {
             created_at,
             updated_at,
           },
+          has_affiliate_portal: hasAffiliatePortal,
         })
       }
-      return res.json({ user, isAdmin, type: 'employee', employee_id: null, employee: null })
-    }
-    if (profile?.role === 'affiliate') {
-      const role_label = roleLabelFromProfile(profile)
-      return res.json({ user, isAdmin, type: 'affiliate', role_label })
+      return res.json({
+        user,
+        isAdmin,
+        type: 'employee',
+        employee_id: null,
+        employee: null,
+        has_affiliate_portal: hasAffiliatePortal,
+      })
     }
     const role_label = roleLabelFromProfile(profile)
-    res.json({ user, isAdmin, type: 'contractor', role_label })
+    res.json({ user, isAdmin, type: 'contractor', role_label, has_affiliate_portal: hasAffiliatePortal })
   } catch (err) {
     next(err)
   }

@@ -85,9 +85,6 @@ const AcceptInvitePage = lazy(() =>
 const AffiliateSetupPage = lazy(() =>
   import('@/routes/AffiliateSetupPage').then((m) => ({ default: m.AffiliateSetupPage }))
 )
-const AffiliateLayout = lazy(() =>
-  import('@/components/AffiliateLayout').then((m) => ({ default: m.AffiliateLayout }))
-)
 const AffiliateGuard = lazy(() =>
   import('@/components/AffiliateGuard').then((m) => ({ default: m.AffiliateGuard }))
 )
@@ -142,15 +139,6 @@ export const router = createBrowserRouter([
       { path: 'accept-invite', element: <AcceptInvitePage /> },
       { path: 'affiliate/setup', element: <AffiliateSetupPage /> },
       {
-        path: 'affiliate',
-        element: (
-          <AffiliateGuard>
-            <AffiliateLayout />
-          </AffiliateGuard>
-        ),
-        children: [{ index: true, element: <AffiliateDashboardPage /> }],
-      },
-      {
         path: 'employee',
         element: <EmployeeLayout />,
         children: [
@@ -190,6 +178,14 @@ export const router = createBrowserRouter([
           { path: 'contractors', element: <Navigate to="/directory" replace /> },
           { path: 'messages', element: <Navigate to="/directory" replace /> },
           { path: 'settings', element: <SettingsPage /> },
+          {
+            path: 'affiliate',
+            element: (
+              <AffiliateGuard>
+                <AffiliateDashboardPage />
+              </AffiliateGuard>
+            ),
+          },
           { path: 'admin', element: <AdminGuard><AdminPage /></AdminGuard> },
           { path: 'admin/affiliates', element: <AdminGuard><AffiliatesAdminPage /></AdminGuard> },
           { path: 'admin/support', element: <AdminGuard><SupportInboxPage /></AdminGuard> },

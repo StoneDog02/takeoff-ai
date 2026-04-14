@@ -545,11 +545,19 @@ router.delete('/affiliates/:id', async (req, res, next) => {
     if (refDelErr) throw refDelErr
 
     if (row.auth_user_id) {
-      const { error: delUserErr } = await supabaseAdmin.auth.admin.deleteUser(row.auth_user_id)
-      if (delUserErr) {
-        const msg = delUserErr.message || ''
-        if (!msg.toLowerCase().includes('not found') && !msg.toLowerCase().includes('user not found')) {
-          throw delUserErr
+      const { data: affProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('role')
+        .eq('id', row.auth_user_id)
+        .maybeSingle()
+      const partnerOnlyAccount = affProfile?.role === 'affiliate'
+      if (partnerOnlyAccount) {
+        const { error: delUserErr } = await supabaseAdmin.auth.admin.deleteUser(row.auth_user_id)
+        if (delUserErr) {
+          const msg = delUserErr.message || ''
+          if (!msg.toLowerCase().includes('not found') && !msg.toLowerCase().includes('user not found')) {
+            throw delUserErr
+          }
         }
       }
     }

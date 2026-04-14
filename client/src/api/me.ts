@@ -11,7 +11,9 @@ export interface MeResponse {
     display_name?: string
   } | null
   isAdmin: boolean
-  type: 'contractor' | 'employee' | 'affiliate'
+  type: 'contractor' | 'employee'
+  /** True when this login is linked to a row in affiliates (partner dashboard). Independent of profiles.role. */
+  has_affiliate_portal?: boolean
   role_label?: string
   employee_id?: string
   employee?: {

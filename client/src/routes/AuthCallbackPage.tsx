@@ -35,8 +35,7 @@ export function AuthCallbackPage() {
         redirectTimeoutRef.current = setTimeout(() => {
           getMe()
             .then((me) => {
-              if (me.type === 'affiliate') navigate('/affiliate', { replace: true })
-              else if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+              if (me.type === 'employee') navigate('/employee/clock', { replace: true })
               else navigate('/dashboard', { replace: true })
             })
             .catch(() => navigate('/dashboard', { replace: true }))
@@ -85,8 +84,7 @@ export function AuthCallbackPage() {
           onClick={() => {
             getMe()
               .then((me) => {
-                if (me.type === 'affiliate') navigate('/affiliate', { replace: true })
-                else if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+                if (me.type === 'employee') navigate('/employee/clock', { replace: true })
                 else navigate('/dashboard', { replace: true })
               })
               .catch(() => navigate('/dashboard', { replace: true }))

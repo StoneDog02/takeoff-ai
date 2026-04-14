@@ -84,6 +84,7 @@ export function buildSyntheticMeResponse(): MeResponse {
       },
       isAdmin: false,
       type: 'employee',
+      has_affiliate_portal: false,
       employee_id: DEMO_EMPLOYEE_ID,
       employee: {
         id: DEMO_EMPLOYEE_ID,
@@ -106,6 +107,7 @@ export function buildSyntheticMeResponse(): MeResponse {
     },
     isAdmin: false,
     type: 'contractor',
+    has_affiliate_portal: false,
     role_label: 'Owner',
   }
 }

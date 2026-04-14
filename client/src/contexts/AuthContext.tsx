@@ -16,6 +16,7 @@ interface AuthState {
   isAdmin: boolean
   loading: boolean
   type: MeResponse['type']
+  has_affiliate_portal: boolean
   role_label?: string
   employee?: MeResponse['employee']
   acting_as_employee?: boolean
@@ -26,6 +27,7 @@ const defaultState: AuthState = {
   isAdmin: false,
   loading: true,
   type: 'contractor',
+  has_affiliate_portal: false,
 }
 
 const AuthContext = createContext<AuthState & { refetch: () => Promise<void> }>({
@@ -45,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAdmin: me.isAdmin,
           loading: false,
           type: me.type,
+          has_affiliate_portal: Boolean(me.has_affiliate_portal),
           role_label: me.role_label,
           employee: me.employee,
           acting_as_employee: me.acting_as_employee,
@@ -63,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAdmin: me.isAdmin,
           loading: false,
           type: me.type,
+          has_affiliate_portal: Boolean(me.has_affiliate_portal),
           role_label: me.role_label,
           employee: me.employee,
           acting_as_employee: me.acting_as_employee,
@@ -73,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAdmin: false,
           loading: false,
           type: 'contractor',
+          has_affiliate_portal: false,
           role_label: undefined,
           employee: undefined,
           acting_as_employee: undefined,
@@ -87,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: me.isAdmin,
         loading: false,
         type: me.type,
+        has_affiliate_portal: Boolean(me.has_affiliate_portal),
         role_label: me.role_label,
         employee: me.employee,
         acting_as_employee: me.acting_as_employee,
@@ -97,6 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: false,
         loading: false,
         type: 'contractor',
+        has_affiliate_portal: false,
         role_label: undefined,
         employee: undefined,
         acting_as_employee: undefined,

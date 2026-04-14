@@ -1,11 +1,21 @@
-import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { completeAffiliateSetup, validateAffiliateSetupToken } from '@/api/affiliatePortal'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  claimAffiliatePortalWithToken,
+  completeAffiliateSetup,
+  validateAffiliateSetupToken,
+} from '@/api/affiliatePortal'
 import { AuthPageLayout } from '@/components/landing/AuthPageLayout'
+import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabaseClient'
 
 export function AffiliateSetupPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')?.trim() ?? ''
+  const navigate = useNavigate()
+  const { refetch } = useAuth()
+  const linkAttempted = useRef(false)
+
   const [loading, setLoading] = useState(true)
   const [valid, setValid] = useState(false)
   const [name, setName] = useState('')
@@ -16,7 +26,12 @@ export function AffiliateSetupPage() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [linkBusy, setLinkBusy] = useState(false)
   const [done, setDone] = useState(false)
+
+  const signInContinueHref = token
+    ? `/sign-in?next=${encodeURIComponent(`/affiliate/setup?token=${encodeURIComponent(token)}`)}`
+    : '/sign-in'
 
   useEffect(() => {
     if (!token) {
@@ -51,6 +66,32 @@ export function AffiliateSetupPage() {
     }
   }, [token])
 
+  useEffect(() => {
+    if (!valid || !token || done || !email || linkAttempted.current || !supabase) return
+    let cancelled = false
+    ;(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      const sessionEmail = session?.user?.email?.toLowerCase().trim()
+      if (!sessionEmail || sessionEmail !== email.toLowerCase().trim()) return
+      linkAttempted.current = true
+      setLinkBusy(true)
+      setError(null)
+      try {
+        await claimAffiliatePortalWithToken(token)
+        await refetch()
+        navigate('/affiliate', { replace: true })
+      } catch (err) {
+        linkAttempted.current = false
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not link partner account')
+      } finally {
+        if (!cancelled) setLinkBusy(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [valid, token, done, email, navigate, refetch])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -82,11 +123,15 @@ export function AffiliateSetupPage() {
           </h1>
           <p className="text-white-dim text-sm mb-8">
             {tracksCommission
-              ? 'Create a password to view sign-ups and commissions for your referral code.'
-              : 'Create a password to view sign-ups and send invites with your referral code.'}
+              ? 'Activate your partner dashboard to view sign-ups and commissions for your referral code.'
+              : 'Activate your partner dashboard to view sign-ups and send invites with your referral code.'}
+            {' '}
+            If you already use Proj-X with this email, sign in first—your contractor account stays the same and you
+            get a Referrals tab in the app.
           </p>
 
           {loading && <p className="text-white-dim text-sm">Checking your link…</p>}
+          {linkBusy && <p className="text-white-dim text-sm mb-4">Linking to your signed-in account…</p>}
 
           {!loading && !valid && error && (
             <div className="p-3 rounded-lg bg-accent/15 border border-accent/30 text-red-200 text-sm mb-4">{error}</div>
@@ -107,6 +152,13 @@ export function AffiliateSetupPage() {
                 {error && (
                   <div className="p-3 rounded-lg bg-accent/15 border border-accent/30 text-red-200 text-sm">{error}</div>
                 )}
+                <p className="text-white-dim text-xs leading-relaxed">
+                  New to Proj-X? Choose a password below. Already have an account?{' '}
+                  <Link to={signInContinueHref} className="text-accent hover:underline">
+                    Sign in with {email}
+                  </Link>{' '}
+                  (you will return here to finish linking).
+                </p>
                 <div>
                   <label htmlFor="pw" className="block text-sm font-medium text-landing-white mb-1.5">
                     Password
@@ -155,7 +207,7 @@ export function AffiliateSetupPage() {
                 password to open your partner dashboard.
               </p>
               <Link
-                to="/sign-in"
+                to={`/sign-in?next=${encodeURIComponent('/affiliate')}`}
                 className="block w-full text-center py-3.5 rounded-lg bg-accent text-white font-semibold text-sm hover:opacity-95"
               >
                 Sign in
@@ -164,7 +216,7 @@ export function AffiliateSetupPage() {
           )}
 
           <p className="mt-8 text-center text-white-dim text-sm">
-            <Link to="/sign-in" className="text-accent hover:underline">
+            <Link to={signInContinueHref} className="text-accent hover:underline">
               Already have a password? Sign in
             </Link>
           </p>

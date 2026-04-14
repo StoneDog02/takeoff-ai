@@ -12,9 +12,6 @@ const router = express.Router()
 async function requireAffiliate(req, res, next) {
   try {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Database not configured' })
-    if (req.profile?.role !== 'affiliate') {
-      return res.status(403).json({ error: 'Affiliate access only' })
-    }
     const { data: aff, error } = await supabaseAdmin
       .from('affiliates')
       .select('*')
@@ -75,7 +72,7 @@ router.get('/setup', async (req, res, next) => {
 /**
  * POST /api/affiliates/portal/setup
  * Body: { token, password }
- * Public: create auth user, set profile role affiliate, link affiliates.auth_user_id, clear token.
+ * Public: create auth user, link affiliates.auth_user_id, clear token. Keeps default contractor profile role.
  */
 router.post('/setup', async (req, res, next) => {
   try {
@@ -130,23 +127,23 @@ router.post('/setup', async (req, res, next) => {
     const userId = created.user.id
 
     const nowIso = new Date().toISOString()
-    const { data: profUpdated, error: profErr } = await supabaseAdmin
+    const { data: existingProf, error: profReadErr } = await supabaseAdmin
       .from('profiles')
-      .update({ role: 'affiliate', updated_at: nowIso })
-      .eq('id', userId)
       .select('id')
-    if (profErr) {
+      .eq('id', userId)
+      .maybeSingle()
+    if (profReadErr) {
       try {
         await supabaseAdmin.auth.admin.deleteUser(userId)
       } catch (e) {
         console.warn('[affiliatePortal/setup] rollback deleteUser failed:', e?.message)
       }
-      throw profErr
+      throw profReadErr
     }
-    if (!profUpdated?.length) {
+    if (!existingProf) {
       const { error: insProfErr } = await supabaseAdmin.from('profiles').insert({
         id: userId,
-        role: 'affiliate',
+        role: 'project_manager',
         updated_at: nowIso,
       })
       if (insProfErr) {
@@ -180,6 +177,54 @@ router.post('/setup', async (req, res, next) => {
     }
 
     res.json({ success: true, message: 'Account ready. You can sign in now.' })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * POST /api/affiliates/portal/claim-setup-token
+ * Auth: link an existing Supabase user (e.g. project_manager) to this affiliate row; does not change profiles.role.
+ */
+router.post('/claim-setup-token', requireAuth, async (req, res, next) => {
+  try {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Database not configured' })
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
+    if (!token || token.length < 16) {
+      return res.status(400).json({ error: 'Invalid token' })
+    }
+    const userEmail = (req.user.email || '').toLowerCase().trim()
+    const { data: aff, error: affErr } = await supabaseAdmin
+      .from('affiliates')
+      .select('id, email, auth_user_id, portal_setup_token_expires_at')
+      .eq('portal_setup_token', token)
+      .maybeSingle()
+    if (affErr) throw affErr
+    if (!aff || aff.auth_user_id) {
+      return res.status(400).json({ error: 'Invalid or already used link' })
+    }
+    const exp = aff.portal_setup_token_expires_at ? new Date(aff.portal_setup_token_expires_at) : null
+    if (exp && exp < new Date()) {
+      return res.status(400).json({ error: 'This setup link has expired' })
+    }
+    const affEmail = (aff.email || '').toLowerCase().trim()
+    if (!affEmail || affEmail !== userEmail) {
+      return res.status(403).json({
+        error: 'Sign in with the email this invite was sent to, then open this link again.',
+      })
+    }
+    const { error: linkErr } = await supabaseAdmin
+      .from('affiliates')
+      .update({
+        auth_user_id: req.user.id,
+        portal_setup_token: null,
+        portal_setup_token_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', aff.id)
+      .is('auth_user_id', null)
+    if (linkErr) throw linkErr
+    res.json({ success: true })
   } catch (err) {
     next(err)
   }
