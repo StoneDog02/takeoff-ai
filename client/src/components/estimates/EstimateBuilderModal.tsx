@@ -797,7 +797,9 @@ export function EstimateBuilderModal({
   const [step, setStep] = useState(() => (isReviseMode ? 2 : 1))
   const [saved, setSaved] = useState(false)
   const [savedAndSent, setSavedAndSent] = useState(false)
-  const [saving, setSaving] = useState(false)
+  /** Which async action is running so only that button shows a loading label (not both Save + Send). */
+  const [saveBusyKind, setSaveBusyKind] = useState<'idle' | 'save' | 'send' | 'create'>('idle')
+  const saving = saveBusyKind !== 'idle'
   const [createdProjectName, setCreatedProjectName] = useState('')
   const [savedEstimateId, setSavedEstimateId] = useState<string | null>(null)
   const [data, setData] = useState<WizardData>(() => defaultWizardData(prefillClientInfo))
@@ -930,7 +932,7 @@ export function EstimateBuilderModal({
   const canNext = () => step === 1 && !!data.projectName.trim()
 
   const handleCreateProject = async () => {
-    setSaving(true)
+    setSaveBusyKind('create')
     try {
       const createdProject = await api.projects.create({
         name: data.projectName.trim() || 'New Project',
@@ -947,7 +949,7 @@ export function EstimateBuilderModal({
     } catch (err) {
       console.error(err)
     } finally {
-      setSaving(false)
+      setSaveBusyKind('idle')
     }
   }
 
@@ -964,7 +966,7 @@ export function EstimateBuilderModal({
 
   const handleSaveEstimate = async () => {
     if (!projectId || lineItemGroups.length === 0) return
-    setSaving(true)
+    setSaveBusyKind('save')
     try {
       await syncCustomLineGroupsToProductCatalog(lineItemGroups)
       if (estimateId) {
@@ -1017,7 +1019,7 @@ export function EstimateBuilderModal({
     } catch (err) {
       console.error(err)
     } finally {
-      setSaving(false)
+      setSaveBusyKind('idle')
     }
   }
 
@@ -1029,7 +1031,7 @@ export function EstimateBuilderModal({
       return
     }
     setSendToError(null)
-    setSaving(true)
+    setSaveBusyKind('send')
     try {
       await syncCustomLineGroupsToProductCatalog(lineItemGroups)
       const eid = estimateId ?? (await estimatesApi.createEstimate({
@@ -1087,7 +1089,7 @@ export function EstimateBuilderModal({
     } catch (err) {
       console.error(err)
     } finally {
-      setSaving(false)
+      setSaveBusyKind('idle')
     }
   }
 
@@ -1107,6 +1109,7 @@ export function EstimateBuilderModal({
     setSavedEstimateId(null)
     setPresetCatalogResetKey((k) => k + 1)
     setSendToError(null)
+    setSaveBusyKind('idle')
   }
 
   const handleSyncToBudget = async () => {
@@ -1426,7 +1429,7 @@ export function EstimateBuilderModal({
                   onClick={handleSaveEstimate}
                   disabled={saving || lineItemGroups.length === 0}
                 >
-                  {saving ? 'Saving…' : 'Save Estimate'}
+                  {saveBusyKind === 'save' ? 'Saving…' : 'Save Estimate'}
                 </button>
                 <button
                   type="button"
@@ -1434,7 +1437,7 @@ export function EstimateBuilderModal({
                   onClick={handleSaveAndSendEstimate}
                   disabled={saving || lineItemGroups.length === 0}
                 >
-                  {saving ? 'Sending…' : 'Save & Send →'}
+                  {saveBusyKind === 'send' ? 'Sending…' : 'Save & Send →'}
                 </button>
               </div>
             ) : (
@@ -1444,7 +1447,7 @@ export function EstimateBuilderModal({
                 onClick={handleCreateProject}
                 disabled={saving}
               >
-                {saving ? 'Creating…' : 'Create Project →'}
+                {saveBusyKind === 'create' ? 'Creating…' : 'Create Project →'}
               </button>
             )}
           </div>
