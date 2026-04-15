@@ -43,11 +43,14 @@ export async function billingPortalEdge(stripeCustomerId: string, returnUrl: str
 }
 
 /** Initial subscription after signup (full tier + add-ons). Uses Edge Function; requires default PM on customer. */
-export async function createInitialSubscriptionEdge(payload: {
-  userId: string;
-  stripeCustomerId: string;
-  pricingSelection: PricingSelection;
-}) {
+export async function createInitialSubscriptionEdge(
+  payload: {
+    userId: string;
+    stripeCustomerId: string;
+    pricingSelection: PricingSelection;
+  },
+  opts?: { accessToken?: string | null },
+) {
   return callEdgeFunctionJson<{
     subscriptionId?: string;
     clientSecret?: string | null;
@@ -59,5 +62,6 @@ export async function createInitialSubscriptionEdge(payload: {
       stripeCustomerId: payload.stripeCustomerId,
       pricingSelection: payload.pricingSelection,
     } as Record<string, unknown>,
+    accessToken: opts?.accessToken,
   });
 }

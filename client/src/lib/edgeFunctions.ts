@@ -29,6 +29,11 @@ export async function callEdgeFunctionJson<T = unknown>(
   options: {
     method?: 'GET' | 'POST'
     json?: Record<string, unknown>
+    /**
+     * Use when the session was just created (e.g. signUp) and `getSession()` may not
+     * have the access token persisted yet — without this, Edge calls return 401.
+     */
+    accessToken?: string | null
   } = {}
 ): Promise<{ data: T | null; errorMessage: string | null; httpStatus: number }> {
   const base = functionsBaseUrl()
@@ -44,10 +49,15 @@ export async function callEdgeFunctionJson<T = unknown>(
     return { data: null, errorMessage: 'Supabase is not configured', httpStatus: 0 }
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  const token = session?.access_token
+  let token: string | undefined
+  if (options.accessToken !== undefined) {
+    token = options.accessToken ?? undefined
+  } else {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    token = session?.access_token
+  }
 
   const method = options.method ?? (options.json ? 'POST' : 'GET')
   const url = `${base}/functions/v1/${functionName}`

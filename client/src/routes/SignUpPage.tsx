@@ -56,12 +56,18 @@ export function SignUpPage() {
       return error.message
     }
 
-    const createSubForUser = async (userId: string): Promise<string | undefined> => {
-      const { errorMessage, httpStatus } = await createInitialSubscriptionEdge({
-        userId,
-        stripeCustomerId,
-        pricingSelection: form.pricingSelection,
-      })
+    const createSubForUser = async (
+      userId: string,
+      accessToken: string,
+    ): Promise<string | undefined> => {
+      const { errorMessage, httpStatus } = await createInitialSubscriptionEdge(
+        {
+          userId,
+          stripeCustomerId,
+          pricingSelection: form.pricingSelection,
+        },
+        { accessToken },
+      )
       if (errorMessage || httpStatus >= 400) {
         return errorMessage ?? 'Subscription setup failed.'
       }
@@ -70,9 +76,14 @@ export function SignUpPage() {
     }
 
     // Session present (e.g. email confirmation disabled): create Stripe subscription + DB row immediately.
+    // Pass access_token into the Edge call — getSession() may not have persisted yet right after signUp.
     if (data.session?.user?.id) {
+      const at = data.session.access_token
+      if (!at) {
+        return 'Could not start your session. Please sign in and we will finish plan activation.'
+      }
       try {
-        const err = await createSubForUser(data.session.user.id)
+        const err = await createSubForUser(data.session.user.id, at)
         if (err) return err
       } catch {
         return 'Subscription setup failed. Your account was created — please contact support to activate your plan.'

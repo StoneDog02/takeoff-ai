@@ -2,8 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
+import { tryCompletePendingSignupSubscription } from '@/lib/pendingSignupSubscription'
 
 const REDIRECT_DELAY_MS = 2500
+
+async function waitForSession(maxAttempts = 8): Promise<boolean> {
+  if (!supabase) return false
+  for (let i = 0; i < maxAttempts; i++) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (session?.access_token) return true
+    await new Promise((r) => setTimeout(r, 75 * (i + 1)))
+  }
+  return false
+}
 
 /**
  * Handles redirect after Supabase email confirmation.
@@ -22,15 +35,34 @@ export function AuthCallbackPage() {
     }
 
     const hashParams = new URLSearchParams(window.location.hash.slice(1))
-    const hasTokens = hashParams.has('access_token') || hashParams.has('error')
+    const searchParams = new URLSearchParams(window.location.search)
+    // Implicit flow: #access_token=… — PKCE / server-side: ?code=… (Supabase exchanges on load)
+    const hasImplicitTokens = hashParams.has('access_token')
+    const hasPkceCode = searchParams.has('code')
 
     if (hashParams.get('error')) {
       setError(hashParams.get('error_description') || hashParams.get('error') || 'Confirmation failed.')
       return
     }
 
-    if (hasTokens) {
-      supabase.auth.getSession().then(() => {
+    if (searchParams.get('error')) {
+      setError(searchParams.get('error_description') || searchParams.get('error') || 'Confirmation failed.')
+      return
+    }
+
+    if (hasImplicitTokens || hasPkceCode) {
+      void (async () => {
+        const ok = await waitForSession()
+        if (!ok) {
+          setError('Could not establish a session. Try signing in.')
+          return
+        }
+        // Email-confirmation signups: create Stripe subscription + DB row before dashboard (see pendingSignupSubscription).
+        try {
+          await tryCompletePendingSignupSubscription()
+        } catch {
+          // non-fatal — AuthContext also runs this on SIGNED_IN
+        }
         setVerified(true)
         redirectTimeoutRef.current = setTimeout(() => {
           getMe()
@@ -40,7 +72,7 @@ export function AuthCallbackPage() {
             })
             .catch(() => navigate('/dashboard', { replace: true }))
         }, REDIRECT_DELAY_MS)
-      })
+      })()
       return () => {
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current)
       }

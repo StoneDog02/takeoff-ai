@@ -112,6 +112,7 @@ function isUuid(s: string): boolean {
 
 function encodeSubscriptionBody(opts: {
   customer: string
+  userId: string
   items: LineItem[]
   trial_period_days: number
   payment_behavior: string
@@ -120,6 +121,7 @@ function encodeSubscriptionBody(opts: {
 }): string {
   const p = new URLSearchParams()
   p.set('customer', opts.customer)
+  p.set('metadata[user_id]', opts.userId)
   opts.items.forEach((item, i) => {
     p.set(`items[${i}][price]`, item.price)
     p.set(`items[${i}][quantity]`, String(item.quantity))
@@ -131,6 +133,47 @@ function encodeSubscriptionBody(opts: {
     p.append('expand[]', ex)
   }
   return p.toString()
+}
+
+/** After SetupIntent, the card is attached but may not be the invoice default — Stripe often requires this for subscriptions. */
+async function ensureDefaultCardPaymentMethod(
+  stripeSecret: string,
+  customerId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const listRes = await fetch(
+    `https://api.stripe.com/v1/payment_methods?customer=${encodeURIComponent(customerId)}&type=card&limit=10`,
+    { headers: { Authorization: `Bearer ${stripeSecret}` } },
+  )
+  const listJson = (await listRes.json()) as {
+    data?: { id: string }[]
+    error?: { message?: string }
+  }
+  if (!listRes.ok) {
+    const msg = listJson.error?.message || 'Could not list payment methods'
+    return { ok: false, message: msg }
+  }
+  const pmId = listJson.data?.[0]?.id
+  if (!pmId) {
+    return {
+      ok: false,
+      message: 'No card on file for this customer. Complete the payment step again.',
+    }
+  }
+  const up = new URLSearchParams()
+  up.set('invoice_settings[default_payment_method]', pmId)
+  const upRes = await fetch(`https://api.stripe.com/v1/customers/${encodeURIComponent(customerId)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${stripeSecret}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: up.toString(),
+  })
+  const upJson = (await upRes.json()) as { error?: { message?: string } }
+  if (!upRes.ok) {
+    return { ok: false, message: upJson.error?.message || 'Could not set default payment method' }
+  }
+  return { ok: true }
 }
 
 type StripeSubResponse = {
@@ -228,8 +271,14 @@ serve(async (req) => {
     return jsonResponse({ error: 'No valid Stripe prices configured for this selection' }, 400)
   }
 
+  const pmOk = await ensureDefaultCardPaymentMethod(stripeSecret, stripeCustomerId)
+  if (!pmOk.ok) {
+    return jsonResponse({ error: pmOk.message }, 400)
+  }
+
   const formBody = encodeSubscriptionBody({
     customer: stripeCustomerId,
+    userId,
     items,
     trial_period_days: 30,
     payment_behavior: 'default_incomplete',

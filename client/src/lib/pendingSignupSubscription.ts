@@ -61,7 +61,8 @@ export async function tryCompletePendingSignupSubscription(): Promise<void> {
     data: { session },
   } = await supabase.auth.getSession();
   const user = session?.user;
-  if (!user?.id || !user.email) return;
+  const accessToken = session?.access_token;
+  if (!user?.id || !user.email || !accessToken) return;
 
   const email = user.email.toLowerCase().trim();
   if (email !== pending.email.toLowerCase().trim()) return;
@@ -78,11 +79,14 @@ export async function tryCompletePendingSignupSubscription(): Promise<void> {
     return;
   }
 
-  const { errorMessage } = await createInitialSubscriptionEdge({
-    userId: user.id,
-    stripeCustomerId: pending.stripeCustomerId,
-    pricingSelection: pending.pricingSelection,
-  });
+  const { errorMessage } = await createInitialSubscriptionEdge(
+    {
+      userId: user.id,
+      stripeCustomerId: pending.stripeCustomerId,
+      pricingSelection: pending.pricingSelection,
+    },
+    { accessToken },
+  );
 
   if (!errorMessage) {
     clearPendingSignupSubscription();
