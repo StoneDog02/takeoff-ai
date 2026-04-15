@@ -1,28 +1,14 @@
+import { FunctionsHttpError, FunctionsRelayError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabaseClient'
-
-function projectUrl(): string {
-  return (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/$/, '') ?? ''
-}
-
-/**
- * Base URL for Edge Function fetch calls.
- * - Dev: same-origin `/functions/v1/...` (Vite proxy → Supabase).
- * - Prod (Netlify): same-origin when `VITE_EDGE_FUNCTIONS_RELATIVE` is true — `dist/_redirects` proxies to Supabase (avoids CORS / SW "Failed to fetch").
- * - Otherwise: direct `https://<project>.supabase.co` (requires browser → Supabase CORS to succeed).
- */
-function functionsBaseUrl(): string {
-  if (import.meta.env.DEV) return ''
-  if (import.meta.env.VITE_EDGE_FUNCTIONS_RELATIVE === 'true') return ''
-  return projectUrl()
-}
 
 function anonKey(): string {
   return (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ?? ''
 }
 
 /**
- * Call a Supabase Edge Function using `fetch` (avoids some `functions.invoke` + SW edge cases).
- * Sends `apikey` + `Authorization: Bearer <session>` like the JS client.
+ * Call a Supabase Edge Function via the JS client (`functions.invoke`).
+ * Requests go to `VITE_SUPABASE_URL/functions/v1/...` (not same-origin `/functions/v1`), so production
+ * does not depend on Netlify `_redirects` or a custom `/functions/v1` proxy forwarding auth correctly.
  */
 export async function callEdgeFunctionJson<T = unknown>(
   functionName: string,
@@ -36,14 +22,9 @@ export async function callEdgeFunctionJson<T = unknown>(
     accessToken?: string | null
   } = {}
 ): Promise<{ data: T | null; errorMessage: string | null; httpStatus: number }> {
-  const base = functionsBaseUrl()
   const anon = anonKey()
-  // Same-origin `/functions/v1` (dev proxy or Netlify _redirects) uses empty `base`; only direct
-  // cross-origin calls need `VITE_SUPABASE_URL` for the request URL.
-  const sameOriginFunctions =
-    import.meta.env.DEV || import.meta.env.VITE_EDGE_FUNCTIONS_RELATIVE === 'true'
-  if (!anon || (!sameOriginFunctions && !projectUrl())) {
-    return { data: null, errorMessage: 'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY', httpStatus: 0 }
+  if (!anon) {
+    return { data: null, errorMessage: 'Missing VITE_SUPABASE_ANON_KEY', httpStatus: 0 }
   }
   if (!supabase) {
     return { data: null, errorMessage: 'Supabase is not configured', httpStatus: 0 }
@@ -66,10 +47,7 @@ export async function callEdgeFunctionJson<T = unknown>(
   }
 
   const method = options.method ?? (options.json ? 'POST' : 'GET')
-  const url = `${base}/functions/v1/${functionName}`
 
-  const headers = new Headers()
-  headers.set('apikey', anon)
   if (!token && method !== 'GET' && options.json !== undefined) {
     return {
       data: null,
@@ -77,20 +55,17 @@ export async function callEdgeFunctionJson<T = unknown>(
       httpStatus: 401,
     }
   }
-  if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  let res: Response
+  const invokeHeaders: Record<string, string> = {}
+  if (token) invokeHeaders.Authorization = `Bearer ${token}`
+
+  let invokeResult: Awaited<ReturnType<(typeof supabase)['functions']['invoke']>>
   try {
-    if (method === 'GET') {
-      res = await fetch(url, { method, headers })
-    } else {
-      headers.set('Content-Type', 'application/json')
-      res = await fetch(url, {
-        method,
-        headers,
-        body: options.json !== undefined ? JSON.stringify(options.json) : undefined,
-      })
-    }
+    invokeResult = await supabase.functions.invoke<T>(functionName, {
+      method,
+      body: method === 'GET' ? undefined : options.json,
+      headers: Object.keys(invokeHeaders).length ? invokeHeaders : undefined,
+    })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return {
@@ -100,22 +75,40 @@ export async function callEdgeFunctionJson<T = unknown>(
     }
   }
 
-  const text = await res.text()
-  let parsed: unknown = null
-  try {
-    parsed = text ? JSON.parse(text) : null
-  } catch {
-    parsed = { _raw: text }
-  }
+  const { data, error, response } = invokeResult
 
-  if (!res.ok) {
-    const errObj = parsed as { error?: string } | null
+  if (error) {
+    if (error instanceof FunctionsHttpError && response) {
+      const status = response.status
+      const text = await response.text()
+      let parsed: unknown = null
+      try {
+        parsed = text ? JSON.parse(text) : null
+      } catch {
+        parsed = { _raw: text }
+      }
+      const errObj = parsed as { error?: string } | null
+      return {
+        data: parsed as T,
+        errorMessage: typeof errObj?.error === 'string' ? errObj.error : `HTTP ${status}`,
+        httpStatus: status,
+      }
+    }
+    if (error instanceof FunctionsRelayError) {
+      return {
+        data: null,
+        errorMessage: error.message || 'Edge Function relay error',
+        httpStatus: 0,
+      }
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     return {
-      data: parsed as T,
-      errorMessage: typeof errObj?.error === 'string' ? errObj.error : `HTTP ${res.status}`,
-      httpStatus: res.status,
+      data: null,
+      errorMessage: msg || 'Edge Function request failed',
+      httpStatus: 0,
     }
   }
 
-  return { data: parsed as T, errorMessage: null, httpStatus: res.status }
+  const httpStatus = response?.status ?? 200
+  return { data: data as T, errorMessage: null, httpStatus }
 }
