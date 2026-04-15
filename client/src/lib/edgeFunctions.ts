@@ -53,10 +53,16 @@ export async function callEdgeFunctionJson<T = unknown>(
   if (options.accessToken !== undefined) {
     token = options.accessToken ?? undefined
   } else {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    token = session?.access_token
+    // Session is often not hydrated on the first tick after email confirmation / refresh — retry
+    // so we never POST without Authorization (Supabase gateway returns 401).
+    for (let i = 0; i < 30; i++) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      token = session?.access_token
+      if (token) break
+      await new Promise((r) => setTimeout(r, 100))
+    }
   }
 
   const method = options.method ?? (options.json ? 'POST' : 'GET')
@@ -64,6 +70,13 @@ export async function callEdgeFunctionJson<T = unknown>(
 
   const headers = new Headers()
   headers.set('apikey', anon)
+  if (!token && method !== 'GET' && options.json !== undefined) {
+    return {
+      data: null,
+      errorMessage: 'Not authenticated yet — try again in a moment.',
+      httpStatus: 401,
+    }
+  }
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   let res: Response

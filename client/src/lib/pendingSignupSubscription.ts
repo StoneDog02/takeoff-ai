@@ -4,6 +4,30 @@ import { createInitialSubscriptionEdge } from "@/lib/billingEdge";
 
 const STORAGE_KEY = "takeoff_pending_subscription_v1";
 
+/** Serialize runs — Auth callback + SIGNED_IN + refetch can all fire at once. */
+let completeChain: Promise<void> = Promise.resolve();
+
+async function waitForSessionWithAccessToken(maxWaitMs = 5000): Promise<{
+  userId: string;
+  email: string;
+  accessToken: string;
+} | null> {
+  if (!supabase) return null;
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const t = session?.access_token;
+    const u = session?.user;
+    if (t && u?.id && u.email) {
+      return { userId: u.id, email: u.email, accessToken: t };
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+
 export type PendingSignupSubscription = {
   email: string;
   stripeCustomerId: string;
@@ -30,6 +54,15 @@ export function clearPendingSignupSubscription(): void {
  * Email-confirmation signups: subscription is created on first SIGNED_IN when we have session + pending payload.
  */
 export async function tryCompletePendingSignupSubscription(): Promise<void> {
+  completeChain = completeChain
+    .then(() => runPendingSignupCompletion())
+    .catch(() => {
+      /* keep chain alive for later invocations */
+    });
+  await completeChain;
+}
+
+async function runPendingSignupCompletion(): Promise<void> {
   if (!supabase) return;
   let raw: string | null = null;
   try {
@@ -57,20 +90,16 @@ export async function tryCompletePendingSignupSubscription(): Promise<void> {
     return;
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const user = session?.user;
-  const accessToken = session?.access_token;
-  if (!user?.id || !user.email || !accessToken) return;
+  const hydrated = await waitForSessionWithAccessToken();
+  if (!hydrated) return;
 
-  const email = user.email.toLowerCase().trim();
+  const email = hydrated.email.toLowerCase().trim();
   if (email !== pending.email.toLowerCase().trim()) return;
 
   const { data: existing, error: selErr } = await supabase
     .from("subscriptions")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", hydrated.userId)
     .maybeSingle();
 
   if (selErr) return;
@@ -81,11 +110,11 @@ export async function tryCompletePendingSignupSubscription(): Promise<void> {
 
   const { errorMessage } = await createInitialSubscriptionEdge(
     {
-      userId: user.id,
+      userId: hydrated.userId,
       stripeCustomerId: pending.stripeCustomerId,
       pricingSelection: pending.pricingSelection,
     },
-    { accessToken },
+    { accessToken: hydrated.accessToken },
   );
 
   if (!errorMessage) {
