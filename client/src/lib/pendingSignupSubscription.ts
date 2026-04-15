@@ -77,6 +77,29 @@ export async function tryCompletePendingSignupSubscription(): Promise<void> {
   await completeChain;
 }
 
+/**
+ * After email confirmation, session + getUser() can lag behind the URL hash/code exchange.
+ * Run pending completion a few times with gaps so we don't rely only on a later sign-out/sign-in.
+ */
+export async function completePendingSignupWithRetries(opts?: {
+  rounds?: number;
+  gapMs?: number;
+}): Promise<void> {
+  const rounds = opts?.rounds ?? 4;
+  const gapMs = opts?.gapMs ?? 1200;
+  for (let i = 0; i < rounds; i++) {
+    await tryCompletePendingSignupSubscription();
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    if (i < rounds - 1) await new Promise((r) => setTimeout(r, gapMs));
+  }
+}
+
 async function runPendingSignupCompletion(): Promise<void> {
   if (!supabase) return;
   let raw: string | null = null;

@@ -13,6 +13,11 @@
   force = true
   conditions = { Host = ["proj-x.netlify.app"] }
 
+# Stripe webhooks are implemented on the Node server (POST /api/stripe/webhook in server/index.js),
+# not in this static deploy. If Stripe points at https://projxmanager.com/api/stripe/webhook you get 404.
+# Fix: (1) Set the webhook URL in Stripe to your API host, e.g. https://<your-render-service>.onrender.com/api/stripe/webhook
+#   or (2) Add a proxy redirect here BEFORE the SPA rule — see README.md (Netlify + API).
+
 # SPA: serve index.html for client-side routes (place after any /api proxy if added)
 [[redirects]]
   from = "/*"

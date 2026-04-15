@@ -1089,6 +1089,30 @@ async function handleInvoicePaymentSucceededReferralCredits(event) {
 }
 
 /**
+ * Subscription metadata written by Edge `create-subscription` when Stripe line-item → env mapping is unavailable.
+ */
+function parseTakeoffSubscriptionMetadata(sub) {
+  const m = sub?.metadata || {}
+  let addons = null
+  if (typeof m.takeoff_addons === 'string' && m.takeoff_addons.trim()) {
+    try {
+      const arr = JSON.parse(m.takeoff_addons)
+      if (Array.isArray(arr)) addons = arr.filter((x) => typeof x === 'string' && x.trim().length > 0)
+    } catch {
+      /* ignore */
+    }
+  }
+  const rawTier = typeof m.takeoff_tier === 'string' ? m.takeoff_tier.trim().toLowerCase() : ''
+  const tier = rawTier === 'core' || rawTier === 'plus' || rawTier === 'pro' ? rawTier : null
+  let employees = null
+  if (typeof m.takeoff_employees === 'string' && /^\d+$/.test(m.takeoff_employees.trim())) {
+    const n = parseInt(m.takeoff_employees.trim(), 10)
+    if (n >= 1 && n <= 99999) employees = n
+  }
+  return { addons, tier, employees }
+}
+
+/**
  * Upsert subscriptions row from Stripe subscription object; sync tier/addons/employees from price IDs.
  * Clears profiles.trial_ending_soon when the subscription is no longer in an active trial window.
  */
@@ -1096,6 +1120,7 @@ async function syncSubscriptionRowFromStripeWebhook(sub) {
   if (!supabase || !sub?.id) return
 
   const derived = deriveSubscriptionPricingFromStripeSubscription(sub)
+  const meta = parseTakeoffSubscriptionMetadata(sub)
   const { data: existing, error: fetchErr } = await supabase
     .from('subscriptions')
     .select('user_id, tier, addons, employees')
@@ -1112,6 +1137,23 @@ async function syncSubscriptionRowFromStripeWebhook(sub) {
     sub.items?.data?.[0]?.price && typeof sub.items.data[0].price === 'object'
       ? sub.items.data[0].price.id
       : null
+
+  const tier =
+    derived.tier != null ? derived.tier : meta.tier != null ? meta.tier : existing?.tier ?? null
+  const addons =
+    derived.addons.length > 0
+      ? derived.addons
+      : meta.addons && meta.addons.length > 0
+        ? meta.addons
+        : Array.isArray(existing?.addons) && existing.addons.length > 0
+          ? existing.addons
+          : []
+  const employees =
+    derived.employees != null
+      ? derived.employees
+      : meta.employees != null
+        ? meta.employees
+        : existing?.employees ?? 5
 
   const row = {
     ...(userId ? { user_id: userId } : {}),
@@ -1130,9 +1172,9 @@ async function syncSubscriptionRowFromStripeWebhook(sub) {
       sub.trial_end != null && sub.trial_end > 0
         ? new Date(sub.trial_end * 1000).toISOString()
         : null,
-    tier: derived.tier != null ? derived.tier : existing?.tier ?? null,
-    addons: derived.addons,
-    employees: derived.employees != null ? derived.employees : (existing?.employees ?? 5),
+    tier,
+    addons,
+    employees,
     updated_at: new Date().toISOString(),
   }
 

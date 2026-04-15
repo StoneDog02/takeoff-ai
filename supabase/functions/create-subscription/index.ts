@@ -118,10 +118,18 @@ function encodeSubscriptionBody(opts: {
   payment_behavior: string
   save_default_payment_method: string
   expand: string[]
+  /** Persisted on the Stripe subscription so webhooks can restore tier/addons if server env price IDs are missing. */
+  metadataExtra?: Record<string, string>
 }): string {
   const p = new URLSearchParams()
   p.set('customer', opts.customer)
   p.set('metadata[user_id]', opts.userId)
+  if (opts.metadataExtra) {
+    for (const [k, v] of Object.entries(opts.metadataExtra)) {
+      if (!k || !v) continue
+      p.set(`metadata[${k}]`, v)
+    }
+  }
   opts.items.forEach((item, i) => {
     p.set(`items[${i}][price]`, item.price)
     p.set(`items[${i}][quantity]`, String(item.quantity))
@@ -291,6 +299,11 @@ serve(async (req) => {
     payment_behavior: 'default_incomplete',
     save_default_payment_method: 'on_subscription',
     expand: ['latest_invoice.payment_intent'],
+    metadataExtra: {
+      takeoff_tier: sel.tier,
+      takeoff_addons: JSON.stringify(sel.addons),
+      takeoff_employees: String(Math.round(sel.employees)),
+    },
   })
 
   const stripeRes = await fetch('https://api.stripe.com/v1/subscriptions', {

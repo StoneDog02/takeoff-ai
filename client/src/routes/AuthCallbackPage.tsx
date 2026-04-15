@@ -2,18 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
-import { tryCompletePendingSignupSubscription } from '@/lib/pendingSignupSubscription'
+import { completePendingSignupWithRetries } from '@/lib/pendingSignupSubscription'
 
 const REDIRECT_DELAY_MS = 2500
 
-async function waitForSession(maxAttempts = 8): Promise<boolean> {
+/** Wait until Supabase has persisted a session (PKCE / hash exchange can take several seconds). */
+async function waitForSession(maxWaitMs = 15000): Promise<boolean> {
   if (!supabase) return false
-  for (let i = 0; i < maxAttempts; i++) {
+  const deadline = Date.now() + maxWaitMs
+  while (Date.now() < deadline) {
     const {
       data: { session },
     } = await supabase.auth.getSession()
     if (session?.access_token) return true
-    await new Promise((r) => setTimeout(r, 75 * (i + 1)))
+    await new Promise((r) => setTimeout(r, 250))
   }
   return false
 }
@@ -59,7 +61,7 @@ export function AuthCallbackPage() {
         }
         // Email-confirmation signups: create Stripe subscription + DB row before dashboard (see pendingSignupSubscription).
         try {
-          await tryCompletePendingSignupSubscription()
+          await completePendingSignupWithRetries({ rounds: 4, gapMs: 1200 })
         } catch {
           // non-fatal — AuthContext also runs this on SIGNED_IN
         }
