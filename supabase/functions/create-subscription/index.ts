@@ -206,7 +206,7 @@ serve(async (req) => {
   }
 
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ') || authHeader.length <= 'Bearer '.length) {
     return jsonResponse({ error: 'Missing or invalid Authorization header' }, 401)
   }
 
@@ -256,7 +256,14 @@ serve(async (req) => {
   })
   const { data: userData, error: userErr } = await supabaseUser.auth.getUser()
   if (userErr || !userData.user) {
-    return jsonResponse({ error: 'Unauthorized' }, 401)
+    console.error('[create-subscription] auth.getUser failed:', userErr?.message ?? userErr)
+    return jsonResponse(
+      {
+        error:
+          'Session could not be validated. Sign in again, or verify Edge secrets SUPABASE_URL and SUPABASE_ANON_KEY for this Supabase project.',
+      },
+      401,
+    )
   }
   if (userData.user.id !== userId) {
     return jsonResponse({ error: 'userId does not match authenticated user' }, 403)

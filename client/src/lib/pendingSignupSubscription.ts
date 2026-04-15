@@ -7,7 +7,7 @@ const STORAGE_KEY = "takeoff_pending_subscription_v1";
 /** Serialize runs — Auth callback + SIGNED_IN + refetch can all fire at once. */
 let completeChain: Promise<void> = Promise.resolve();
 
-async function waitForSessionWithAccessToken(maxWaitMs = 5000): Promise<{
+async function waitForSessionWithAccessToken(maxWaitMs = 8000): Promise<{
   userId: string;
   email: string;
   accessToken: string;
@@ -20,10 +20,25 @@ async function waitForSessionWithAccessToken(maxWaitMs = 5000): Promise<{
     } = await supabase.auth.getSession();
     const t = session?.access_token;
     const u = session?.user;
-    if (t && u?.id && u.email) {
-      return { userId: u.id, email: u.email, accessToken: t };
+    if (!t || !u?.id || !u.email) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
     }
-    await new Promise((r) => setTimeout(r, 100));
+    // getSession() can be briefly ahead of a token Auth will accept; getUser() verifies with the server.
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+    if (userErr || !user?.id || user.id !== u.id) {
+      await new Promise((r) => setTimeout(r, 150));
+      continue;
+    }
+    const email = user.email ?? u.email;
+    if (!email) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
+    return { userId: user.id, email, accessToken: t };
   }
   return null;
 }

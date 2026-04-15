@@ -30,10 +30,14 @@ export async function callEdgeFunctionJson<T = unknown>(
     return { data: null, errorMessage: 'Supabase is not configured', httpStatus: 0 }
   }
 
+  // Non-empty explicit JWT only; `null`/"" must fall through to session retry — otherwise
+  // `invoke` omits Authorization and fetchWithAuth falls back to the anon key (Edge getUser → 401).
   let token: string | undefined
   if (options.accessToken !== undefined) {
-    token = options.accessToken ?? undefined
-  } else {
+    const explicit = options.accessToken
+    if (typeof explicit === 'string' && explicit.length > 0) token = explicit
+  }
+  if (token === undefined) {
     // Session is often not hydrated on the first tick after email confirmation / refresh — retry
     // so we never POST without Authorization (Supabase gateway returns 401).
     for (let i = 0; i < 30; i++) {
