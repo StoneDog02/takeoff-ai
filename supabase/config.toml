@@ -302,6 +302,37 @@ deno_version = 1
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Edge Functions: gateway JWT verification only supports legacy HS256. Projects using
+# JWT signing ECC (P-256) / ES256 get UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM before the handler runs.
+# Each function below still enforces auth inside its code (getUser / service checks).
+# See: https://supabase.com/docs/guides/troubleshooting/edge-function-401-error-response
+[functions.apply-referral]
+verify_jwt = false
+
+[functions.billing-portal]
+verify_jwt = false
+
+[functions.create-financial-connection-session]
+verify_jwt = false
+
+[functions.create-subscription]
+verify_jwt = false
+
+[functions.disconnect-financial-account]
+verify_jwt = false
+
+[functions.generate-referral-code]
+verify_jwt = false
+
+[functions.get-connected-accounts]
+verify_jwt = false
+
+[functions.get-payment-method]
+verify_jwt = false
+
+[functions.update-subscription]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
