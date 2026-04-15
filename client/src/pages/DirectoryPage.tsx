@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
 import type { DirectoryContractor } from '@/data/mockDirectoryData'
 import type { ThreadMessage } from '@/data/mockDirectoryData'
 import { api } from '@/api/client'
@@ -58,10 +57,7 @@ function contractorsToDirectory(c: Contractor): DirectoryContractor {
 }
 
 export function DirectoryPage() {
-  const location = useLocation()
-  const [subTab, setSubTab] = useState<DirectorySubTab>(
-    location.pathname === '/messages' ? 'messages' : 'directory'
-  )
+  const [subTab, setSubTab] = useState<DirectorySubTab>('directory')
   const [contentTab, setContentTab] = useState<DirectoryContentTab>('contractors')
   const [contractors, setContractors] = useState<DirectoryContractor[]>([])
   const [threads, setThreads] = useState<Record<string, ThreadMessage[]>>({})

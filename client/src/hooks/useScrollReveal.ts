@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 
+/** Toggles .visible on .reveal elements. Optional modifiers in theme.css: .reveal-left, .reveal-right, .reveal-scale; stagger: .reveal-delay-1|2|3 */
+
 function observeReveals(observer: IntersectionObserver) {
   document.querySelectorAll('.reveal').forEach((el) => {
     if (!el.classList.contains('visible')) observer.observe(el)

@@ -3,14 +3,24 @@ import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import type { Stripe, StripeElements } from "@stripe/stripe-js";
 import { API_BASE } from "@/api/config";
 import { LinkBankAccountPanel } from "@/components/stripe/LinkBankAccountPanel";
-import { PricingCard } from "@/components/landing/PricingCard";
 import { getRecaptchaToken, isRecaptchaConfigured } from "@/lib/recaptcha";
+import { buildLineItems } from "@/lib/stripeProducts";
 import {
   REFERRAL_STORAGE_KEY,
   clearReferralSignupIntent,
   persistReferralCodeFromManualInput,
   setReferralSignupIntent,
 } from "@/lib/referralCapture";
+import {
+  PricingStep,
+  computePricingMonthly,
+  effectivePricingAddons,
+  isPricingSelectionValid,
+  type PricingSelection,
+  type PricingTier,
+} from "@/components/landing/PricingStep";
+
+export type { PricingTier, PricingSelection } from "@/components/landing/PricingStep";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -56,21 +66,6 @@ export interface SignupPlan {
   formatted: string;
 }
 
-/** Product from Stripe with nested prices (for signup plan step with monthly/yearly toggle). */
-export interface SignupProduct {
-  productId: string;
-  name: string;
-  description: string;
-  metadata: Record<string, string>;
-  prices: Array<{
-    id: string;
-    amount: number;
-    currency: string;
-    interval: "month" | "year";
-    formatted: string;
-  }>;
-}
-
 export interface SignupWizardForm {
   firstName: string;
   lastName: string;
@@ -86,6 +81,8 @@ export interface SignupWizardForm {
   role: string;
   phone: string;
   contactPref: string;
+  /** Configurator selections (tier, add-ons, payroll seats). */
+  pricingSelection: PricingSelection;
   plan: string;
   cardName: string;
   cardNumber: string;
@@ -538,246 +535,31 @@ function Step4({
   );
 }
 
-const SIGNUP_DEFAULT_FEATURES = [
-  "Full project management suite",
-  "Estimates, takeoffs & invoicing",
-  "Crew & payroll management",
-  "Client communication portal",
-  "Subcontractor bid collection",
-];
-
-function parseSignupFeatures(metadata: Record<string, string>): string[] {
-  const raw = metadata?.features;
-  if (!raw || typeof raw !== "string") return [];
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((x): x is string => typeof x === "string")
-      : trimmed.split(/\n/).map((s) => s.trim()).filter(Boolean);
-  } catch {
-    return trimmed.split(/\n/).map((s) => s.trim()).filter(Boolean);
+function pricingTierLabel(tier: PricingTier): string {
+  switch (tier) {
+    case "core":
+      return "Core PM";
+    case "plus":
+      return "Core PM Plus";
+    case "pro":
+      return "Core PM Pro";
   }
 }
 
-// ─── Step 5: Plan ──────────────────────────────────────────────────────────────
-
-type Step5Errors = Partial<Record<"plan", string>>;
-
-function Step5({
-  form,
-  upd,
-  errors,
-  onClearError,
-  plans,
-  products,
-  plansLoading,
-  yearly,
-  setYearlyAndUpdatePlan,
-}: {
-  form: SignupWizardForm;
-  upd: (key: keyof SignupWizardForm, value: string) => void;
-  errors: Step5Errors;
-  onClearError: (field: keyof Step5Errors) => void;
-  plans: SignupPlan[];
-  products: SignupProduct[];
-  plansLoading: boolean;
-  yearly: boolean;
-  setYearlyAndUpdatePlan: (yearly: boolean) => void;
-}) {
-  const useProductCards = products.length > 0;
-  const [openFeaturesKey, setOpenFeaturesKey] = useState<string | null>(null);
-  const singlePlan = useProductCards ? products.length === 1 : plans.length === 1;
-
-  return (
-    <div>
-      <StepHeader
-        title="Choose your plan"
-        sub="Start with a 30-day free trial on Standard. You'll add a payment method next — you won't be charged until the trial ends."
-      />
-
-      {useProductCards && (
-        <div style={{ marginBottom: "24px" }}>
-          <p style={{ fontSize: "14px", color: "#666", margin: "0 0 12px" }}>Billing frequency</p>
-          <div
-            style={{
-              display: "inline-flex",
-              background: "#f0eeea",
-              border: "1px solid #e0ddd8",
-              borderRadius: "100px",
-              padding: "4px",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setYearlyAndUpdatePlan(false)}
-              style={{
-                padding: "10px 24px",
-                borderRadius: "100px",
-                border: "none",
-                fontSize: "14px",
-                fontWeight: 500,
-                cursor: "pointer",
-                background: !yearly ? "#fff" : "transparent",
-                color: !yearly ? DARK : "#666",
-                boxShadow: !yearly ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-              }}
-            >
-              Monthly
-            </button>
-            <button
-              type="button"
-              onClick={() => setYearlyAndUpdatePlan(true)}
-              style={{
-                padding: "10px 24px",
-                borderRadius: "100px",
-                border: "none",
-                fontSize: "14px",
-                fontWeight: 500,
-                cursor: "pointer",
-                background: yearly ? "#fff" : "transparent",
-                color: yearly ? DARK : "#666",
-                boxShadow: yearly ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              Yearly
-              <span
-                style={{
-                  background: "#22c55e",
-                  color: "#fff",
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  padding: "2px 8px",
-                  borderRadius: "100px",
-                }}
-              >
-                Save 20%
-              </span>
-            </button>
-          </div>
-          <p style={{ fontSize: "12px", color: "#888", margin: "8px 0 0" }}>
-            {yearly ? "Billed annually" : "Billed monthly"}
-          </p>
-        </div>
-      )}
-
-      <Field label="Plan" error={errors.plan}>
-        <div
-          style={{
-            display: singlePlan ? "flex" : "grid",
-            justifyContent: singlePlan ? "center" : undefined,
-            flexWrap: singlePlan ? "wrap" : undefined,
-            gridTemplateColumns: singlePlan
-              ? undefined
-              : useProductCards
-                ? products.length <= 2
-                  ? "1fr 1fr"
-                  : "1fr 1fr 1fr"
-                : plans.length <= 2
-                  ? "1fr 1fr"
-                  : "1fr 1fr 1fr",
-            gap: "24px",
-            ...(errors.plan ? { padding: "12px", borderRadius: "10px", border: `2px solid ${ACCENT}` } : {}),
-          }}
-        >
-          {plansLoading && (
-            <div style={{ gridColumn: "1 / -1", padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
-              Loading plans…
-            </div>
-          )}
-          {!plansLoading && !useProductCards && plans.length === 0 && (
-            <div style={{ gridColumn: "1 / -1", padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
-              No plans available. Please try again later.
-            </div>
-          )}
-
-          {!plansLoading && useProductCards &&
-            products.map((product) => {
-              const prices = product.prices || [];
-              const priceMonth = prices.find((p) => p.interval === "month");
-              const priceYear = prices.find((p) => p.interval === "year");
-              const price = yearly ? priceYear ?? priceMonth : priceMonth ?? priceYear;
-              const featuresFromMeta = parseSignupFeatures(product.metadata || {});
-              const features = featuresFromMeta.length > 0 ? featuresFromMeta : SIGNUP_DEFAULT_FEATURES;
-              const meta = product.metadata || {};
-              const isStandard = product.name.toLowerCase() === "standard";
-              const offerBadge =
-                meta.offer_badge ||
-                (meta.limited_time_offer === "true" ? "LIMITED TIME OFFER" : undefined) ||
-                (isStandard ? "LIMITED TIME OFFER" : undefined);
-              const originalPriceFormatted = meta.original_price_formatted || (isStandard ? "$1,000 / mo" : undefined);
-              const discountBadge = meta.discount_badge || (isStandard ? "50% OFF" : undefined);
-              const description =
-                product.description ||
-                (isStandard ? "Everything you need to run your business." : "Subscribe to this plan.");
-              const selected = price ? form.plan === price.id : false;
-              const trialNote =
-                meta.trial_note ||
-                (isStandard ? "30-day free trial" : undefined);
-
-              return (
-                <PricingCard
-                  key={product.productId}
-                  name={product.name}
-                  description={description}
-                  price={price ? { amount: price.amount, currency: price.currency, formatted: price.formatted, interval: price.interval } : null}
-                  features={features}
-                  cta="Select plan"
-                  offerBadge={offerBadge}
-                  originalPriceFormatted={originalPriceFormatted}
-                  discountBadge={discountBadge}
-                  trialNote={trialNote}
-                  disclaimer="No contracts — cancel anytime."
-                  selectable
-                  selected={selected}
-                  onSelect={() => {
-                    if (price) {
-                      upd("plan", price.id);
-                      onClearError("plan");
-                    }
-                  }}
-                  ctaHref={undefined}
-                  collapsibleFeatures
-                  featuresOpen={openFeaturesKey === product.productId}
-                  onToggleFeatures={() => setOpenFeaturesKey((k) => (k === product.productId ? null : product.productId))}
-                />
-              );
-            })}
-
-          {!plansLoading && !useProductCards &&
-            plans.map((p) => (
-              <PricingCard
-                key={p.id}
-                name={p.name}
-                description="Everything you need to run your business."
-                price={{ amount: p.amount, currency: p.currency, formatted: p.formatted, interval: p.interval }}
-                features={[]}
-                cta="Select plan"
-                trialNote={p.name.toLowerCase() === "standard" ? "30-day free trial" : undefined}
-                billingNote={p.interval === "year" ? "Billed annually" : "Billed monthly"}
-                disclaimer="No contracts — cancel anytime."
-                selectable
-                selected={form.plan === p.id}
-                onSelect={() => { upd("plan", p.id); onClearError("plan"); }}
-                ctaHref={undefined}
-                collapsibleFeatures
-                featuresOpen={openFeaturesKey === p.id}
-                onToggleFeatures={() => setOpenFeaturesKey((k) => (k === p.id ? null : p.id))}
-              />
-            ))}
-        </div>
-      </Field>
-    </div>
-  );
-}
+const PAYMENT_ADDON_LABELS: Record<string, string> = {
+  estimating: "Estimating Suite",
+  portals: "Bid & Client Portals",
+  "ai-takeoff": "AI Material Takeoff",
+  financial: "Financial Suite",
+  "field-ops": "Field Ops & Payroll",
+  fieldpayroll: "Field Ops & Payroll",
+  vault: "Document Vault",
+  directory: "Directory & Messaging",
+};
 
 // ─── Step 6: Payment (Stripe Card Element) ───────────────────────────────────────
 
-type Step6Errors = Partial<Record<"card", string>>;
+type StepPaymentErrors = Partial<Record<"card", string>>;
 
 /** Referral code from form or ?ref= localStorage (same source as apply-referral after signup). */
 function getActiveReferralCode(form: SignupWizardForm): string {
@@ -790,8 +572,12 @@ function getActiveReferralCode(form: SignupWizardForm): string {
   }
 }
 
-/** 10% off first paid subscription invoice — estimate for display only. */
-function formatEstimatedFirstInvoiceAfterReferral(plan: SignupPlan): string {
+/** 10% off first paid subscription invoice — estimate for display only (amount = cents). */
+function formatEstimatedFirstInvoiceAfterReferral(plan: {
+  amount: number;
+  currency: string;
+  interval: "month" | "year";
+}): string {
   const afterCents = Math.round(plan.amount * 0.9);
   const sym = plan.currency?.toLowerCase() === "usd" ? "$" : "";
   const amt = (afterCents / 100).toFixed(afterCents % 100 === 0 ? 0 : 2);
@@ -799,20 +585,18 @@ function formatEstimatedFirstInvoiceAfterReferral(plan: SignupPlan): string {
   return `${sym}${amt}${suffix}`;
 }
 
-function Step6Payment({
+function StepPayment({
   form,
   errors,
   onClearError,
   onStripeReady,
   onCardChange,
-  plans,
 }: {
   form: SignupWizardForm;
-  errors: Step6Errors;
-  onClearError: (field: keyof Step6Errors) => void;
+  errors: StepPaymentErrors;
+  onClearError: (field: keyof StepPaymentErrors) => void;
   onStripeReady: (stripe: Stripe | null, elements: StripeElements | null) => void;
   onCardChange: (complete: boolean) => void;
-  plans: SignupPlan[];
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -821,7 +605,20 @@ function Step6Payment({
     onStripeReady(stripe ?? null, elements ?? null);
   }, [stripe, elements, onStripeReady]);
 
-  const selectedPlan = plans.find((p) => p.id === form.plan);
+  const { total } = computePricingMonthly(form.pricingSelection);
+  const planName = pricingTierLabel(form.pricingSelection.tier);
+  const formattedTotal = `$${total}/mo`;
+  const billedAddonIds = effectivePricingAddons(form.pricingSelection);
+  const packageCount = billedAddonIds.length;
+  const addonSummary =
+    billedAddonIds.length > 0
+      ? billedAddonIds.map((id) => PAYMENT_ADDON_LABELS[id] || id).join(" · ")
+      : null;
+  const referralPlanForEstimate = {
+    amount: total * 100,
+    currency: "usd",
+    interval: "month" as const,
+  };
   const referralCode = getActiveReferralCode(form);
   const hasReferral = Boolean(referralCode);
 
@@ -841,19 +638,30 @@ function Step6Payment({
             <div style={{ fontSize: "11px", color: ACCENT, fontWeight: "600", marginBottom: "2px" }}>
               SELECTED PLAN
             </div>
-            <div style={{ fontWeight: "700", color: DARK, fontSize: "15px" }}>
-              {selectedPlan ? selectedPlan.name : "Plan"}
+            <div style={{ fontWeight: "700", color: DARK, fontSize: "15px", lineHeight: 1.35 }}>
+              {planName}
+              {packageCount > 0 ? (
+                <span style={{ fontWeight: "600", color: "#8a382e", fontSize: "13px" }}>
+                  {" "}
+                  · +{packageCount} {packageCount === 1 ? "package" : "packages"}
+                </span>
+              ) : null}
             </div>
+            {addonSummary ? (
+              <p style={{ margin: "8px 0 0", fontSize: "12px", color: "#666", lineHeight: 1.45, maxWidth: "420px" }}>
+                Includes: {addonSummary}
+              </p>
+            ) : null}
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>
-              {selectedPlan ? selectedPlan.formatted : form.plan ? "—" : "—"}
+              {formattedTotal}
             </div>
-            <div style={{ fontSize: "12px", color: "#888" }}>after 30-day trial</div>
+            <div style={{ fontSize: "12px", color: "#888" }}>est. monthly after trial</div>
           </div>
         </div>
 
-        {hasReferral && selectedPlan && (
+        {hasReferral && total > 0 && (
           <div
             style={{
               marginTop: "14px",
@@ -885,7 +693,7 @@ function Step6Payment({
             >
               <span style={{ fontSize: "12px", color: "#166534", fontWeight: "600" }}>Estimated first paid invoice</span>
               <span style={{ fontSize: "16px", fontWeight: "800", color: "#15803d" }}>
-                ~{formatEstimatedFirstInvoiceAfterReferral(selectedPlan)}{" "}
+                ~{formatEstimatedFirstInvoiceAfterReferral(referralPlanForEstimate)}{" "}
                 <span style={{ fontSize: "11px", fontWeight: "600", color: "#166534" }}>(after 10% off)</span>
               </span>
             </div>
@@ -1032,7 +840,7 @@ function Sidebar({ currentStep }: { currentStep: number }) {
 // ─── Main Wizard ────────────────────────────────────────────────────────────────
 
 export interface SignupWizardProps {
-  /** Called when user completes step 6 (signup). Return error message to show, or undefined on success. */
+  /** Called when user completes the payment step (signup). Return error message to show, or undefined on success. */
   onSignUp: (form: SignupWizardForm) => Promise<string | undefined>;
   /** Optional: called when user would have gone to dashboard (e.g. if email confirm is disabled). */
   onGoToDashboard?: (form: SignupWizardForm) => void;
@@ -1043,10 +851,6 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [plans, setPlans] = useState<SignupPlan[]>([]);
-  const [products, setProducts] = useState<SignupProduct[]>([]);
-  const [plansLoading, setPlansLoading] = useState(true);
-  const [yearly, setYearly] = useState(false);
   const [form, setForm] = useState<SignupWizardForm>({
     firstName: "",
     lastName: "",
@@ -1061,6 +865,7 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     role: "",
     phone: "",
     contactPref: "",
+    pricingSelection: { tier: "core", addons: [], employees: 5 },
     plan: "",
     cardName: "",
     cardNumber: "",
@@ -1079,41 +884,7 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/stripe/plans`, { cache: "no-store" });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        const payload = data as { plans?: SignupPlan[]; products?: SignupProduct[] };
-        if (Array.isArray(payload.plans)) setPlans(payload.plans);
-        if (Array.isArray(payload.products)) setProducts(payload.products);
-      } catch {
-        if (!cancelled) {
-          setPlans([]);
-          setProducts([]);
-        }
-      } finally {
-        if (!cancelled) setPlansLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
   const upd = (key: keyof SignupWizardForm, value: string) => setForm((f) => ({ ...f, [key]: value }));
-
-  const setYearlyAndUpdatePlan = (newYearly: boolean) => {
-    setYearly(newYearly);
-    if (!form.plan) return;
-    const product = products.find((p) => p.prices.some((pr) => pr.id === form.plan));
-    if (product) {
-      const price = newYearly
-        ? product.prices.find((p) => p.interval === "year")
-        : product.prices.find((p) => p.interval === "month");
-      if (price) upd("plan", price.id);
-    }
-  };
 
   const toggleTrade = (t: string) =>
     setForm((f) => ({
@@ -1187,18 +958,24 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
       setStep4Errors({});
     }
     if (step === 5) {
-      const errs = validateStep5();
-      const hasErrors = Object.keys(errs).length > 0;
-      setStep5Errors(errs);
-      if (hasErrors) return;
-      setStep5Errors({});
+      if (!isPricingSelectionValid(form.pricingSelection)) return;
+      const items = buildLineItems(form.pricingSelection);
+      const tierPrice = items[0]?.price;
+      if (!tierPrice) {
+        setError(
+          "We couldn’t resolve your plan’s Stripe price. Check that price IDs are configured, then try again.",
+        );
+        return;
+      }
+      setError(null);
+      setForm((f) => ({ ...f, plan: tierPrice }));
     }
     if (step === 6) {
-      const errs = validateStep6();
+      const errs = validateStepPayment();
       const hasErrors = Object.keys(errs).length > 0;
-      setStep6Errors(errs);
+      setStepPaymentErrors(errs);
       if (hasErrors) return;
-      setStep6Errors({});
+      setStepPaymentErrors({});
     }
     if (step < STEPS.length) setStep((s) => s + 1);
     else handleComplete();
@@ -1265,34 +1042,18 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     });
   };
 
-  const [step5Errors, setStep5Errors] = useState<Step5Errors>({});
-
-  const validateStep5 = (): Step5Errors => {
-    const err: Step5Errors = {};
-    if (!form.plan) err.plan = "Please select a plan.";
-    return err;
-  };
-
-  const clearStep5Error = (field: keyof Step5Errors) => {
-    setStep5Errors((prev) => {
-      const next = { ...prev };
-      delete next[field];
-      return next;
-    });
-  };
-
-  const [step6Errors, setStep6Errors] = useState<Step6Errors>({});
+  const [stepPaymentErrors, setStepPaymentErrors] = useState<StepPaymentErrors>({});
   const [cardComplete, setCardComplete] = useState(false);
   const stripeRef = useRef<{ stripe: Stripe; elements: StripeElements } | null>(null);
 
-  const validateStep6 = (): Step6Errors => {
-    const err: Step6Errors = {};
+  const validateStepPayment = (): StepPaymentErrors => {
+    const err: StepPaymentErrors = {};
     if (!cardComplete) err.card = "Please complete your card details.";
     return err;
   };
 
-  const clearStep6Error = (field: keyof Step6Errors) => {
-    setStep6Errors((prev) => {
+  const clearStepPaymentError = (field: keyof StepPaymentErrors) => {
+    setStepPaymentErrors((prev) => {
       const next = { ...prev };
       delete next[field];
       return next;
@@ -1382,28 +1143,25 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     <Step2 key="2" form={form} upd={upd} errors={step2Errors} onClearError={clearStep2Error} />,
     <Step3 key="3" form={form} upd={upd} toggleTrade={toggleTrade} errors={step3Errors} onClearError={clearStep3Error} />,
     <Step4 key="4" form={form} upd={upd} errors={step4Errors} onClearError={clearStep4Error} />,
-    <Step5
-      key="5"
-      form={form}
-      upd={upd}
-      errors={step5Errors}
-      onClearError={clearStep5Error}
-      plans={plans}
-      products={products}
-      plansLoading={plansLoading}
-      yearly={yearly}
-      setYearlyAndUpdatePlan={setYearlyAndUpdatePlan}
+    <PricingStep
+      key="5-pricing"
+      selection={form.pricingSelection}
+      setSelection={(next) =>
+        setForm((f) => ({
+          ...f,
+          pricingSelection: typeof next === "function" ? next(f.pricingSelection) : next,
+        }))
+      }
     />,
-    <Step6Payment
-      key="6"
+    <StepPayment
+      key="6-pay"
       form={form}
-      errors={step6Errors}
-      onClearError={clearStep6Error}
+      errors={stepPaymentErrors}
+      onClearError={clearStepPaymentError}
       onStripeReady={(stripe, elements) => {
         stripeRef.current = stripe && elements ? { stripe, elements } : null;
       }}
       onCardChange={setCardComplete}
-      plans={plans}
     />,
   ];
 
@@ -1459,11 +1217,19 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
               type="button"
               onClick={handleStepNext}
               style={
-                loading
-                  ? { ...btnPrimaryStyle, opacity: 0.8, pointerEvents: "none" as const }
+                loading ||
+                (step === 5 &&
+                  (!isPricingSelectionValid(form.pricingSelection) ||
+                    !buildLineItems(form.pricingSelection)[0]?.price))
+                  ? { ...btnPrimaryStyle, opacity: 0.6, pointerEvents: "none" as const }
                   : { ...btnPrimaryStyle }
               }
-              disabled={loading}
+              disabled={
+                loading ||
+                (step === 5 &&
+                  (!isPricingSelectionValid(form.pricingSelection) ||
+                    !buildLineItems(form.pricingSelection)[0]?.price))
+              }
             >
               {loading ? "Creating account..." : step === STEPS.length ? "Complete Setup →" : "Continue →"}
             </button>

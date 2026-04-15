@@ -7,6 +7,7 @@ import { RevenueDonutChart } from '@/components/revenue/RevenueDonutChart'
 import { RevenueExport } from '@/components/revenue/RevenueExport'
 import { useRevenueLiveData } from '@/hooks/useRevenueLiveData'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
+import { ConnectedAccountsSection } from '@/pages/financials/ConnectedAccountsSection'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -254,6 +255,8 @@ export function RevenuePage() {
             <RevenueExport onExportCSV={downloadCSV} onExportPDF={downloadPDF} />
           </div>
         </div>
+
+        <ConnectedAccountsSection />
 
         {/* ── KPI CARDS ── */}
         <div className="revenue-overhaul-kpi-row">

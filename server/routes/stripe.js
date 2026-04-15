@@ -12,6 +12,10 @@ const {
   findUserForFcAccount,
 } = require('../lib/syncStripeBankTransactions')
 const { buildBillingSummary } = require('../lib/billingSummary')
+const {
+  deriveSubscriptionPricingFromStripeSubscription,
+  mapStripeSubscriptionStatus,
+} = require('../lib/stripeSubscriptionDerive')
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -1082,6 +1086,74 @@ async function handleInvoicePaymentSucceededReferralCredits(event) {
 }
 
 /**
+ * Upsert subscriptions row from Stripe subscription object; sync tier/addons/employees from price IDs.
+ * Clears profiles.trial_ending_soon when the subscription is no longer in an active trial window.
+ */
+async function syncSubscriptionRowFromStripeWebhook(sub) {
+  if (!supabase || !sub?.id) return
+
+  const derived = deriveSubscriptionPricingFromStripeSubscription(sub)
+  const { data: existing, error: fetchErr } = await supabase
+    .from('subscriptions')
+    .select('user_id, tier, addons, employees')
+    .eq('stripe_subscription_id', sub.id)
+    .maybeSingle()
+  if (fetchErr) {
+    console.error('[stripe] webhook subscription fetch:', fetchErr.message)
+  }
+
+  const userId = sub.metadata?.user_id || existing?.user_id
+  const stripeCustomerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id
+
+  const firstPriceId =
+    sub.items?.data?.[0]?.price && typeof sub.items.data[0].price === 'object'
+      ? sub.items.data[0].price.id
+      : null
+
+  const row = {
+    ...(userId ? { user_id: userId } : {}),
+    stripe_customer_id: stripeCustomerId,
+    stripe_subscription_id: sub.id,
+    stripe_price_id: derived.primaryTierPriceId || firstPriceId || null,
+    status: mapStripeSubscriptionStatus(sub.status),
+    current_period_start: sub.current_period_start
+      ? new Date(sub.current_period_start * 1000).toISOString()
+      : null,
+    current_period_end: sub.current_period_end
+      ? new Date(sub.current_period_end * 1000).toISOString()
+      : null,
+    cancel_at_period_end: !!sub.cancel_at_period_end,
+    trial_ends_at:
+      sub.trial_end != null && sub.trial_end > 0
+        ? new Date(sub.trial_end * 1000).toISOString()
+        : null,
+    tier: derived.tier != null ? derived.tier : existing?.tier ?? null,
+    addons: derived.addons,
+    employees: derived.employees != null ? derived.employees : (existing?.employees ?? 5),
+    updated_at: new Date().toISOString(),
+  }
+
+  const { error: upErr } = await supabase.from('subscriptions').upsert(row, {
+    onConflict: 'stripe_subscription_id',
+  })
+  if (upErr) {
+    console.error('[stripe] webhook subscription upsert:', upErr.message)
+    return
+  }
+
+  if (userId) {
+    const nowSec = Math.floor(Date.now() / 1000)
+    const trialOver = sub.trial_end != null && sub.trial_end > 0 && sub.trial_end <= nowSec
+    if (sub.status !== 'trialing' || trialOver) {
+      await supabase
+        .from('profiles')
+        .update({ trial_ending_soon: false, updated_at: new Date().toISOString() })
+        .eq('id', userId)
+    }
+  }
+}
+
+/**
  * Webhook handler. Must be mounted with express.raw({ type: 'application/json' }) so body is raw.
  * Keeps public.subscriptions in sync with Stripe.
  */
@@ -1099,50 +1171,66 @@ async function handleWebhook(req, res) {
     return res.status(400).send('Invalid signature')
   }
 
-  const subId = event.data?.object?.id
-  const customerId = event.data?.object?.customer
-
   try {
     switch (event.type) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
+        await syncSubscriptionRowFromStripeWebhook(event.data.object)
+        break
+      }
+      case 'customer.subscription.trial_will_end': {
         const sub = event.data.object
-        if (!supabase) break
-        const userId = sub.metadata?.user_id || null
-        const row = {
-          stripe_customer_id: sub.customer,
-          stripe_subscription_id: sub.id,
-          stripe_price_id: sub.items?.data?.[0]?.price?.id || null,
-          status: sub.status === 'trialing' ? 'trialing' : sub.status,
-          current_period_start: sub.current_period_start
-            ? new Date(sub.current_period_start * 1000).toISOString()
-            : null,
-          current_period_end: sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
-            : null,
-          cancel_at_period_end: !!sub.cancel_at_period_end,
-          updated_at: new Date().toISOString(),
+        if (!supabase || !sub?.id) break
+        const { data: row } = await supabase
+          .from('subscriptions')
+          .select('user_id')
+          .eq('stripe_subscription_id', sub.id)
+          .maybeSingle()
+        if (row?.user_id) {
+          await supabase
+            .from('profiles')
+            .update({ trial_ending_soon: true, updated_at: new Date().toISOString() })
+            .eq('id', row.user_id)
         }
-        if (userId) row.user_id = userId
-        await supabase.from('subscriptions').upsert(row, { onConflict: 'stripe_subscription_id' })
         break
       }
       case 'customer.subscription.deleted': {
-        if (supabase && subId) {
+        const sub = event.data.object
+        const delId = sub?.id
+        if (supabase && delId) {
+          const { data: prior } = await supabase
+            .from('subscriptions')
+            .select('user_id')
+            .eq('stripe_subscription_id', delId)
+            .maybeSingle()
+          const canceledAt =
+            sub.canceled_at != null && sub.canceled_at > 0
+              ? new Date(sub.canceled_at * 1000).toISOString()
+              : new Date().toISOString()
           await supabase
             .from('subscriptions')
             .update({
               status: 'canceled',
+              canceled_at: canceledAt,
               updated_at: new Date().toISOString(),
             })
-            .eq('stripe_subscription_id', subId)
+            .eq('stripe_subscription_id', delId)
+          if (prior?.user_id) {
+            await supabase
+              .from('profiles')
+              .update({ trial_ending_soon: false, updated_at: new Date().toISOString() })
+              .eq('id', prior.user_id)
+          }
         }
         break
       }
       case 'invoice.paid':
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object
-        const subIdFromInvoice = invoice.subscription
+        const subIdFromInvoice =
+          typeof invoice.subscription === 'string'
+            ? invoice.subscription
+            : invoice.subscription?.id
         if (supabase && subIdFromInvoice) {
           await supabase
             .from('subscriptions')
@@ -1151,6 +1239,17 @@ async function handleWebhook(req, res) {
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_subscription_id', subIdFromInvoice)
+          const { data: subRow } = await supabase
+            .from('subscriptions')
+            .select('user_id')
+            .eq('stripe_subscription_id', subIdFromInvoice)
+            .maybeSingle()
+          if (subRow?.user_id) {
+            await supabase
+              .from('profiles')
+              .update({ payment_failed: false, updated_at: new Date().toISOString() })
+              .eq('id', subRow.user_id)
+          }
         }
         // Referral credits: idempotent if both events fire; gated inside by billing_reason === subscription_cycle
         await handleInvoicePaymentSucceededReferralCredits(event)
@@ -1158,7 +1257,10 @@ async function handleWebhook(req, res) {
       }
       case 'invoice.payment_failed': {
         const invoice = event.data.object
-        const subIdFromInvoice = invoice.subscription
+        const subIdFromInvoice =
+          typeof invoice.subscription === 'string'
+            ? invoice.subscription
+            : invoice.subscription?.id
         if (supabase && subIdFromInvoice) {
           await supabase
             .from('subscriptions')
@@ -1167,6 +1269,17 @@ async function handleWebhook(req, res) {
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_subscription_id', subIdFromInvoice)
+          const { data: subRow } = await supabase
+            .from('subscriptions')
+            .select('user_id')
+            .eq('stripe_subscription_id', subIdFromInvoice)
+            .maybeSingle()
+          if (subRow?.user_id) {
+            await supabase
+              .from('profiles')
+              .update({ payment_failed: true, updated_at: new Date().toISOString() })
+              .eq('id', subRow.user_id)
+          }
         }
         break
       }

@@ -569,19 +569,57 @@ body {
   }
 }
 
-/* Scroll reveal */
+/* Scroll reveal — base uses translateY; add .reveal-left / .reveal-right for horizontal;
+   .reveal-scale adds subtle zoom (pair with .visible from useScrollReveal).
+   prefers-reduced-motion: skip motion, show content immediately. */
 .reveal {
   opacity: 0;
-  transform: translateY(24px);
   transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal:not(.reveal-left):not(.reveal-right):not(.reveal-scale) {
+  transform: translateY(24px);
+}
+.reveal.reveal-left {
+  transform: translateX(-32px);
+}
+.reveal.reveal-right {
+  transform: translateX(32px);
+}
+.reveal.reveal-scale {
+  transform: translateY(20px) scale(0.97);
 }
 .reveal.visible {
   opacity: 1;
+}
+.reveal.visible:not(.reveal-left):not(.reveal-right):not(.reveal-scale) {
   transform: translateY(0);
+}
+.reveal.reveal-left.visible,
+.reveal.reveal-right.visible {
+  transform: translateX(0);
+}
+.reveal.reveal-scale.visible {
+  transform: translateY(0) scale(1);
 }
 .reveal-delay-1 { transition-delay: 0.1s; }
 .reveal-delay-2 { transition-delay: 0.2s; }
 .reveal-delay-3 { transition-delay: 0.3s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.reveal-left,
+  .reveal.reveal-right,
+  .reveal.reveal-scale {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .reveal-delay-1,
+  .reveal-delay-2,
+  .reveal-delay-3 {
+    transition-delay: 0s;
+  }
+}
 
 /* Pricing card (landing + signup) */
 .pc-card {
@@ -787,6 +825,108 @@ body {
   min-height: 100vh;
   transition: background 0.2s, color 0.2s;
   overflow-x: hidden;
+}
+
+/* Trial banner: fixed strip — offset fixed sidenav + main column */
+.dashboard-app--trial-banner {
+  --trial-banner-height: 52px;
+}
+
+.trial-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 250;
+  min-height: var(--trial-banner-height, 52px);
+  box-sizing: border-box;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #c0392b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.trial-banner__text {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
+}
+
+.trial-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.trial-banner__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.trial-banner__btn--primary {
+  padding: 8px 14px;
+  background: #fff;
+  color: #c0392b;
+}
+
+.trial-banner__btn--primary:hover {
+  opacity: 0.95;
+}
+
+.trial-banner__btn--ghost {
+  padding: 6px;
+  background: transparent;
+  color: #fff;
+  opacity: 0.95;
+}
+
+.trial-banner__btn--ghost:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@keyframes trial-banner-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+  50% {
+    filter: brightness(1.06);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+  }
+}
+
+.trial-banner--urgent {
+  animation: trial-banner-pulse 2.2s ease-in-out infinite;
+}
+
+.dashboard-app--trial-banner .sidenav {
+  top: var(--trial-banner-height, 52px);
+  height: calc(100vh - var(--trial-banner-height, 52px));
+}
+
+.dashboard-app--trial-banner .content-wrap {
+  margin-top: var(--trial-banner-height, 52px);
+  min-height: calc(100vh - var(--trial-banner-height, 52px));
 }
 
 .dashboard-app .app {
@@ -997,6 +1137,32 @@ body {
   border-radius: 99px;
   background: var(--red);
   box-shadow: 0 0 6px var(--red-glow);
+}
+
+.dashboard-app .nav-item.nav-item--locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dashboard-app .nav-item.nav-item--locked:hover {
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.dashboard-app .nav-item.nav-item--locked:hover svg:not(.nav-lock-icon) {
+  opacity: 0.7;
+}
+
+.dashboard-app .nav-item .nav-lock-icon {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  opacity: 0.85;
+}
+
+.dashboard-app .sidenav.collapsed .nav-item .nav-lock-icon {
+  margin-left: 0;
 }
 
 .dashboard-app .nav-label {

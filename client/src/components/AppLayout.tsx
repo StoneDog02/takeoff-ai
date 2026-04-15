@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Lock } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { PublicDemoBanner } from '@/components/PublicDemoBanner'
@@ -12,10 +13,47 @@ import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { useSupportNewCount } from '@/hooks/useSupportNewCount'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePreview } from '@/contexts/PreviewContext'
+import { useSubscription } from '@/contexts/SubscriptionContext'
+import type { FeatureFlag } from '@/lib/featureFlags'
+import { TrialBanner, TRIAL_BANNER_SESSION_KEY } from '@/components/TrialBanner'
 import { supabase } from '@/lib/supabaseClient'
 import { api } from '@/api/client'
 import { isPublicDemo, exitPublicDemo } from '@/lib/publicDemo'
 import type { DismissedAlert } from '@/api/client'
+
+function GatedNavItem({
+  to,
+  feature,
+  end,
+  children,
+}: {
+  to: string
+  feature?: FeatureFlag
+  end?: boolean
+  children: ReactNode
+}) {
+  const { hasFeature, isLoading: subscriptionLoading } = useSubscription()
+  const locked = feature != null && !subscriptionLoading && !hasFeature(feature)
+
+  if (locked) {
+    return (
+      <Link
+        to="/settings/billing"
+        className="nav-item nav-item--locked"
+        title="Upgrade your plan to unlock"
+      >
+        {children}
+        <Lock className="nav-lock-icon" size={14} strokeWidth={2} aria-hidden />
+      </Link>
+    )
+  }
+
+  return (
+    <NavLink to={to} end={end} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+      {children}
+    </NavLink>
+  )
+}
 
 export function AppLayout() {
   const [navCollapsed, setNavCollapsed] = useState(false)
@@ -27,10 +65,13 @@ export function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const isFinancialsActive = location.pathname.startsWith('/financials')
   const isAffiliateActive = location.pathname.startsWith('/affiliate')
   const { user, isAdmin, type, role_label, employee, loading, has_affiliate_portal } = useAuth()
   const { previewRole } = usePreview()
+  const { isTrialing, trialDaysRemaining, isLoading: subscriptionOrAuthLoading } = useSubscription()
+  const [trialBannerDismissed, setTrialBannerDismissed] = useState(
+    () => typeof sessionStorage !== 'undefined' && sessionStorage.getItem(TRIAL_BANNER_SESSION_KEY) === '1',
+  )
   const showAdminNavEnabled = isAdmin && previewRole !== 'project_manager'
   const supportNewCount = useSupportNewCount(showAdminNavEnabled)
   const { isOnline, syncPending, syncing } = useOfflineSync()
@@ -116,6 +157,15 @@ export function AppLayout() {
   const showAdminNav = showAdminNavEnabled
   const showPmNav = !isAdmin || previewRole === 'project_manager'
 
+  const showTrialBanner =
+    !subscriptionOrAuthLoading && isTrialing && !trialBannerDismissed
+  const trialBannerUrgent = trialDaysRemaining != null && trialDaysRemaining <= 3
+
+  function dismissTrialBanner() {
+    sessionStorage.setItem(TRIAL_BANNER_SESSION_KEY, '1')
+    setTrialBannerDismissed(true)
+  }
+
   const toggleCollapse = () => setNavCollapsed((c) => !c)
   const openMobileNav = () => setMobileNavOpen(true)
   const closeMobileNav = () => setMobileNavOpen(false)
@@ -131,7 +181,14 @@ export function AppLayout() {
   }
 
   return (
-    <div className="dashboard-app">
+    <div className={`dashboard-app ${showTrialBanner ? 'dashboard-app--trial-banner' : ''}`}>
+      {showTrialBanner ? (
+        <TrialBanner
+          trialDaysRemaining={trialDaysRemaining}
+          urgent={trialBannerUrgent}
+          onDismiss={dismissTrialBanner}
+        />
+      ) : null}
       <div className={`nav-overlay ${mobileNavOpen ? 'visible' : ''}`} onClick={closeMobileNav} aria-hidden />
 
       <div className="app">
@@ -158,19 +215,19 @@ export function AppLayout() {
             {showPmNav && (
               <>
                 <div className="nav-section-label">Workspace</div>
-                <NavLink to="/dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <GatedNavItem to="/dashboard">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="1" y="1" width="6" height="6" rx="1.5" /><rect x="9" y="1" width="6" height="6" rx="1.5" /><rect x="1" y="9" width="6" height="6" rx="1.5" /><rect x="9" y="9" width="6" height="6" rx="1.5" /></svg>
                   <span className="nav-label">Dashboard</span>
-                </NavLink>
-                <NavLink to="/projects" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                </GatedNavItem>
+                <GatedNavItem to="/projects" feature="projects">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 6h12M6 2v12" /></svg>
                   <span className="nav-label">Projects</span>
-                </NavLink>
-                <NavLink to="/financials" className={() => `nav-item ${isFinancialsActive ? 'active' : ''}`}>
+                </GatedNavItem>
+                <GatedNavItem to="/financials" feature="bankLink">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12l4-6 3 4 5-8" /><path d="M2 12h12" /></svg>
                   <span className="nav-label">Financials</span>
-                </NavLink>
-                <NavLink to="/documents" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                </GatedNavItem>
+                <GatedNavItem to="/documents" feature="documentVault">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
                     <rect x="2.5" y="1.5" width="11" height="13" rx="1.25" />
                     <line x1="5" y1="5" x2="11" y2="5" />
@@ -179,22 +236,22 @@ export function AppLayout() {
                     <circle cx="11.25" cy="4" r="0.65" fill="currentColor" stroke="none" />
                   </svg>
                   <span className="nav-label">Documents</span>
-                </NavLink>
+                </GatedNavItem>
 
                 <div className="nav-divider" />
                 <div className="nav-section-label">Manage</div>
-                <NavLink to="/teams" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <GatedNavItem to="/teams" feature="crewBuilder">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M8 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM3 13c0-2.76 2.24-5 5-5s5 2.24 5 5" /></svg>
                   <span className="nav-label">Teams</span>
-                </NavLink>
-                <NavLink to="/payroll" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                </GatedNavItem>
+                <GatedNavItem to="/payroll" feature="payroll">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 12h3l2-4 2 6 2-4 3 2" /><path d="M2 14h12" /></svg>
                   <span className="nav-label">Payroll</span>
-                </NavLink>
-                <NavLink to="/directory" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                </GatedNavItem>
+                <GatedNavItem to="/directory" feature="directory">
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M2 2h6v12H2zM8 2h6v12H8zM8 2v12M3 5h4M3 8h4M3 11h3" /></svg>
                   <span className="nav-label">Directory</span>
-                </NavLink>
+                </GatedNavItem>
 
                 <div className="nav-divider" />
               </>

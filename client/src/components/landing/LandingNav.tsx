@@ -28,6 +28,11 @@ export function LandingNav() {
       </Link>
       <ul className="hidden md:flex items-center gap-9 list-none">
         <li>
+          <a href="#why-proj-x" className="text-white-dim text-sm no-underline hover:text-landing-white transition-colors">
+            Why Proj-X
+          </a>
+        </li>
+        <li>
           <a href="#features" className="text-white-dim text-sm no-underline hover:text-landing-white transition-colors">
             Features
           </a>

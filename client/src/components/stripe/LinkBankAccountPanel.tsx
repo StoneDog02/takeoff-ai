@@ -146,7 +146,7 @@ export function LinkBankAccountPanel({
         </div>
         <p style={{ fontSize: 12, color: '#666', margin: '0 0 12px', lineHeight: 1.5 }}>
           Connect your business bank securely through Stripe to import transactions on the Transactions
-          page. You can skip this and connect later in Settings → Billing & Subscription.
+          page. You can skip this and connect later under Financials → Overview (Connected accounts).
         </p>
         {error && (
           <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 10 }}>{error}</div>

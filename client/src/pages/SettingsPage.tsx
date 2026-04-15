@@ -17,8 +17,7 @@ import { CompanyProfileSection } from '@/components/settings/CompanyProfileSecti
 import { UserRoleManagementSection } from '@/components/settings/UserRoleManagementSection'
 import { NotificationPreferencesSection } from '@/components/settings/NotificationPreferencesSection'
 import { GeofenceDefaultsSection } from '@/components/settings/GeofenceDefaultsSection'
-import { BillingSection } from '@/components/settings/BillingSection'
-import { StripeElementsProvider } from '@/lib/stripe'
+import Billing from '@/pages/settings/Billing'
 import { IntegrationsSection } from '@/components/settings/IntegrationsSection'
 import { BrandingSection } from '@/components/settings/BrandingSection'
 import { TaxComplianceSection } from '@/components/settings/TaxComplianceSection'
@@ -117,11 +116,7 @@ export default function SettingsPage() {
       {active === 'users' && <UserRoleManagementSection />}
       {active === 'notifications' && <NotificationPreferencesSection />}
       {active === 'geofence' && <GeofenceDefaultsSection />}
-      {active === 'billing' && (
-        <StripeElementsProvider>
-          <BillingSection />
-        </StripeElementsProvider>
-      )}
+      {active === 'billing' && <Billing />}
       {active === 'referrals' && <ReferralWidget />}
       {active === 'integrations' && <IntegrationsSection />}
       {active === 'branding' && <BrandingSection />}
