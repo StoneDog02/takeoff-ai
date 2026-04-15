@@ -190,7 +190,10 @@ router.post('/setup-intent', setupIntentLimiter, async (req, res) => {
       payment_method_types: ['card'],
       ...(customerId ? { customer: customerId } : {}),
     })
-    return res.json({ client_secret: setupIntent.client_secret })
+    return res.json({
+      client_secret: setupIntent.client_secret,
+      ...(customerId ? { stripe_customer_id: customerId } : {}),
+    })
   } catch (err) {
     console.error('[stripe] setup-intent error:', err.message)
     return res.status(500).json({

@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabaseClient'
 import { getMe, type MeResponse } from '@/api/me'
 import { tryApplyStoredReferralCode } from '@/lib/referralCapture'
+import { tryCompletePendingSignupSubscription } from '@/lib/pendingSignupSubscription'
 import { isPublicDemo, buildSyntheticMeResponse } from '@/lib/publicDemo'
 
 interface AuthState {
@@ -97,6 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         employee: me.employee,
         acting_as_employee: me.acting_as_employee,
       })
+      try {
+        await tryCompletePendingSignupSubscription()
+      } catch {
+        // never block auth
+      }
     } catch {
       setState({
         user: null,
@@ -132,6 +138,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'SIGNED_IN') {
           try {
             await tryApplyStoredReferralCode()
+          } catch {
+            // never block auth
+          }
+          try {
+            await tryCompletePendingSignupSubscription()
           } catch {
             // never block auth
           }

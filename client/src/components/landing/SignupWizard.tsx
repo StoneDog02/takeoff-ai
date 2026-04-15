@@ -841,7 +841,10 @@ function Sidebar({ currentStep }: { currentStep: number }) {
 
 export interface SignupWizardProps {
   /** Called when user completes the payment step (signup). Return error message to show, or undefined on success. */
-  onSignUp: (form: SignupWizardForm) => Promise<string | undefined>;
+  onSignUp: (
+    form: SignupWizardForm,
+    ctx?: { stripeCustomerId?: string },
+  ) => Promise<string | undefined>;
   /** Optional: called when user would have gone to dashboard (e.g. if email confirm is disabled). */
   onGoToDashboard?: (form: SignupWizardForm) => void;
 }
@@ -1085,19 +1088,25 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
       }
 
       const { stripe: st, elements: el } = stripeRef.current ?? {};
+      let stripeCustomerIdFromSetup: string | undefined;
       if (st && el) {
         const res = await fetch(`${API_BASE}/stripe/setup-intent`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: form.email || undefined }),
         });
-        const data = await res.json().catch(() => ({}));
+        const setupJson = (await res.json().catch(() => ({}))) as {
+          client_secret?: string;
+          stripe_customer_id?: string;
+          error?: string;
+        };
         if (!res.ok) {
-          setError((data as { error?: string }).error || "Failed to set up payment.");
+          setError(setupJson.error || "Failed to set up payment.");
           setLoading(false);
           return;
         }
-        const clientSecret = (data as { client_secret?: string }).client_secret;
+        const clientSecret = setupJson.client_secret;
+        stripeCustomerIdFromSetup = setupJson.stripe_customer_id;
         if (!clientSecret) {
           setError("Payment setup failed. Please try again.");
           setLoading(false);
@@ -1123,7 +1132,7 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
       if (form.referralCode.trim()) {
         persistReferralCodeFromManualInput(form.referralCode.trim());
       }
-      const err = await onSignUp(form);
+      const err = await onSignUp(form, { stripeCustomerId: stripeCustomerIdFromSetup });
       if (err) {
         clearReferralSignupIntent();
         setError(err);

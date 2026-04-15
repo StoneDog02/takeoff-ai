@@ -1,5 +1,5 @@
 import { callEdgeFunctionJson } from "@/lib/edgeFunctions";
-import type { PricingTier } from "@/components/landing/PricingStep";
+import type { PricingSelection, PricingTier } from "@/components/landing/PricingStep";
 
 export type PaymentMethodCard = {
   brand: string | null;
@@ -39,5 +39,25 @@ export async function getPaymentMethodEdge(stripeCustomerId: string) {
 export async function billingPortalEdge(stripeCustomerId: string, returnUrl: string) {
   return callEdgeFunctionJson<{ url?: string; error?: string }>("billing-portal", {
     json: { stripeCustomerId, returnUrl },
+  });
+}
+
+/** Initial subscription after signup (full tier + add-ons). Uses Edge Function; requires default PM on customer. */
+export async function createInitialSubscriptionEdge(payload: {
+  userId: string;
+  stripeCustomerId: string;
+  pricingSelection: PricingSelection;
+}) {
+  return callEdgeFunctionJson<{
+    subscriptionId?: string;
+    clientSecret?: string | null;
+    trialEndsAt?: string | null;
+    error?: string;
+  }>("create-subscription", {
+    json: {
+      userId: payload.userId,
+      stripeCustomerId: payload.stripeCustomerId,
+      pricingSelection: payload.pricingSelection,
+    } as Record<string, unknown>,
   });
 }

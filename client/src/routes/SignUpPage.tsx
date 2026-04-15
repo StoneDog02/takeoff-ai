@@ -6,6 +6,11 @@ import { supabase } from '@/lib/supabaseClient'
 import { persistReferralCodeFromUrl } from '@/lib/referralCapture'
 import { StripeElementsProvider } from '@/lib/stripe'
 import { API_BASE } from '@/api/config'
+import { createInitialSubscriptionEdge } from '@/lib/billingEdge'
+import {
+  clearPendingSignupSubscription,
+  savePendingSignupSubscription,
+} from '@/lib/pendingSignupSubscription'
 
 export function SignUpPage() {
   const [searchParams] = useSearchParams()
@@ -14,10 +19,18 @@ export function SignUpPage() {
     persistReferralCodeFromUrl(window.location.search)
   }, [searchParams])
 
-  async function handleSignUp(form: SignupWizardForm): Promise<string | undefined> {
+  async function handleSignUp(
+    form: SignupWizardForm,
+    ctx?: { stripeCustomerId?: string },
+  ): Promise<string | undefined> {
     if (!supabase) {
       return 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.'
     }
+    const stripeCustomerId = ctx?.stripeCustomerId?.trim() ?? ''
+    if (!stripeCustomerId.startsWith('cus_')) {
+      return 'Payment profile was not created. Go back to the payment step or contact support.'
+    }
+
     const redirectTo = `${window.location.origin}/auth/callback`
     const { data, error } = await supabase.auth.signUp({
       email: form.email,
@@ -43,25 +56,38 @@ export function SignUpPage() {
       return error.message
     }
 
-    // Create Stripe subscription with 30-day trial when we have a session (e.g. email confirmation disabled)
-    if (data.session && form.plan) {
+    const createSubForUser = async (userId: string): Promise<string | undefined> => {
+      const { errorMessage, httpStatus } = await createInitialSubscriptionEdge({
+        userId,
+        stripeCustomerId,
+        pricingSelection: form.pricingSelection,
+      })
+      if (errorMessage || httpStatus >= 400) {
+        return errorMessage ?? 'Subscription setup failed.'
+      }
+      clearPendingSignupSubscription()
+      return undefined
+    }
+
+    // Session present (e.g. email confirmation disabled): create Stripe subscription + DB row immediately.
+    if (data.session?.user?.id) {
       try {
-        const res = await fetch(`${API_BASE}/stripe/create-subscription`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${data.session.access_token}`,
-          },
-          body: JSON.stringify({ email: form.email, price_id: form.plan }),
-        })
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) return (json as { error?: string }).error || 'Subscription setup failed.'
+        const err = await createSubForUser(data.session.user.id)
+        if (err) return err
       } catch {
         return 'Subscription setup failed. Your account was created — please contact support to activate your plan.'
       }
+    } else if (data.user?.id) {
+      // Email confirmation required: no JWT yet — finish subscription on first SIGNED_IN (see pendingSignupSubscription).
+      savePendingSignupSubscription({
+        email: form.email.trim(),
+        stripeCustomerId,
+        pricingSelection: form.pricingSelection,
+      })
+    } else {
+      return 'Account could not be created. Please try again.'
     }
 
-    // Persist any Financial Connections accounts linked during signup (same Stripe customer email)
     if (data.session) {
       try {
         await fetch(`${API_BASE}/stripe/financial-connections-sync`, {
@@ -72,7 +98,7 @@ export function SignUpPage() {
           },
         })
       } catch {
-        // Linked banks remain on the Stripe customer; user can open Settings → Billing & Subscription to sync.
+        // Linked banks remain on the Stripe customer; user can sync from Financials.
       }
     }
 

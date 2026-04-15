@@ -231,7 +231,7 @@ serve(async (req) => {
   const formBody = encodeSubscriptionBody({
     customer: stripeCustomerId,
     items,
-    trial_period_days: 14,
+    trial_period_days: 30,
     payment_behavior: 'default_incomplete',
     save_default_payment_method: 'on_subscription',
     expand: ['latest_invoice.payment_intent'],
