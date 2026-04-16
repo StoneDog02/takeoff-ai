@@ -42,6 +42,20 @@ export async function billingPortalEdge(stripeCustomerId: string, returnUrl: str
   });
 }
 
+type CreateInitialSubResponse = {
+  data: {
+    subscriptionId?: string;
+    clientSecret?: string | null;
+    trialEndsAt?: string | null;
+    error?: string;
+  } | null;
+  errorMessage: string | null;
+  httpStatus: number;
+};
+
+/** Single in-flight create per user (React Strict Mode / double tap). */
+const createSubInflight = new Map<string, Promise<CreateInitialSubResponse>>();
+
 /** Initial subscription after signup (full tier + add-ons). Uses Edge Function; requires default PM on customer. */
 export async function createInitialSubscriptionEdge(
   payload: {
@@ -51,7 +65,18 @@ export async function createInitialSubscriptionEdge(
   },
   opts?: { accessToken?: string | null },
 ) {
-  return callEdgeFunctionJson<{
+  const uid = payload.userId?.trim() ?? "";
+  if (!uid) {
+    return {
+      data: null,
+      errorMessage: "Missing user id",
+      httpStatus: 400,
+    };
+  }
+  const existing = createSubInflight.get(uid);
+  if (existing) return existing;
+
+  const p = callEdgeFunctionJson<{
     subscriptionId?: string;
     clientSecret?: string | null;
     trialEndsAt?: string | null;
@@ -63,5 +88,9 @@ export async function createInitialSubscriptionEdge(
       pricingSelection: payload.pricingSelection,
     } as Record<string, unknown>,
     accessToken: opts?.accessToken,
+  }).finally(() => {
+    createSubInflight.delete(uid);
   });
+  createSubInflight.set(uid, p);
+  return p;
 }

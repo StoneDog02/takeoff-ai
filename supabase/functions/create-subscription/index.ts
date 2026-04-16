@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 /**
  * Stripe Price IDs (set in Supabase Edge secrets). Mirror your VITE_STRIPE_PRICE_* values from `.env`.
@@ -216,6 +216,90 @@ function getClientSecretFromSubscription(sub: StripeSubResponse): string | null 
   return typeof cs === 'string' && cs ? cs : null
 }
 
+/** If Stripe already has a non-canceled sub for this user, sync DB and return JSON. Otherwise null. */
+async function tryRespondWithExistingStripeSubscription(opts: {
+  supabaseAdmin: SupabaseClient
+  stripeSecret: string
+  stripeCustomerId: string
+  userId: string
+  sel: PricingSelection
+  items: LineItem[]
+}): Promise<Response | null> {
+  const { supabaseAdmin, stripeSecret, stripeCustomerId, userId, sel, items } = opts
+
+  const listExistingRes = await fetch(
+    `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=all&limit=30`,
+    { headers: { Authorization: `Bearer ${stripeSecret}` } },
+  )
+  const listExistingJson = (await listExistingRes.json()) as {
+    data?: Array<{ id?: string; status?: string; metadata?: Record<string, string>; created?: number }>
+  }
+  if (!listExistingRes.ok || !Array.isArray(listExistingJson.data)) return null
+
+  const subsForUser = listExistingJson.data.filter(
+    (s) =>
+      s?.id &&
+      s?.metadata?.user_id === userId &&
+      s?.status &&
+      !['canceled', 'incomplete_expired'].includes(s.status),
+  )
+  if (subsForUser.length === 0) return null
+
+  subsForUser.sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+  const keep = subsForUser[0]!
+  for (const dup of subsForUser.slice(1)) {
+    if (!dup.id) continue
+    try {
+      await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(dup.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${stripeSecret}` },
+      })
+    } catch {
+      /* ignore */
+    }
+  }
+  const getExisting = await fetch(
+    `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(keep.id!)}?expand[]=latest_invoice.payment_intent`,
+    { headers: { Authorization: `Bearer ${stripeSecret}` } },
+  )
+  const existingSub = (await getExisting.json()) as StripeSubResponse
+  if (!getExisting.ok || !existingSub.id) {
+    return jsonResponse({ error: 'Could not load existing subscription' }, 500)
+  }
+  const trialEndsAt =
+    existingSub.trial_end != null && existingSub.trial_end > 0
+      ? new Date(existingSub.trial_end * 1000).toISOString()
+      : null
+  const primaryPriceId = items[0]?.price ?? null
+  const rowStatus = normalizeDbSubscriptionStatus(existingSub.status)
+
+  const { error: upErr } = await supabaseAdmin.from('subscriptions').upsert(
+    {
+      user_id: userId,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: existingSub.id,
+      stripe_price_id: primaryPriceId,
+      tier: sel.tier,
+      addons: sel.addons,
+      employees: Math.round(sel.employees),
+      status: rowStatus,
+      trial_ends_at: trialEndsAt,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'stripe_subscription_id' },
+  )
+  if (upErr) {
+    console.error('[create-subscription] idempotent upsert:', upErr.message)
+    return jsonResponse({ error: 'Could not save subscription state' }, 500)
+  }
+
+  return jsonResponse({
+    clientSecret: getClientSecretFromSubscription(existingSub),
+    subscriptionId: existingSub.id,
+    trialEndsAt,
+  })
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -306,165 +390,149 @@ serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  // Idempotency: duplicate client calls (e.g. SIGNED_IN + /auth/callback) must not create two Stripe subscriptions.
-  const listExistingRes = await fetch(
-    `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=all&limit=30`,
-    { headers: { Authorization: `Bearer ${stripeSecret}` } },
-  )
-  const listExistingJson = (await listExistingRes.json()) as {
-    data?: Array<{ id?: string; status?: string; metadata?: Record<string, string>; created?: number }>
-  }
-  if (listExistingRes.ok && Array.isArray(listExistingJson.data)) {
-    const subsForUser = listExistingJson.data.filter(
-      (s) =>
-        s?.id &&
-        s?.metadata?.user_id === userId &&
-        s?.status &&
-        !['canceled', 'incomplete_expired'].includes(s.status),
+  const { error: lockErr } = await supabaseAdmin
+    .from('initial_subscription_create_lock')
+    .insert({ user_id: userId })
+  let ownsCreateLock = false
+
+  if (lockErr?.code === '23505') {
+    const deadline = Date.now() + 28000
+    while (Date.now() < deadline) {
+      const waiterResp = await tryRespondWithExistingStripeSubscription({
+        supabaseAdmin,
+        stripeSecret,
+        stripeCustomerId,
+        userId,
+        sel,
+        items,
+      })
+      if (waiterResp) return waiterResp
+      await new Promise((r) => setTimeout(r, 450))
+    }
+    return jsonResponse(
+      {
+        error:
+          'Subscription setup is still in progress. Wait a few seconds and refresh, or sign in again.',
+      },
+      409,
     )
-    if (subsForUser.length > 0) {
-      subsForUser.sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
-      const keep = subsForUser[0]!
-      for (const dup of subsForUser.slice(1)) {
-        if (!dup.id) continue
-        try {
-          await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(dup.id)}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${stripeSecret}` },
-          })
-        } catch {
-          /* ignore */
-        }
-      }
-      const getExisting = await fetch(
-        `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(keep.id!)}?expand[]=latest_invoice.payment_intent`,
-        { headers: { Authorization: `Bearer ${stripeSecret}` } },
-      )
-      const existingSub = (await getExisting.json()) as StripeSubResponse
-      if (!getExisting.ok || !existingSub.id) {
-        return jsonResponse({ error: 'Could not load existing subscription' }, 500)
-      }
-      const trialEndsAt =
-        existingSub.trial_end != null && existingSub.trial_end > 0
-          ? new Date(existingSub.trial_end * 1000).toISOString()
-          : null
-      const primaryPriceId = items[0]?.price ?? null
-      const rowStatus = normalizeDbSubscriptionStatus(existingSub.status)
-
-      const { error: upErr } = await supabaseAdmin.from('subscriptions').upsert(
-        {
-          user_id: userId,
-          stripe_customer_id: stripeCustomerId,
-          stripe_subscription_id: existingSub.id,
-          stripe_price_id: primaryPriceId,
-          tier: sel.tier,
-          addons: sel.addons,
-          employees: Math.round(sel.employees),
-          status: rowStatus,
-          trial_ends_at: trialEndsAt,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'stripe_subscription_id' },
-      )
-      if (upErr) {
-        console.error('[create-subscription] idempotent upsert:', upErr.message)
-        return jsonResponse({ error: 'Could not save subscription state' }, 500)
-      }
-
-      return jsonResponse({
-        clientSecret: getClientSecretFromSubscription(existingSub),
-        subscriptionId: existingSub.id,
-        trialEndsAt,
-      })
-    }
   }
-
-  const pmOk = await ensureDefaultCardPaymentMethod(stripeSecret, stripeCustomerId)
-  if (!pmOk.ok) {
-    return jsonResponse({ error: pmOk.message }, 400)
+  if (lockErr) {
+    console.error('[create-subscription] lock insert:', lockErr.message)
+    return jsonResponse({ error: 'Could not start subscription setup' }, 500)
   }
+  ownsCreateLock = true
 
-  const formBody = encodeSubscriptionBody({
-    customer: stripeCustomerId,
+  const existingResp = await tryRespondWithExistingStripeSubscription({
+    supabaseAdmin,
+    stripeSecret,
+    stripeCustomerId,
     userId,
+    sel,
     items,
-    trial_period_days: 30,
-    payment_behavior: 'default_incomplete',
-    save_default_payment_method: 'on_subscription',
-    expand: ['latest_invoice.payment_intent'],
-    metadataExtra: {
-      takeoff_tier: sel.tier,
-      takeoff_addons: JSON.stringify(sel.addons),
-      takeoff_employees: String(Math.round(sel.employees)),
-    },
   })
+  if (existingResp) return existingResp
 
-  // Same key for this user → Stripe coalesces concurrent POSTs into one subscription (fixes double SIGNED_IN / callback races).
-  const idempotencyKey = `takeoff-initial-sub-${userId}`.slice(0, 255)
-
-  const stripeRes = await fetch('https://api.stripe.com/v1/subscriptions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${stripeSecret}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Idempotency-Key': idempotencyKey,
-    },
-    body: formBody,
-  })
-
-  const sub = (await stripeRes.json()) as StripeSubResponse
-
-  if (!stripeRes.ok) {
-    const msg = sub.error?.message || stripeRes.statusText || 'Stripe request failed'
-    return jsonResponse({ error: msg }, 400)
-  }
-
-  const subscriptionId = sub.id
-  if (!subscriptionId) {
-    return jsonResponse({ error: 'Stripe did not return a subscription id' }, 400)
-  }
-
-  const trialEndsAt =
-    sub.trial_end != null && sub.trial_end > 0
-      ? new Date(sub.trial_end * 1000).toISOString()
-      : null
-
-  const primaryPriceId = items[0]?.price ?? null
-
-  const { error: upsertNewErr } = await supabaseAdmin.from('subscriptions').upsert(
-    {
-      user_id: userId,
-      stripe_customer_id: stripeCustomerId,
-      stripe_subscription_id: subscriptionId,
-      stripe_price_id: primaryPriceId,
-      tier: sel.tier,
-      addons: sel.addons,
-      employees: Math.round(sel.employees),
-      status: 'trialing',
-      trial_ends_at: trialEndsAt,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'stripe_subscription_id' },
-  )
-
-  if (upsertNewErr) {
-    console.error('[create-subscription] DB upsert failed:', upsertNewErr.message)
-    try {
-      await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${stripeSecret}` },
-      })
-    } catch (e) {
-      console.error('[create-subscription] Stripe cancel failed:', e)
+  let persistedOk = false
+  try {
+    const pmOk = await ensureDefaultCardPaymentMethod(stripeSecret, stripeCustomerId)
+    if (!pmOk.ok) {
+      return jsonResponse({ error: pmOk.message }, 400)
     }
-    return jsonResponse({ error: 'Failed to save subscription; subscription was canceled.' }, 500)
+
+    const formBody = encodeSubscriptionBody({
+      customer: stripeCustomerId,
+      userId,
+      items,
+      trial_period_days: 30,
+      payment_behavior: 'default_incomplete',
+      save_default_payment_method: 'on_subscription',
+      expand: ['latest_invoice.payment_intent'],
+      metadataExtra: {
+        takeoff_tier: sel.tier,
+        takeoff_addons: JSON.stringify(sel.addons),
+        takeoff_employees: String(Math.round(sel.employees)),
+      },
+    })
+
+    // Same key for this user → Stripe coalesces concurrent POSTs into one subscription.
+    const idempotencyKey = `takeoff-initial-sub-${userId}`.slice(0, 255)
+
+    const stripeRes = await fetch('https://api.stripe.com/v1/subscriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${stripeSecret}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: formBody,
+    })
+
+    const sub = (await stripeRes.json()) as StripeSubResponse
+
+    if (!stripeRes.ok) {
+      const msg = sub.error?.message || stripeRes.statusText || 'Stripe request failed'
+      return jsonResponse({ error: msg }, 400)
+    }
+
+    const subscriptionId = sub.id
+    if (!subscriptionId) {
+      return jsonResponse({ error: 'Stripe did not return a subscription id' }, 400)
+    }
+
+    const trialEndsAt =
+      sub.trial_end != null && sub.trial_end > 0
+        ? new Date(sub.trial_end * 1000).toISOString()
+        : null
+
+    const primaryPriceId = items[0]?.price ?? null
+
+    const { error: upsertNewErr } = await supabaseAdmin.from('subscriptions').upsert(
+      {
+        user_id: userId,
+        stripe_customer_id: stripeCustomerId,
+        stripe_subscription_id: subscriptionId,
+        stripe_price_id: primaryPriceId,
+        tier: sel.tier,
+        addons: sel.addons,
+        employees: Math.round(sel.employees),
+        status: 'trialing',
+        trial_ends_at: trialEndsAt,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'stripe_subscription_id' },
+    )
+
+    if (upsertNewErr) {
+      console.error('[create-subscription] DB upsert failed:', upsertNewErr.message)
+      try {
+        await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${stripeSecret}` },
+        })
+      } catch (e) {
+        console.error('[create-subscription] Stripe cancel failed:', e)
+      }
+      return jsonResponse({ error: 'Failed to save subscription; subscription was canceled.' }, 500)
+    }
+
+    const clientSecret = getClientSecretFromSubscription(sub)
+
+    persistedOk = true
+    return jsonResponse({
+      clientSecret,
+      subscriptionId,
+      trialEndsAt,
+    })
+  } finally {
+    if (ownsCreateLock && !persistedOk) {
+      const { error: delLockErr } = await supabaseAdmin
+        .from('initial_subscription_create_lock')
+        .delete()
+        .eq('user_id', userId)
+      if (delLockErr) {
+        console.warn('[create-subscription] lock release:', delLockErr.message)
+      }
+    }
   }
-
-  const clientSecret = getClientSecretFromSubscription(sub)
-
-  return jsonResponse({
-    clientSecret,
-    subscriptionId,
-    trialEndsAt,
-  })
 })
