@@ -399,11 +399,15 @@ serve(async (req) => {
     },
   })
 
+  // Same key for this user → Stripe coalesces concurrent POSTs into one subscription (fixes double SIGNED_IN / callback races).
+  const idempotencyKey = `takeoff-initial-sub-${userId}`.slice(0, 255)
+
   const stripeRes = await fetch('https://api.stripe.com/v1/subscriptions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${stripeSecret}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': idempotencyKey,
     },
     body: formBody,
   })
@@ -427,20 +431,24 @@ serve(async (req) => {
 
   const primaryPriceId = items[0]?.price ?? null
 
-  const { error: insertErr } = await supabaseAdmin.from('subscriptions').insert({
-    user_id: userId,
-    stripe_customer_id: stripeCustomerId,
-    stripe_subscription_id: subscriptionId,
-    stripe_price_id: primaryPriceId,
-    tier: sel.tier,
-    addons: sel.addons,
-    employees: Math.round(sel.employees),
-    status: 'trialing',
-    trial_ends_at: trialEndsAt,
-  })
+  const { error: upsertNewErr } = await supabaseAdmin.from('subscriptions').upsert(
+    {
+      user_id: userId,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: subscriptionId,
+      stripe_price_id: primaryPriceId,
+      tier: sel.tier,
+      addons: sel.addons,
+      employees: Math.round(sel.employees),
+      status: 'trialing',
+      trial_ends_at: trialEndsAt,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'stripe_subscription_id' },
+  )
 
-  if (insertErr) {
-    console.error('[create-subscription] DB insert failed:', insertErr.message)
+  if (upsertNewErr) {
+    console.error('[create-subscription] DB upsert failed:', upsertNewErr.message)
     try {
       await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
         method: 'DELETE',
