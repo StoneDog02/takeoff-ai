@@ -1216,6 +1216,22 @@ async function handleWebhook(req, res) {
     return res.status(400).send('Invalid signature')
   }
 
+  const eventId = typeof event?.id === 'string' ? event.id : ''
+  if (supabase && eventId) {
+    const { error: evErr } = await supabase.from('stripe_webhook_events').insert({
+      id: eventId,
+      type: String(event.type || ''),
+    })
+    if (evErr) {
+      if (evErr.code === '23505') {
+        console.warn('[stripe] webhook duplicate event id (skipped):', eventId)
+        return res.sendStatus(200)
+      }
+      console.error('[stripe] webhook event ledger insert:', evErr.message)
+      return res.status(500).send('Webhook ledger failed')
+    }
+  }
+
   try {
     switch (event.type) {
       case 'customer.subscription.created':
@@ -1296,8 +1312,10 @@ async function handleWebhook(req, res) {
               .eq('id', subRow.user_id)
           }
         }
-        // Referral credits: idempotent if both events fire; gated inside by billing_reason === subscription_cycle
-        await handleInvoicePaymentSucceededReferralCredits(event)
+        // Stripe sends both invoice.paid and invoice.payment_succeeded; run referral side effects once.
+        if (event.type === 'invoice.payment_succeeded') {
+          await handleInvoicePaymentSucceededReferralCredits(event)
+        }
         break
       }
       case 'invoice.payment_failed': {

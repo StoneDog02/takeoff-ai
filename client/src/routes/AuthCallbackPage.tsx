@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
+import { useSubscription } from '@/contexts/SubscriptionContext'
 import {
   hasPendingSignupSubscription,
   tryCompletePendingSignupSubscription,
@@ -30,6 +31,7 @@ async function waitForSession(maxWaitMs = 15000): Promise<boolean> {
  */
 export function AuthCallbackPage() {
   const navigate = useNavigate()
+  const { refreshSubscription } = useSubscription()
   const [error, setError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
   const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -73,14 +75,20 @@ export function AuthCallbackPage() {
         if (hadPendingSignup) {
           await waitForSubscriptionRowVisible(18000)
         }
+        // Row can exist before React Query / realtime; reload billing gates without a full page refresh.
+        await refreshSubscription()
         setVerified(true)
         redirectTimeoutRef.current = setTimeout(() => {
-          getMe()
-            .then((me) => {
-              if (me.type === 'employee') navigate('/employee/clock', { replace: true })
-              else navigate('/dashboard', { replace: true })
+          void refreshSubscription()
+            .catch(() => {})
+            .finally(() => {
+              getMe()
+                .then((me) => {
+                  if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+                  else navigate('/dashboard', { replace: true })
+                })
+                .catch(() => navigate('/dashboard', { replace: true }))
             })
-            .catch(() => navigate('/dashboard', { replace: true }))
         }, REDIRECT_DELAY_MS)
       })()
       return () => {
@@ -89,7 +97,7 @@ export function AuthCallbackPage() {
     }
 
     navigate('/sign-in', { replace: true })
-  }, [navigate])
+  }, [navigate, refreshSubscription])
 
   if (error) {
     return (
