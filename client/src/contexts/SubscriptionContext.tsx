@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  getAllFeatureFlagsSet,
   getEnabledFeatures,
   type FeatureFlag,
   type UserSubscription,
@@ -77,7 +78,7 @@ export type SubscriptionContextValue = {
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, bypass_feature_gates } = useAuth();
   const userId = user?.id ?? null;
 
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
@@ -199,10 +200,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadSubscription]);
 
-  const features = useMemo(
-    () => (subscription ? getEnabledFeatures(subscription) : new Set<FeatureFlag>()),
-    [subscription],
-  );
+  const features = useMemo(() => {
+    if (bypass_feature_gates) return getAllFeatureFlagsSet();
+    return subscription ? getEnabledFeatures(subscription) : new Set<FeatureFlag>();
+  }, [subscription, bypass_feature_gates]);
 
   const hasFeature = useCallback(
     (flag: FeatureFlag) => features.has(flag),

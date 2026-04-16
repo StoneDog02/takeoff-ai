@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import {
+  getAllFeatureFlagsSet,
   getEnabledFeatures,
   hasFeature,
   type FeatureFlag,
@@ -93,6 +94,20 @@ describe("getEnabledFeatures", () => {
     const a = getEnabledFeatures(coreEst);
     const b = getEnabledFeatures(plus);
     expectSetEqual(a, [...b]);
+  });
+});
+
+describe("getAllFeatureFlagsSet", () => {
+  it("includes every known product flag", () => {
+    const all = getAllFeatureFlagsSet();
+    expect(all.has("projects")).toBe(true);
+    expect(all.has("estimateBuilder")).toBe(true);
+    expect(all.has("subBidPortal")).toBe(true);
+    expect(all.has("aiTakeoff")).toBe(true);
+    expect(all.has("payroll")).toBe(true);
+    expect(all.has("documentVault")).toBe(true);
+    expect(all.has("messaging")).toBe(true);
+    expect(all.size).toBeGreaterThanOrEqual(CORE.length + ESTIMATING.length + PORTALS.length);
   });
 });
 

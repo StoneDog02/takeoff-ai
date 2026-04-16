@@ -15,6 +15,7 @@ import { isPublicDemo, buildSyntheticMeResponse } from '@/lib/publicDemo'
 interface AuthState {
   user: MeResponse['user']
   isAdmin: boolean
+  bypass_feature_gates: boolean
   loading: boolean
   type: MeResponse['type']
   has_affiliate_portal: boolean
@@ -26,6 +27,7 @@ interface AuthState {
 const defaultState: AuthState = {
   user: null,
   isAdmin: false,
+  bypass_feature_gates: false,
   loading: true,
   type: 'contractor',
   has_affiliate_portal: false,
@@ -46,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({
           user: me.user,
           isAdmin: me.isAdmin,
+          bypass_feature_gates: Boolean(me.bypass_feature_gates),
           loading: false,
           type: me.type,
           has_affiliate_portal: Boolean(me.has_affiliate_portal),
@@ -65,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({
           user: me.user,
           isAdmin: me.isAdmin,
+          bypass_feature_gates: Boolean(me.bypass_feature_gates),
           loading: false,
           type: me.type,
           has_affiliate_portal: Boolean(me.has_affiliate_portal),
@@ -76,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({
           user: null,
           isAdmin: false,
+          bypass_feature_gates: false,
           loading: false,
           type: 'contractor',
           has_affiliate_portal: false,
@@ -91,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState({
         user: me.user,
         isAdmin: me.isAdmin,
+        bypass_feature_gates: Boolean(me.bypass_feature_gates),
         loading: false,
         type: me.type,
         has_affiliate_portal: Boolean(me.has_affiliate_portal),
@@ -107,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState({
         user: null,
         isAdmin: false,
+        bypass_feature_gates: false,
         loading: false,
         type: 'contractor',
         has_affiliate_portal: false,

@@ -81,6 +81,23 @@ const DOCUMENT_VAULT: readonly FeatureFlag[] = ["documentVault"];
 
 const DIRECTORY_MESSAGING: readonly FeatureFlag[] = ["directory", "messaging"];
 
+/** Every gateable flag (used for admin / full-product-access bypass). */
+const ALL_FLAGS: readonly FeatureFlag[] = [
+  ...CORE_PM,
+  ...ESTIMATING,
+  ...PORTALS,
+  ...AI_TAKEOFF,
+  ...FINANCIAL_SUITE,
+  ...FIELD_OPS_PAYROLL,
+  ...DOCUMENT_VAULT,
+  ...DIRECTORY_MESSAGING,
+];
+
+/** Full product surface regardless of Stripe tier or add-ons. */
+export function getAllFeatureFlagsSet(): Set<FeatureFlag> {
+  return new Set(ALL_FLAGS);
+}
+
 function normalizeTier(tier: string | null | undefined): "core" | "plus" | "pro" {
   const t = (tier ?? "core").toLowerCase().trim();
   if (t === "plus") return "plus";

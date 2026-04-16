@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
-import { completePendingSignupWithRetries } from '@/lib/pendingSignupSubscription'
+import {
+  hasPendingSignupSubscription,
+  tryCompletePendingSignupSubscription,
+  waitForSubscriptionRowVisible,
+} from '@/lib/pendingSignupSubscription'
 
 const REDIRECT_DELAY_MS = 2500
 
@@ -53,17 +57,21 @@ export function AuthCallbackPage() {
     }
 
     if (hasImplicitTokens || hasPkceCode) {
+      const hadPendingSignup = hasPendingSignupSubscription()
       void (async () => {
         const ok = await waitForSession()
         if (!ok) {
           setError('Could not establish a session. Try signing in.')
           return
         }
-        // Email-confirmation signups: create Stripe subscription + DB row before dashboard (see pendingSignupSubscription).
+        // Email-confirmation signups: single-flight pending completion (see pendingSignupSubscription).
         try {
-          await completePendingSignupWithRetries({ rounds: 4, gapMs: 1200 })
+          await tryCompletePendingSignupSubscription()
         } catch {
-          // non-fatal — AuthContext also runs this on SIGNED_IN
+          // non-fatal — AuthContext also awaits the same single-flight run
+        }
+        if (hadPendingSignup) {
+          await waitForSubscriptionRowVisible(18000)
         }
         setVerified(true)
         redirectTimeoutRef.current = setTimeout(() => {

@@ -186,9 +186,25 @@ async function ensureDefaultCardPaymentMethod(
 
 type StripeSubResponse = {
   id?: string
+  status?: string
   trial_end?: number | null
   latest_invoice?: unknown
   error?: { message?: string; type?: string }
+}
+
+function normalizeDbSubscriptionStatus(st: string | undefined): string {
+  const allowed = new Set([
+    'trialing',
+    'active',
+    'past_due',
+    'canceled',
+    'unpaid',
+    'incomplete',
+    'incomplete_expired',
+    'paused',
+  ])
+  if (st && allowed.has(st)) return st
+  return 'trialing'
 }
 
 function getClientSecretFromSubscription(sub: StripeSubResponse): string | null {
@@ -286,6 +302,83 @@ serve(async (req) => {
     return jsonResponse({ error: 'No valid Stripe prices configured for this selection' }, 400)
   }
 
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRole, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+
+  // Idempotency: duplicate client calls (e.g. SIGNED_IN + /auth/callback) must not create two Stripe subscriptions.
+  const listExistingRes = await fetch(
+    `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=all&limit=30`,
+    { headers: { Authorization: `Bearer ${stripeSecret}` } },
+  )
+  const listExistingJson = (await listExistingRes.json()) as {
+    data?: Array<{ id?: string; status?: string; metadata?: Record<string, string>; created?: number }>
+  }
+  if (listExistingRes.ok && Array.isArray(listExistingJson.data)) {
+    const subsForUser = listExistingJson.data.filter(
+      (s) =>
+        s?.id &&
+        s?.metadata?.user_id === userId &&
+        s?.status &&
+        !['canceled', 'incomplete_expired'].includes(s.status),
+    )
+    if (subsForUser.length > 0) {
+      subsForUser.sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+      const keep = subsForUser[0]!
+      for (const dup of subsForUser.slice(1)) {
+        if (!dup.id) continue
+        try {
+          await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(dup.id)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${stripeSecret}` },
+          })
+        } catch {
+          /* ignore */
+        }
+      }
+      const getExisting = await fetch(
+        `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(keep.id!)}?expand[]=latest_invoice.payment_intent`,
+        { headers: { Authorization: `Bearer ${stripeSecret}` } },
+      )
+      const existingSub = (await getExisting.json()) as StripeSubResponse
+      if (!getExisting.ok || !existingSub.id) {
+        return jsonResponse({ error: 'Could not load existing subscription' }, 500)
+      }
+      const trialEndsAt =
+        existingSub.trial_end != null && existingSub.trial_end > 0
+          ? new Date(existingSub.trial_end * 1000).toISOString()
+          : null
+      const primaryPriceId = items[0]?.price ?? null
+      const rowStatus = normalizeDbSubscriptionStatus(existingSub.status)
+
+      const { error: upErr } = await supabaseAdmin.from('subscriptions').upsert(
+        {
+          user_id: userId,
+          stripe_customer_id: stripeCustomerId,
+          stripe_subscription_id: existingSub.id,
+          stripe_price_id: primaryPriceId,
+          tier: sel.tier,
+          addons: sel.addons,
+          employees: Math.round(sel.employees),
+          status: rowStatus,
+          trial_ends_at: trialEndsAt,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'stripe_subscription_id' },
+      )
+      if (upErr) {
+        console.error('[create-subscription] idempotent upsert:', upErr.message)
+        return jsonResponse({ error: 'Could not save subscription state' }, 500)
+      }
+
+      return jsonResponse({
+        clientSecret: getClientSecretFromSubscription(existingSub),
+        subscriptionId: existingSub.id,
+        trialEndsAt,
+      })
+    }
+  }
+
   const pmOk = await ensureDefaultCardPaymentMethod(stripeSecret, stripeCustomerId)
   if (!pmOk.ok) {
     return jsonResponse({ error: pmOk.message }, 400)
@@ -333,10 +426,6 @@ serve(async (req) => {
       : null
 
   const primaryPriceId = items[0]?.price ?? null
-
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRole, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
 
   const { error: insertErr } = await supabaseAdmin.from('subscriptions').insert({
     user_id: userId,

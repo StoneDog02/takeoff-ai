@@ -48,6 +48,8 @@ router.get('/', async (req, res, next) => {
       : null
     const profile = req.profile
     const isAdmin = profile?.role === 'admin'
+    const bypassFeatureGates =
+      isAdmin || (profile?.full_product_access === true)
 
     let hasAffiliatePortal = false
     if (user?.id && supabaseAdmin) {
@@ -64,6 +66,7 @@ router.get('/', async (req, res, next) => {
       return res.json({
         user,
         isAdmin,
+        bypass_feature_gates: bypassFeatureGates,
         type: 'employee',
         employee_id: id,
         employee: {
@@ -87,6 +90,7 @@ router.get('/', async (req, res, next) => {
         return res.json({
           user,
           isAdmin,
+          bypass_feature_gates: bypassFeatureGates,
           type: 'employee',
           employee_id: id,
           employee: {
@@ -106,6 +110,7 @@ router.get('/', async (req, res, next) => {
       return res.json({
         user,
         isAdmin,
+        bypass_feature_gates: bypassFeatureGates,
         type: 'employee',
         employee_id: null,
         employee: null,
@@ -113,7 +118,14 @@ router.get('/', async (req, res, next) => {
       })
     }
     const role_label = roleLabelFromProfile(profile)
-    res.json({ user, isAdmin, type: 'contractor', role_label, has_affiliate_portal: hasAffiliatePortal })
+    res.json({
+      user,
+      isAdmin,
+      bypass_feature_gates: bypassFeatureGates,
+      type: 'contractor',
+      role_label,
+      has_affiliate_portal: hasAffiliatePortal,
+    })
   } catch (err) {
     next(err)
   }

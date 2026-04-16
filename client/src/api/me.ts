@@ -11,6 +11,8 @@ export interface MeResponse {
     display_name?: string
   } | null
   isAdmin: boolean
+  /** True when subscription feature gates should be ignored (admin or profiles.full_product_access). */
+  bypass_feature_gates?: boolean
   type: 'contractor' | 'employee'
   /** True when this login is linked to a row in affiliates (partner dashboard). Independent of profiles.role. */
   has_affiliate_portal?: boolean

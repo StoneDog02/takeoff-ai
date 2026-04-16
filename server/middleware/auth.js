@@ -54,7 +54,7 @@ async function requireAuth(req, res, next) {
     req.user = user
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_product_access')
       .eq('id', user.id)
       .maybeSingle()
     req.profile = profile || null

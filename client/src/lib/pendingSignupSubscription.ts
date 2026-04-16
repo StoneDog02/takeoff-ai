@@ -4,10 +4,18 @@ import { createInitialSubscriptionEdge } from "@/lib/billingEdge";
 
 const STORAGE_KEY = "takeoff_pending_subscription_v1";
 
-/** Serialize runs — Auth callback + SIGNED_IN + refetch can all fire at once. */
-let completeChain: Promise<void> = Promise.resolve();
+/** Single-flight: concurrent SIGNED_IN + /auth/callback must not each create a Stripe subscription. */
+let pendingCompletionFlight: Promise<void> | null = null;
 
-async function waitForSessionWithAccessToken(maxWaitMs = 8000): Promise<{
+export function hasPendingSignupSubscription(): boolean {
+  try {
+    return Boolean(localStorage.getItem(STORAGE_KEY)?.trim());
+  } catch {
+    return false;
+  }
+}
+
+async function waitForSessionWithAccessToken(maxWaitMs = 16000): Promise<{
   userId: string;
   email: string;
   accessToken: string;
@@ -69,35 +77,18 @@ export function clearPendingSignupSubscription(): void {
  * Email-confirmation signups: subscription is created on first SIGNED_IN when we have session + pending payload.
  */
 export async function tryCompletePendingSignupSubscription(): Promise<void> {
-  completeChain = completeChain
-    .then(() => runPendingSignupCompletion())
-    .catch(() => {
-      /* keep chain alive for later invocations */
-    });
-  await completeChain;
-}
-
-/**
- * After email confirmation, session + getUser() can lag behind the URL hash/code exchange.
- * Run pending completion a few times with gaps so we don't rely only on a later sign-out/sign-in.
- */
-export async function completePendingSignupWithRetries(opts?: {
-  rounds?: number;
-  gapMs?: number;
-}): Promise<void> {
-  const rounds = opts?.rounds ?? 4;
-  const gapMs = opts?.gapMs ?? 1200;
-  for (let i = 0; i < rounds; i++) {
-    await tryCompletePendingSignupSubscription();
-    let raw: string | null = null;
-    try {
-      raw = localStorage.getItem(STORAGE_KEY);
-    } catch {
-      return;
-    }
-    if (!raw) return;
-    if (i < rounds - 1) await new Promise((r) => setTimeout(r, gapMs));
+  if (pendingCompletionFlight) {
+    await pendingCompletionFlight;
+    return;
   }
+  pendingCompletionFlight = (async () => {
+    try {
+      await runPendingSignupCompletion();
+    } finally {
+      pendingCompletionFlight = null;
+    }
+  })();
+  await pendingCompletionFlight;
 }
 
 async function runPendingSignupCompletion(): Promise<void> {
@@ -158,4 +149,30 @@ async function runPendingSignupCompletion(): Promise<void> {
   if (!errorMessage) {
     clearPendingSignupSubscription();
   }
+}
+
+/**
+ * After create-subscription, wait until RLS allows the user to read their subscriptions row
+ * (so /dashboard + getMe() see billing state without a manual refresh).
+ */
+export async function waitForSubscriptionRowVisible(maxMs = 16000): Promise<boolean> {
+  if (!supabase) return false;
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user?.id) {
+      await new Promise((r) => setTimeout(r, 300));
+      continue;
+    }
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!error && data?.id) return true;
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  return false;
 }
