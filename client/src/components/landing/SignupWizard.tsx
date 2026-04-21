@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { createContext, useContext, useState, useRef, useEffect } from "react";
+import type { CSSProperties } from "react";
 import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import type { Stripe, StripeElements } from "@stripe/stripe-js";
 import { API_BASE } from "@/api/config";
@@ -53,6 +54,25 @@ const SIZES = [
   "1–5 employees", "6–20 employees", "21–50 employees",
   "51–100 employees", "100+ employees",
 ];
+
+/** Matches other app breakpoints (e.g. directory tabs). */
+const SIGNUP_MOBILE_MQ = "(max-width: 768px)";
+
+const SignupMobileContext = createContext(false);
+
+function useIsSignupMobile(): boolean {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(SIGNUP_MOBILE_MQ).matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(SIGNUP_MOBILE_MQ);
+    const apply = () => setMobile(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+  return mobile;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,6 +157,14 @@ const btnSecondaryStyle: React.CSSProperties = {
   fontWeight: "500",
 };
 
+function mergeInputStyle(isMobile: boolean, extra?: CSSProperties): CSSProperties {
+  return {
+    ...inputStyle,
+    ...(isMobile ? { fontSize: "16px", padding: "12px 16px", minHeight: "48px" } : {}),
+    ...extra,
+  };
+}
+
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 function Field({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) {
@@ -152,23 +180,33 @@ function Field({ label, children, error }: { label: string; children: React.Reac
 }
 
 function StepHeader({ title, sub }: { title: string; sub: string }) {
+  const isMobile = useContext(SignupMobileContext);
   return (
-    <div style={{ marginBottom: "32px" }}>
-      <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: "26px", color: DARK, margin: "0 0 6px" }}>
+    <div style={{ marginBottom: isMobile ? "22px" : "32px" }}>
+      <h2
+        style={{
+          fontFamily: "'DM Serif Display', serif",
+          fontSize: isMobile ? "22px" : "26px",
+          color: DARK,
+          margin: "0 0 6px",
+          lineHeight: isMobile ? 1.2 : undefined,
+        }}
+      >
         {title}
       </h2>
-      <p style={{ color: "#888", fontSize: "14px", margin: 0 }}>{sub}</p>
+      <p style={{ color: "#888", fontSize: isMobile ? "13px" : "14px", margin: 0, lineHeight: 1.45 }}>{sub}</p>
     </div>
   );
 }
 
 function SelectTile({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  const isMobile = useContext(SignupMobileContext);
   return (
     <button
       type="button"
       onClick={onClick}
       style={{
-        padding: "10px 14px",
+        padding: isMobile ? "12px 14px" : "10px 14px",
         borderRadius: "8px",
         border: `1px solid ${selected ? ACCENT : BORDER}`,
         background: selected ? "#fdf0ef" : "#fff",
@@ -186,12 +224,13 @@ function SelectTile({ label, selected, onClick }: { label: string; selected: boo
 }
 
 function Pill({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  const isMobile = useContext(SignupMobileContext);
   return (
     <button
       type="button"
       onClick={onClick}
       style={{
-        padding: "8px 16px",
+        padding: isMobile ? "10px 16px" : "8px 16px",
         borderRadius: "999px",
         border: `1px solid ${selected ? ACCENT : BORDER}`,
         background: selected ? "#fdf0ef" : "#fff",
@@ -229,13 +268,21 @@ function Step1({
     if (form.referralCode?.trim()) setReferralOpen(true);
   }, [form.referralCode]);
 
+  const isMobile = useContext(SignupMobileContext);
+
   return (
     <div>
       <StepHeader title="Create your account" sub="Start with your login credentials" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+          gap: isMobile ? "0" : "16px",
+        }}
+      >
         <Field label="First name" error={errors.firstName}>
           <input
-            style={{ ...inputStyle, ...(errors.firstName ? { borderColor: ACCENT } : {}) }}
+            style={mergeInputStyle(isMobile, { ...(errors.firstName ? { borderColor: ACCENT } : {}) })}
             placeholder="John"
             value={form.firstName}
             onChange={(e) => { upd("firstName", e.target.value); onClearError("firstName"); }}
@@ -243,7 +290,7 @@ function Step1({
         </Field>
         <Field label="Last name" error={errors.lastName}>
           <input
-            style={{ ...inputStyle, ...(errors.lastName ? { borderColor: ACCENT } : {}) }}
+            style={mergeInputStyle(isMobile, { ...(errors.lastName ? { borderColor: ACCENT } : {}) })}
             placeholder="Smith"
             value={form.lastName}
             onChange={(e) => { upd("lastName", e.target.value); onClearError("lastName"); }}
@@ -252,7 +299,7 @@ function Step1({
       </div>
       <Field label="Email address" error={errors.email}>
         <input
-          style={{ ...inputStyle, ...(errors.email ? { borderColor: ACCENT } : {}) }}
+          style={mergeInputStyle(isMobile, { ...(errors.email ? { borderColor: ACCENT } : {}) })}
           type="email"
           placeholder="john@smithconstruction.com"
           value={form.email}
@@ -262,7 +309,10 @@ function Step1({
       <Field label="Password" error={errors.password}>
         <div style={{ position: "relative" }}>
           <input
-            style={{ ...inputStyle, paddingRight: "60px", ...(errors.password ? { borderColor: ACCENT } : {}) }}
+            style={mergeInputStyle(isMobile, {
+              paddingRight: "60px",
+              ...(errors.password ? { borderColor: ACCENT } : {}),
+            })}
             type={showPass ? "text" : "password"}
             placeholder="Min. 8 characters"
             value={form.password}
@@ -285,7 +335,10 @@ function Step1({
       <Field label="Confirm password" error={errors.confirmPassword}>
         <div style={{ position: "relative" }}>
           <input
-            style={{ ...inputStyle, paddingRight: "60px", ...(errors.confirmPassword ? { borderColor: ACCENT } : {}) }}
+            style={mergeInputStyle(isMobile, {
+              paddingRight: "60px",
+              ...(errors.confirmPassword ? { borderColor: ACCENT } : {}),
+            })}
             type={showPass ? "text" : "password"}
             placeholder="Re-enter your password"
             value={form.confirmPassword}
@@ -328,7 +381,7 @@ function Step1({
         ) : (
           <Field label="Referral code (optional)">
             <input
-              style={inputStyle}
+              style={mergeInputStyle(isMobile)}
               placeholder="e.g. BRETTA4K2"
               value={form.referralCode}
               onChange={(e) => upd("referralCode", e.target.value.toUpperCase())}
@@ -360,12 +413,13 @@ function Step2({
   errors: Step2Errors;
   onClearError: (field: keyof Step2Errors) => void;
 }) {
+  const isMobile = useContext(SignupMobileContext);
   return (
     <div>
       <StepHeader title="Tell us about your company" sub="We'll tailor Takeoff to fit your operation" />
       <Field label="Company name" error={errors.company}>
         <input
-          style={{ ...inputStyle, ...(errors.company ? { borderColor: ACCENT } : {}) }}
+          style={mergeInputStyle(isMobile, { ...(errors.company ? { borderColor: ACCENT } : {}) })}
           placeholder="Smith Construction LLC"
           value={form.company}
           onChange={(e) => { upd("company", e.target.value); onClearError("company"); }}
@@ -375,7 +429,7 @@ function Step2({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
             gap: "10px",
             ...(errors.companySize ? { padding: "12px", borderRadius: "8px", border: `1px solid ${ACCENT}` } : {}),
           }}
@@ -392,7 +446,7 @@ function Step2({
       </Field>
       <Field label="Business license number (optional)">
         <input
-          style={inputStyle}
+          style={mergeInputStyle(isMobile)}
           placeholder="e.g. GC-1043892"
           value={form.license || ""}
           onChange={(e) => upd("license", e.target.value)}
@@ -419,6 +473,7 @@ function Step3({
   errors: Step3Errors;
   onClearError: (field: keyof Step3Errors) => void;
 }) {
+  const isMobile = useContext(SignupMobileContext);
   return (
     <div>
       <StepHeader title="What's your trade?" sub="Select all that apply — you can change this later" />
@@ -445,7 +500,7 @@ function Step3({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
             gap: "10px",
             ...(errors.role ? { padding: "12px", borderRadius: "8px", border: `1px solid ${ACCENT}` } : {}),
           }}
@@ -479,6 +534,7 @@ function Step4({
   errors: Step4Errors;
   onClearError: (field: keyof Step4Errors) => void;
 }) {
+  const isMobile = useContext(SignupMobileContext);
   const formatPhone = (v: string) => {
     const d = v.replace(/\D/g, "").slice(0, 10);
     if (d.length < 4) return d;
@@ -491,7 +547,7 @@ function Step4({
       <StepHeader title="Contact info" sub="We'll use this for account notifications and support" />
       <Field label="Phone number" error={errors.phone}>
         <input
-          style={{ ...inputStyle, ...(errors.phone ? { borderColor: ACCENT } : {}) }}
+          style={mergeInputStyle(isMobile, { ...(errors.phone ? { borderColor: ACCENT } : {}) })}
           type="tel"
           placeholder="(801) 555-0123"
           value={form.phone}
@@ -502,6 +558,7 @@ function Step4({
         <div
           style={{
             display: "flex",
+            flexDirection: isMobile ? "column" : "row",
             gap: "10px",
             ...(errors.contactPref ? { padding: "12px", borderRadius: "8px", border: `1px solid ${ACCENT}` } : {}),
           }}
@@ -512,7 +569,10 @@ function Step4({
               type="button"
               onClick={() => { upd("contactPref", m); onClearError("contactPref"); }}
               style={{
-                flex: 1, padding: "10px", borderRadius: "8px",
+                flex: isMobile ? "none" : 1,
+                width: isMobile ? "100%" : undefined,
+                padding: isMobile ? "12px 10px" : "10px",
+                borderRadius: "8px",
                 border: `1px solid ${form.contactPref === m ? ACCENT : BORDER}`,
                 background: form.contactPref === m ? "#fdf0ef" : "#fff",
                 color: form.contactPref === m ? ACCENT : "#444",
@@ -526,8 +586,15 @@ function Step4({
           ))}
         </div>
       </Field>
-      <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: "10px", padding: "16px 20px" }}>
-        <p style={{ fontSize: "13px", color: "#888", margin: 0, lineHeight: "1.6" }}>
+      <div
+        style={{
+          background: "#fff",
+          border: `1px solid ${BORDER}`,
+          borderRadius: "10px",
+          padding: isMobile ? "14px 16px" : "16px 20px",
+        }}
+      >
+        <p style={{ fontSize: isMobile ? "12px" : "13px", color: "#888", margin: 0, lineHeight: "1.6" }}>
           🔒 Your contact information is never sold or shared with third parties. We'll only reach out about your account or important platform updates.
         </p>
       </div>
@@ -621,6 +688,7 @@ function StepPayment({
   };
   const referralCode = getActiveReferralCode(form);
   const hasReferral = Boolean(referralCode);
+  const isMobile = useContext(SignupMobileContext);
 
   return (
     <div>
@@ -632,7 +700,11 @@ function StepPayment({
         background: "#fdf0ef", border: `1px solid ${ACCENT}`, marginBottom: "20px",
       }}>
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
+          justifyContent: "space-between",
+          gap: isMobile ? "12px" : "8px",
         }}>
           <div>
             <div style={{ fontSize: "11px", color: ACCENT, fontWeight: "600", marginBottom: "2px" }}>
@@ -648,12 +720,20 @@ function StepPayment({
               ) : null}
             </div>
             {addonSummary ? (
-              <p style={{ margin: "8px 0 0", fontSize: "12px", color: "#666", lineHeight: 1.45, maxWidth: "420px" }}>
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  fontSize: "12px",
+                  color: "#666",
+                  lineHeight: 1.45,
+                  maxWidth: isMobile ? "none" : "420px",
+                }}
+              >
                 Includes: {addonSummary}
               </p>
             ) : null}
           </div>
-          <div style={{ textAlign: "right" }}>
+          <div style={{ textAlign: isMobile ? "left" : "right", flexShrink: 0 }}>
             <div style={{ fontSize: "20px", fontWeight: "700", color: ACCENT }}>
               {formattedTotal}
             </div>
@@ -717,7 +797,7 @@ function StepPayment({
             options={{
               style: {
                 base: {
-                  fontSize: "14px",
+                  fontSize: isMobile ? "16px" : "14px",
                   fontFamily: "'DM Sans', sans-serif",
                   color: DARK,
                 },
@@ -732,12 +812,13 @@ function StepPayment({
       </Field>
 
       <div style={{
-        display: "flex", alignItems: "center", gap: "8px",
+        display: "flex", alignItems: "flex-start", gap: "8px",
         marginTop: "4px", padding: "12px 16px",
         background: "#fff", borderRadius: "8px", border: `1px solid ${BORDER}`,
+        flexWrap: isMobile ? "wrap" : "nowrap",
       }}>
-        <span style={{ color: "#22a06b", fontSize: "16px" }}>🔒</span>
-        <span style={{ fontSize: "12px", color: "#888" }}>
+        <span style={{ color: "#22a06b", fontSize: "16px", flexShrink: 0 }}>🔒</span>
+        <span style={{ fontSize: "12px", color: "#888", lineHeight: 1.45 }}>
           256-bit SSL encryption · Powered by Stripe · Cancel anytime
         </span>
       </div>
@@ -750,8 +831,9 @@ function StepPayment({
 // ─── Post-signup: Check your email ───────────────────────────────────────────────
 
 function CheckEmailScreen({ email }: { email: string }) {
+  const isMobile = useContext(SignupMobileContext);
   return (
-    <div style={{ textAlign: "center", padding: "60px 40px" }}>
+    <div style={{ textAlign: "center", padding: isMobile ? "28px 16px 40px" : "60px 40px" }}>
       <div style={{
         width: "64px", height: "64px", borderRadius: "50%",
         background: "#e8f5e9", border: "2px solid #4caf50",
@@ -760,18 +842,87 @@ function CheckEmailScreen({ email }: { email: string }) {
       }}>
         ✉
       </div>
-      <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: "28px", color: DARK, margin: "0 0 12px" }}>
+      <h2
+        style={{
+          fontFamily: "'DM Serif Display', serif",
+          fontSize: isMobile ? "24px" : "28px",
+          color: DARK,
+          margin: "0 0 12px",
+          lineHeight: 1.2,
+        }}
+      >
         Check your email
       </h2>
-      <p style={{ color: "#666", fontSize: "15px", maxWidth: "380px", margin: "0 auto 16px", lineHeight: "1.7" }}>
+      <p style={{ color: "#666", fontSize: isMobile ? "14px" : "15px", maxWidth: "380px", margin: "0 auto 16px", lineHeight: "1.7" }}>
         We've sent a verification link to <strong style={{ color: DARK }}>{email}</strong>.
       </p>
-      <p style={{ color: "#888", fontSize: "14px", maxWidth: "360px", margin: "0 auto 32px", lineHeight: "1.6" }}>
+      <p style={{ color: "#888", fontSize: isMobile ? "13px" : "14px", maxWidth: "360px", margin: "0 auto 32px", lineHeight: "1.6" }}>
         Click the link in that email to verify your account. Once verified, you'll be taken straight to your dashboard.
       </p>
       <p style={{ color: "#999", fontSize: "13px" }}>
         Didn't get the email? Check your spam folder or try signing up again.
       </p>
+    </div>
+  );
+}
+
+// ─── Mobile progress header (replaces sidebar on narrow screens) ───────────────
+
+function MobileSignupHeader({ currentStep, complete }: { currentStep: number; complete?: boolean }) {
+  return (
+    <div
+      style={{
+        flexShrink: 0,
+        background: DARK,
+        padding: "12px 16px",
+        paddingTop: "max(12px, env(safe-area-inset-top, 0px))",
+        borderBottom: "1px solid #2a2a2a",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: "12px",
+          marginBottom: complete ? 0 : "10px",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: ACCENT, fontSize: "16px", fontWeight: "700", letterSpacing: "1px" }}>TAKEOFF</div>
+          <div style={{ color: "#555", fontSize: "10px", marginTop: "2px" }}>Construction Management</div>
+        </div>
+        {complete ? (
+          <div style={{ fontSize: "12px", color: "#a5d6a7", fontWeight: "600", textAlign: "right", flexShrink: 0 }}>
+            Almost there
+          </div>
+        ) : (
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: "11px", color: "#888", fontWeight: "600" }}>
+              Step {currentStep} of {STEPS.length}
+            </div>
+            <div style={{ fontSize: "12px", color: "#fff", fontWeight: "600", marginTop: "2px" }}>
+              {STEPS[currentStep - 1]?.label ?? ""}
+            </div>
+          </div>
+        )}
+      </div>
+      {!complete && (
+        <div style={{ display: "flex", gap: "4px" }}>
+          {STEPS.map((s) => (
+            <div
+              key={s.id}
+              style={{
+                flex: 1,
+                height: "3px",
+                borderRadius: "2px",
+                background: currentStep > s.id ? ACCENT : currentStep === s.id ? ACCENT : "#333",
+                opacity: currentStep >= s.id ? 1 : 0.35,
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -850,6 +1001,7 @@ export interface SignupWizardProps {
 }
 
 export default function SignupWizard({ onSignUp }: SignupWizardProps) {
+  const isMobile = useIsSignupMobile();
   const [step, setStep] = useState(1);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1161,6 +1313,7 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
           pricingSelection: typeof next === "function" ? next(f.pricingSelection) : next,
         }))
       }
+      compactLayout={isMobile}
     />,
     <StepPayment
       key="6-pay"
@@ -1174,77 +1327,156 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     />,
   ];
 
-  if (done) {
-    return (
-      <div style={{ display: "flex", minHeight: "640px", borderRadius: "12px", overflow: "hidden", border: `1px solid ${BORDER}` }}>
-        <Sidebar currentStep={7} />
-        <div style={{ flex: 1, background: BG, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <CheckEmailScreen email={form.email || ""} />
-        </div>
-      </div>
-    );
-  }
+  const shellStyle: CSSProperties = {
+    display: "flex",
+    flexDirection: isMobile ? "column" : "row",
+    minHeight: isMobile ? "min(100dvh, 920px)" : "640px",
+    fontFamily: "'DM Sans', sans-serif",
+    borderRadius: isMobile ? "10px" : "12px",
+    overflow: "hidden",
+    border: `1px solid ${BORDER}`,
+    boxShadow: isMobile ? "none" : "0 4px 24px rgba(0,0,0,0.08)",
+    width: "100%",
+    maxWidth: "100%",
+    boxSizing: "border-box",
+  };
+
+  const continueDisabled =
+    loading ||
+    (step === 5 &&
+      (!isPricingSelectionValid(form.pricingSelection) || !buildLineItems(form.pricingSelection)[0]?.price));
+
+  const continueBtnStyle: CSSProperties = {
+    ...btnPrimaryStyle,
+    ...(isMobile
+      ? { width: "100%", padding: "12px 20px", fontSize: "15px", minHeight: "48px", boxSizing: "border-box" }
+      : {}),
+    ...(continueDisabled ? { opacity: 0.6, pointerEvents: "none" as const } : {}),
+  };
+
+  const footerStyle: CSSProperties = {
+    padding: isMobile ? "12px 18px" : "18px 44px",
+    paddingBottom: isMobile ? "max(12px, env(safe-area-inset-bottom, 0px))" : "18px",
+    borderTop: `1px solid ${BORDER}`,
+    background: "#fff",
+    display: "flex",
+    flexDirection: isMobile ? "column" : "row",
+    alignItems: isMobile ? "stretch" : "center",
+    justifyContent: "space-between",
+    gap: isMobile ? "12px" : "0",
+    flexShrink: 0,
+  };
 
   return (
-    <div style={{
-      display: "flex", minHeight: "640px", fontFamily: "'DM Sans', sans-serif",
-      borderRadius: "12px", overflow: "hidden",
-      border: `1px solid ${BORDER}`, boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
-    }}>
-      <Sidebar currentStep={step} />
-
-      <div style={{ flex: 1, background: BG, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {/* Step content */}
-        <div style={{ flex: 1, padding: "36px 44px", overflowY: "auto" }}>
-          {error && (
-            <div style={{
-              marginBottom: "20px", padding: "12px 16px", borderRadius: "8px",
-              background: "#fdf0ef", border: `1px solid ${ACCENT}`, color: "#b71c1c", fontSize: "13px",
-            }}>
-              {error}
-            </div>
-          )}
-          {stepComponents[step - 1]}
-        </div>
-
-        {/* Footer nav */}
-        <div style={{
-          padding: "18px 44px", borderTop: `1px solid ${BORDER}`,
-          background: "#fff", display: "flex",
-          alignItems: "center", justifyContent: "space-between",
-        }}>
-          {step > 1 ? (
-            <button type="button" onClick={() => setStep((s) => s - 1)} style={btnSecondaryStyle}>
-              ← Back
-            </button>
-          ) : (
-            <div />
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <span style={{ fontSize: "12px", color: "#aaa" }}>Step {step} of {STEPS.length}</span>
-            <button
-              type="button"
-              onClick={handleStepNext}
-              style={
-                loading ||
-                (step === 5 &&
-                  (!isPricingSelectionValid(form.pricingSelection) ||
-                    !buildLineItems(form.pricingSelection)[0]?.price))
-                  ? { ...btnPrimaryStyle, opacity: 0.6, pointerEvents: "none" as const }
-                  : { ...btnPrimaryStyle }
-              }
-              disabled={
-                loading ||
-                (step === 5 &&
-                  (!isPricingSelectionValid(form.pricingSelection) ||
-                    !buildLineItems(form.pricingSelection)[0]?.price))
-              }
-            >
-              {loading ? "Creating account..." : step === STEPS.length ? "Complete Setup →" : "Continue →"}
-            </button>
+    <SignupMobileContext.Provider value={isMobile}>
+      {done ? (
+        <div style={shellStyle}>
+          {!isMobile && <Sidebar currentStep={7} />}
+          {isMobile && <MobileSignupHeader currentStep={7} complete />}
+          <div
+            style={{
+              flex: 1,
+              background: BG,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              overflowY: "auto",
+            }}
+          >
+            <CheckEmailScreen email={form.email || ""} />
           </div>
         </div>
-      </div>
-    </div>
+      ) : (
+        <div style={shellStyle}>
+          {!isMobile && <Sidebar currentStep={step} />}
+          {isMobile && <MobileSignupHeader currentStep={step} />}
+
+          <div
+            style={{
+              flex: 1,
+              background: BG,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+              minHeight: isMobile ? 0 : undefined,
+            }}
+          >
+            <div
+              style={{
+                flex: 1,
+                padding: isMobile ? "16px 18px" : "36px 44px",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+              }}
+            >
+              {error && (
+                <div
+                  style={{
+                    marginBottom: "20px",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    background: "#fdf0ef",
+                    border: `1px solid ${ACCENT}`,
+                    color: "#b71c1c",
+                    fontSize: "13px",
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+              {stepComponents[step - 1]}
+            </div>
+
+            <div style={footerStyle}>
+              {isMobile ? (
+                <>
+                  {step > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setStep((s) => s - 1)}
+                      style={{
+                        ...btnSecondaryStyle,
+                        alignSelf: "flex-start",
+                        padding: "10px 22px",
+                        minHeight: "44px",
+                      }}
+                    >
+                      ← Back
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleStepNext}
+                    style={continueBtnStyle}
+                    disabled={continueDisabled}
+                  >
+                    {loading ? "Creating account..." : step === STEPS.length ? "Complete Setup →" : "Continue →"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {step > 1 ? (
+                    <button type="button" onClick={() => setStep((s) => s - 1)} style={btnSecondaryStyle}>
+                      ← Back
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                    <span style={{ fontSize: "12px", color: "#aaa" }}>
+                      Step {step} of {STEPS.length}
+                    </span>
+                    <button type="button" onClick={handleStepNext} style={continueBtnStyle} disabled={continueDisabled}>
+                      {loading ? "Creating account..." : step === STEPS.length ? "Complete Setup →" : "Continue →"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </SignupMobileContext.Provider>
   );
 }

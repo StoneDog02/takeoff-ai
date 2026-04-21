@@ -30,6 +30,27 @@ export const PRICING_ADDON = {
 
 export type PricingAddonId = (typeof PRICING_ADDON)[keyof typeof PRICING_ADDON];
 
+function tierMarketingName(tier: PricingTier): string {
+  if (tier === "plus") return "Core PM Plus";
+  if (tier === "pro") return "Core PM Pro";
+  return "Core PM";
+}
+
+/** Every stackable paid add-on for “up to” copy on landing (excludes AI; not selectable there). */
+export function maxStackAddonsForTier(tier: PricingTier): string[] {
+  const stack = [
+    PRICING_ADDON.estimating,
+    PRICING_ADDON.portals,
+    PRICING_ADDON.financial,
+    PRICING_ADDON.fieldOps,
+    PRICING_ADDON.vault,
+    PRICING_ADDON.directory,
+  ];
+  if (tier === "core") return stack;
+  if (tier === "plus") return stack.filter((id) => id !== PRICING_ADDON.estimating);
+  return stack.filter((id) => id !== PRICING_ADDON.estimating && id !== PRICING_ADDON.portals);
+}
+
 const ADDON_PRICES: Record<string, number> = {
   [PRICING_ADDON.estimating]: 79,
   [PRICING_ADDON.portals]: 69,
@@ -40,13 +61,21 @@ const ADDON_PRICES: Record<string, number> = {
   [PRICING_ADDON.directory]: 29,
 };
 
-function StepHeader({ title, sub }: { title: string; sub: string }) {
+function StepHeader({ title, sub, compact }: { title: string; sub: string; compact?: boolean }) {
   return (
-    <div style={{ marginBottom: "28px" }}>
-      <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: "26px", color: DARK, margin: "0 0 6px" }}>
+    <div style={{ marginBottom: compact ? "20px" : "28px" }}>
+      <h2
+        style={{
+          fontFamily: "'DM Serif Display', serif",
+          fontSize: compact ? "22px" : "26px",
+          color: DARK,
+          margin: "0 0 6px",
+          lineHeight: compact ? 1.2 : undefined,
+        }}
+      >
         {title}
       </h2>
-      <p style={{ color: "#888", fontSize: "14px", margin: 0 }}>{sub}</p>
+      <p style={{ color: "#888", fontSize: compact ? "13px" : "14px", margin: 0, lineHeight: 1.45 }}>{sub}</p>
     </div>
   );
 }
@@ -72,11 +101,14 @@ export function PlanRadioCard({
   priceLabel,
   selected,
   onSelect,
+  fullWidth,
 }: {
   name: string;
   priceLabel: string;
   selected: boolean;
   onSelect: () => void;
+  /** Stack vertically (e.g. signup on narrow screens). */
+  fullWidth?: boolean;
 }) {
   return (
     <button
@@ -84,7 +116,8 @@ export function PlanRadioCard({
       onClick={onSelect}
       aria-pressed={selected}
       style={{
-        flex: "1 1 160px",
+        flex: fullWidth ? "none" : "1 1 160px",
+        width: fullWidth ? "100%" : undefined,
         minWidth: 0,
         textAlign: "left",
         padding: "16px 14px",
@@ -114,6 +147,85 @@ export function PlanRadioCard({
       </div>
       <div style={{ fontWeight: "700", fontSize: "14px", color: DARK, marginBottom: "4px" }}>{name}</div>
       <div style={{ fontSize: "18px", fontWeight: "800", color: selected ? ACCENT : DARK }}>{priceLabel}</div>
+    </button>
+  );
+}
+
+/** Add-on as a card: interactive (landing with toggles) or read-only (landing informational). */
+export function AddonInfoCard({
+  title,
+  priceLabel,
+  description,
+  selected,
+  onSelect = () => {},
+  disabled,
+  readOnly,
+  children,
+}: {
+  title: string;
+  priceLabel: string;
+  description: string;
+  selected?: boolean;
+  onSelect?: () => void;
+  disabled?: boolean;
+  /** When true, no click — informational only (e.g. marketing pricing section). */
+  readOnly?: boolean;
+  children?: ReactNode;
+}) {
+  const sel = !!selected;
+  const commonInteractive = {
+    width: "100%" as const,
+    textAlign: "left" as const,
+    padding: "16px 18px",
+    borderRadius: "10px",
+    boxSizing: "border-box" as const,
+    fontFamily: "'DM Sans', sans-serif",
+    marginBottom: "12px",
+    border: `2px solid ${sel ? ACCENT : BORDER}`,
+    background: sel ? "#fdf0ef" : "#fff",
+    cursor: disabled ? ("not-allowed" as const) : ("pointer" as const),
+    opacity: disabled ? 0.55 : 1,
+  };
+
+  if (disabled) {
+    return (
+      <div style={commonInteractive}>
+        <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: "4px" }}>{title}</div>
+        <div style={{ fontSize: "14px", fontWeight: "700", color: ACCENT, marginBottom: "8px" }}>{priceLabel}</div>
+        <p style={{ margin: 0, fontSize: "13px", color: "#666", lineHeight: 1.55 }}>{description}</p>
+      </div>
+    );
+  }
+
+  if (readOnly) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          textAlign: "left",
+          padding: "16px 18px",
+          borderRadius: "10px",
+          boxSizing: "border-box",
+          fontFamily: "'DM Sans', sans-serif",
+          marginBottom: "12px",
+          border: `1px solid ${BORDER}`,
+          background: "#fff",
+        }}
+      >
+        <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: "4px" }}>{title}</div>
+        <div style={{ fontSize: "14px", fontWeight: "700", color: ACCENT, marginBottom: "8px" }}>{priceLabel}</div>
+        <p style={{ margin: 0, fontSize: "13px", color: "#666", lineHeight: 1.55 }}>{description}</p>
+        {children != null ? <div style={{ marginTop: "12px" }}>{children}</div> : null}
+      </div>
+    );
+  }
+
+  return (
+    <button type="button" onClick={onSelect} aria-pressed={sel} style={commonInteractive}>
+      <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: "4px" }}>{title}</div>
+      <div style={{ fontSize: "14px", fontWeight: "700", color: ACCENT, marginBottom: "8px" }}>{priceLabel}</div>
+      <p style={{ margin: 0, fontSize: "13px", color: "#666", lineHeight: 1.55 }}>{description}</p>
+      {children != null ? <div style={{ marginTop: "14px" }}>{children}</div> : null}
     </button>
   );
 }
@@ -299,20 +411,57 @@ function computeUpsell(selection: PricingSelection): Upsell {
 export interface PricingStepProps {
   selection: PricingSelection;
   setSelection: (next: PricingSelection | ((prev: PricingSelection) => PricingSelection)) => void;
+  /** Passed from signup wizard on narrow screens. */
+  compactLayout?: boolean;
 }
 
-export function PricingStep({ selection, setSelection }: PricingStepProps) {
+export type PricingPickDisplayMode = "checkbox" | "cards";
+
+const ADDON_CARD_DESCRIPTION: Record<string, string> = {
+  [PRICING_ADDON.estimating]:
+    "Line-item estimates, markups, grouped scopes, and estimate versions tied to each job — so you can build and revise bids without spreadsheets.",
+  [PRICING_ADDON.portals]:
+    "Publish bid packages to subs, collect responses in one thread, and send client approval links so approvals and quotes stay auditable.",
+  [PRICING_ADDON.financial]:
+    "Connect bank activity, tag transactions to jobs, run native invoicing, and see revenue alongside field work in one financial layer.",
+  [PRICING_ADDON.fieldOps]:
+    "Daily field logs, geofenced clock-in, crew scheduling, roster, and payroll-ready time. First five employee seats are included; additional seats are billed in increments.",
+  [PRICING_ADDON.vault]:
+    "Centralize plans, contracts, RFIs, and site photos per project so everyone works from the same controlled document set.",
+  [PRICING_ADDON.directory]:
+    "Keep subs, clients, and internal contacts searchable with roles and history, plus job-aware messaging instead of scattered texts.",
+  [PRICING_ADDON.aiTakeoff]:
+    "We are still rolling this out — it will not appear as a billable add-on until launch. When live, it will help turn plans into structured quantities and scopes.",
+};
+
+export interface PricingPickFormProps extends PricingStepProps {
+  /** `cards` = landing (no checkboxes). Default matches signup wizard. */
+  displayMode?: PricingPickDisplayMode;
+  /** Narrow viewport: stacked plan cards and spacing tuned for phones. */
+  compactLayout?: boolean;
+}
+
+/** Shared tier + add-ons + summary UI (signup wizard and landing pricing). */
+export function PricingPickForm({
+  selection,
+  setSelection,
+  displayMode = "checkbox",
+  compactLayout = false,
+}: PricingPickFormProps) {
+  const useCards = displayMode === "cards";
+  const narrow = compactLayout;
   const { tier, addons, employees } = selection;
   const addonSet = useMemo(() => new Set(addons), [addons]);
 
   /** AI Material Takeoff is shown for awareness but cannot be selected until launch. */
   useLayoutEffect(() => {
+    if (useCards) return;
     if (!addons.includes(PRICING_ADDON.aiTakeoff)) return;
     setSelection((prev) => ({
       ...prev,
       addons: prev.addons.filter((a) => a !== PRICING_ADDON.aiTakeoff),
     }));
-  }, [addons, setSelection]);
+  }, [useCards, addons, setSelection]);
 
   const setTier = (t: PricingTier) => {
     setSelection((prev) => {
@@ -338,37 +487,54 @@ export function PricingStep({ selection, setSelection }: PricingStepProps) {
   const fieldOpsOn = addonSet.has(PRICING_ADDON.fieldOps);
   const extraEmpCost = fieldOpsExtraCost(employees);
 
+  const landingCostRange = useMemo(() => {
+    if (!useCards) return null;
+    const minTotal = computePricingMonthly({ tier, addons: [], employees: 5 }).total;
+    const maxTotal = computePricingMonthly({
+      tier,
+      addons: maxStackAddonsForTier(tier),
+      employees: 5,
+    }).total;
+    return { minTotal, maxTotal };
+  }, [useCards, tier]);
+
   const applyUpsell = () => {
     if (!upsell) return;
     setTier(upsell.targetTier);
   };
 
   return (
-    <div style={{ paddingBottom: "100px" }}>
-      <StepHeader
-        title="Choose your plan"
-        sub="Pick a base tier and any add-ons. Next you’ll add a payment method — you won’t be charged until your trial ends."
-      />
-
+    <>
       <label style={labelStyle}>Base plan</label>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginBottom: "28px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: narrow ? "column" : "row",
+          flexWrap: narrow ? "nowrap" : "wrap",
+          gap: narrow ? "10px" : "12px",
+          marginBottom: narrow ? "22px" : "28px",
+        }}
+      >
         <PlanRadioCard
           name="Core PM"
           priceLabel="$99/mo"
           selected={tier === "core"}
           onSelect={() => setTier("core")}
+          fullWidth={narrow}
         />
         <PlanRadioCard
           name="Core PM Plus"
           priceLabel="$149/mo"
           selected={tier === "plus"}
           onSelect={() => setTier("plus")}
+          fullWidth={narrow}
         />
         <PlanRadioCard
           name="Core PM Pro"
           priceLabel="$199/mo"
           selected={tier === "pro"}
           onSelect={() => setTier("pro")}
+          fullWidth={narrow}
         />
       </div>
 
@@ -376,21 +542,39 @@ export function PricingStep({ selection, setSelection }: PricingStepProps) {
         <>
           <h3 style={{ ...sectionTitleStyle, marginTop: "8px" }}>Optional upgrades</h3>
           {tier === "core" ? (
-            <AddonRow
-              title="Estimating Suite"
-              priceLabel="$79/mo"
-              checked={addonSet.has(PRICING_ADDON.estimating)}
-              onToggle={() => toggleAddon(PRICING_ADDON.estimating)}
-            />
+            useCards ? (
+              <AddonInfoCard
+                title="Estimating Suite"
+                priceLabel="$79/mo"
+                description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.estimating]}
+                readOnly
+              />
+            ) : (
+              <AddonRow
+                title="Estimating Suite"
+                priceLabel="$79/mo"
+                checked={addonSet.has(PRICING_ADDON.estimating)}
+                onToggle={() => toggleAddon(PRICING_ADDON.estimating)}
+              />
+            )
           ) : null}
-          <AddonRow
-            title="Bid & Client Portals"
-            priceLabel="$69/mo"
-            checked={addonSet.has(PRICING_ADDON.portals)}
-            onToggle={() => toggleAddon(PRICING_ADDON.portals)}
-          />
+          {useCards ? (
+            <AddonInfoCard
+              title="Bid & Client Portals"
+              priceLabel="$69/mo"
+              description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.portals]}
+              readOnly
+            />
+          ) : (
+            <AddonRow
+              title="Bid & Client Portals"
+              priceLabel="$69/mo"
+              checked={addonSet.has(PRICING_ADDON.portals)}
+              onToggle={() => toggleAddon(PRICING_ADDON.portals)}
+            />
+          )}
 
-          {upsell ? (
+          {upsell && !useCards ? (
             <div
               style={{
                 marginTop: "14px",
@@ -417,6 +601,8 @@ export function PricingStep({ selection, setSelection }: PricingStepProps) {
                   fontWeight: "600",
                   cursor: "pointer",
                   fontFamily: "'DM Sans', sans-serif",
+                  width: narrow ? "100%" : undefined,
+                  boxSizing: "border-box",
                 }}
               >
                 Upgrade to {upsell.targetTier === "plus" ? "Core PM Plus" : "Core PM Pro"}
@@ -424,153 +610,255 @@ export function PricingStep({ selection, setSelection }: PricingStepProps) {
               </button>
             </div>
           ) : (
-            <div style={{ marginBottom: "20px" }} />
+            <div style={{ marginBottom: useCards ? "12px" : "20px" }} />
           )}
         </>
       )}
 
       <h3 style={sectionTitleStyle}>Standalone add-ons</h3>
-      <AddonRow
-        title="AI Material Takeoff"
-        priceLabel="$99/mo (planned)"
-        note="We’re still rolling this out in production — it isn’t offered as an add-on yet. When it’s ready, you’ll be able to add it from billing."
-        checked={false}
-        disabled
-        onToggle={() => {}}
-      />
-      <AddonRow
-        title="Financial Suite"
-        priceLabel="$89/mo"
-        checked={addonSet.has(PRICING_ADDON.financial)}
-        onToggle={() => toggleAddon(PRICING_ADDON.financial)}
-      />
-      <AddonRow
-        title="Field Ops & Team Payroll"
-        priceLabel="$129/mo + $5/employee after 5"
-        checked={fieldOpsOn}
-        onToggle={() => toggleAddon(PRICING_ADDON.fieldOps)}
-      >
-        {fieldOpsOn ? (
-          <div style={{ paddingLeft: "30px" }}>
-            <span style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Employees</span>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "8px" }}>
-              <button
-                type="button"
-                onClick={() =>
-                  setSelection((p) => ({
-                    ...p,
-                    employees: Math.max(1, p.employees - 1),
-                  }))
-                }
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "8px",
-                  border: `1px solid ${BORDER}`,
-                  background: "#fff",
-                  fontSize: "18px",
-                  cursor: "pointer",
-                  fontFamily: "'DM Sans', sans-serif",
-                }}
-              >
-                −
-              </button>
-              <span style={{ fontSize: "16px", fontWeight: "700", color: DARK, minWidth: "28px", textAlign: "center" }}>
-                {employees}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelection((p) => ({ ...p, employees: p.employees + 1 }))}
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "8px",
-                  border: `1px solid ${BORDER}`,
-                  background: "#fff",
-                  fontSize: "18px",
-                  cursor: "pointer",
-                  fontFamily: "'DM Sans', sans-serif",
-                }}
-              >
-                +
-              </button>
+      {useCards ? (
+        <AddonInfoCard
+          title="AI Material Takeoff"
+          priceLabel="$99/mo (planned)"
+          description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.aiTakeoff]}
+          readOnly
+        />
+      ) : (
+        <AddonRow
+          title="AI Material Takeoff"
+          priceLabel="$99/mo (planned)"
+          note="We’re still rolling this out in production — it isn’t offered as an add-on yet. When it’s ready, you’ll be able to add it from billing."
+          checked={false}
+          disabled
+          onToggle={() => {}}
+        />
+      )}
+      {useCards ? (
+        <AddonInfoCard
+          title="Financial Suite"
+          priceLabel="$89/mo"
+          description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.financial]}
+          readOnly
+        />
+      ) : (
+        <AddonRow
+          title="Financial Suite"
+          priceLabel="$89/mo"
+          checked={addonSet.has(PRICING_ADDON.financial)}
+          onToggle={() => toggleAddon(PRICING_ADDON.financial)}
+        />
+      )}
+      {useCards ? (
+        <AddonInfoCard
+          title="Field Ops & Team Payroll"
+          priceLabel="$129/mo + $5/employee after 5"
+          description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.fieldOps]}
+          readOnly
+        >
+          <p style={{ margin: 0, fontSize: "13px", color: "#15803d", fontWeight: "600", lineHeight: 1.5 }}>
+            First five employee seats are included in the base add-on price; each additional seat is $5/mo. You set the
+            exact headcount when you subscribe.
+          </p>
+        </AddonInfoCard>
+      ) : (
+        <AddonRow
+          title="Field Ops & Team Payroll"
+          priceLabel="$129/mo + $5/employee after 5"
+          checked={fieldOpsOn}
+          onToggle={() => toggleAddon(PRICING_ADDON.fieldOps)}
+        >
+          {fieldOpsOn ? (
+            <div style={{ paddingLeft: narrow ? "0" : "30px" }}>
+              <span style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Employees</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelection((p) => ({
+                      ...p,
+                      employees: Math.max(1, p.employees - 1),
+                    }))
+                  }
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    border: `1px solid ${BORDER}`,
+                    background: "#fff",
+                    fontSize: "18px",
+                    cursor: "pointer",
+                    fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  −
+                </button>
+                <span style={{ fontSize: "16px", fontWeight: "700", color: DARK, minWidth: "28px", textAlign: "center" }}>
+                  {employees}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelection((p) => ({ ...p, employees: p.employees + 1 }))}
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    border: `1px solid ${BORDER}`,
+                    background: "#fff",
+                    fontSize: "18px",
+                    cursor: "pointer",
+                    fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  +
+                </button>
+              </div>
+              {extraEmpCost > 0 ? (
+                <p style={{ margin: "10px 0 0", fontSize: "13px", color: "#15803d", fontWeight: "600" }}>
+                  First 5 employees included · +${extraEmpCost}/mo for {employees - 5} additional seat
+                  {employees - 5 === 1 ? "" : "s"}
+                </p>
+              ) : (
+                <p style={{ margin: "10px 0 0", fontSize: "13px", color: "#15803d", fontWeight: "600" }}>
+                  First 5 employees included — no extra seat fees at this count.
+                </p>
+              )}
             </div>
-            {extraEmpCost > 0 ? (
-              <p style={{ margin: "10px 0 0", fontSize: "13px", color: "#15803d", fontWeight: "600" }}>
-                First 5 employees included · +${extraEmpCost}/mo for {employees - 5} additional seat
-                {employees - 5 === 1 ? "" : "s"}
-              </p>
-            ) : (
-              <p style={{ margin: "10px 0 0", fontSize: "13px", color: "#15803d", fontWeight: "600" }}>
-                First 5 employees included — no extra seat fees at this count.
-              </p>
-            )}
-          </div>
-        ) : null}
-      </AddonRow>
-      <AddonRow
-        title="Document Vault"
-        priceLabel="$24/mo"
-        checked={addonSet.has(PRICING_ADDON.vault)}
-        onToggle={() => toggleAddon(PRICING_ADDON.vault)}
-      />
-      <AddonRow
-        title="Directory & Messaging"
-        priceLabel="$29/mo"
-        checked={addonSet.has(PRICING_ADDON.directory)}
-        onToggle={() => toggleAddon(PRICING_ADDON.directory)}
-      />
+          ) : null}
+        </AddonRow>
+      )}
+      {useCards ? (
+        <AddonInfoCard
+          title="Document Vault"
+          priceLabel="$24/mo"
+          description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.vault]}
+          readOnly
+        />
+      ) : (
+        <AddonRow
+          title="Document Vault"
+          priceLabel="$24/mo"
+          checked={addonSet.has(PRICING_ADDON.vault)}
+          onToggle={() => toggleAddon(PRICING_ADDON.vault)}
+        />
+      )}
+      {useCards ? (
+        <AddonInfoCard
+          title="Directory & Messaging"
+          priceLabel="$29/mo"
+          description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.directory]}
+          readOnly
+        />
+      ) : (
+        <AddonRow
+          title="Directory & Messaging"
+          priceLabel="$29/mo"
+          checked={addonSet.has(PRICING_ADDON.directory)}
+          onToggle={() => toggleAddon(PRICING_ADDON.directory)}
+        />
+      )}
 
-      <div
-        style={{
-          position: "sticky",
-          bottom: 0,
-          marginTop: "28px",
-          paddingTop: "16px",
-          paddingBottom: "4px",
-          background: "linear-gradient(to top, #F7F6F3 85%, transparent)",
-          zIndex: 2,
-        }}
-      >
+      {useCards && landingCostRange ? (
+        <div style={{ marginTop: "28px" }}>
+          <div
+            style={{
+              border: `1px solid ${BORDER}`,
+              borderRadius: "12px",
+              background: "#fff",
+              padding: "16px 18px",
+            }}
+          >
+            <div style={{ fontSize: "12px", fontWeight: "700", color: ACCENT, letterSpacing: "0.06em", marginBottom: "10px" }}>
+              HOW PRICING ADDS UP
+            </div>
+            <p style={{ margin: 0, fontSize: "14px", color: "#444", lineHeight: 1.6 }}>
+              {landingCostRange.minTotal === landingCostRange.maxTotal ? (
+                <>
+                  <strong style={{ color: DARK }}>{tierMarketingName(tier)}</strong> is{" "}
+                  <strong style={{ color: DARK }}>${landingCostRange.minTotal}/mo</strong> with the options shown above
+                  (AI Material Takeoff is not included until launch).
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: DARK }}>{tierMarketingName(tier)}</strong> starts at{" "}
+                  <strong style={{ color: DARK }}>${landingCostRange.minTotal}/mo</strong> for the base plan only. If you
+                  add every paid add-on listed for this tier, estimated billing is up to about{" "}
+                  <strong style={{ color: DARK }}>${landingCostRange.maxTotal}/mo</strong> with five Field Ops employee
+                  seats included; more seats add $5/mo each. AI Material Takeoff is not included until launch.
+                </>
+              )}
+            </p>
+            <p style={{ margin: "12px 0 0", fontSize: "12px", color: "#888", lineHeight: 1.45 }}>
+              You pick exactly which add-ons to enable when you sign up; amounts are before tax and follow what you
+              confirm in Stripe.
+            </p>
+          </div>
+        </div>
+      ) : (
         <div
           style={{
-            border: `1px solid ${BORDER}`,
-            borderRadius: "12px",
-            background: "#fff",
-            boxShadow: "0 -4px 20px rgba(0,0,0,0.06)",
-            padding: "16px 18px",
+            position: "sticky",
+            bottom: 0,
+            marginTop: "28px",
+            paddingTop: "16px",
+            paddingBottom: "4px",
+            background: "linear-gradient(to top, #F7F6F3 85%, transparent)",
+            zIndex: 2,
           }}
         >
-          <div style={{ fontSize: "12px", fontWeight: "700", color: ACCENT, letterSpacing: "0.06em", marginBottom: "10px" }}>
-            ESTIMATED MONTHLY TOTAL
+          <div
+            style={{
+              border: `1px solid ${BORDER}`,
+              borderRadius: "12px",
+              background: "#fff",
+              boxShadow: "0 -4px 20px rgba(0,0,0,0.06)",
+              padding: "16px 18px",
+            }}
+          >
+            <div style={{ fontSize: "12px", fontWeight: "700", color: ACCENT, letterSpacing: "0.06em", marginBottom: "10px" }}>
+              ESTIMATED MONTHLY TOTAL
+            </div>
+            <ul style={{ listStyle: "none", margin: "0 0 12px", padding: 0 }}>
+              {lines.map((l) => (
+                <li
+                  key={l.label}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "13px",
+                    color: "#555",
+                    padding: "4px 0",
+                    borderBottom: `1px solid ${BORDER}`,
+                  }}
+                >
+                  <span>{l.label}</span>
+                  <span style={{ fontWeight: "600", color: DARK }}>${l.amount}/mo</span>
+                </li>
+              ))}
+            </ul>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: "15px", fontWeight: "700", color: DARK }}>Total</span>
+              <span style={{ fontSize: "22px", fontWeight: "800", color: ACCENT }}>${total}/mo</span>
+            </div>
+            <p style={{ margin: "10px 0 0", fontSize: "11px", color: "#999", lineHeight: 1.45 }}>
+              Estimates for your selections only. Final charges follow the plan you confirm with Stripe on the next steps.
+            </p>
           </div>
-          <ul style={{ listStyle: "none", margin: "0 0 12px", padding: 0 }}>
-            {lines.map((l) => (
-              <li
-                key={l.label}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: "13px",
-                  color: "#555",
-                  padding: "4px 0",
-                  borderBottom: `1px solid ${BORDER}`,
-                }}
-              >
-                <span>{l.label}</span>
-                <span style={{ fontWeight: "600", color: DARK }}>${l.amount}/mo</span>
-              </li>
-            ))}
-          </ul>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <span style={{ fontSize: "15px", fontWeight: "700", color: DARK }}>Total</span>
-            <span style={{ fontSize: "22px", fontWeight: "800", color: ACCENT }}>${total}/mo</span>
-          </div>
-          <p style={{ margin: "10px 0 0", fontSize: "11px", color: "#999", lineHeight: 1.45 }}>
-            Estimates for your selections only. Final charges follow the plan you confirm with Stripe on the next steps.
-          </p>
         </div>
-      </div>
+      )}
+    </>
+  );
+}
+
+export function PricingStep({ selection, setSelection, compactLayout }: PricingStepProps) {
+  const narrow = !!compactLayout;
+  return (
+    <div style={{ paddingBottom: narrow ? "40px" : "100px" }}>
+      <StepHeader
+        title="Choose your plan"
+        sub="Pick a base tier and any add-ons. Next you’ll add a payment method — you won’t be charged until your trial ends."
+        compact={narrow}
+      />
+      <PricingPickForm selection={selection} setSelection={setSelection} compactLayout={narrow} />
     </div>
   );
 }
