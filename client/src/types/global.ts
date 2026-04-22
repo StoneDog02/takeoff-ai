@@ -606,6 +606,8 @@ export interface Employee {
   email: string
   phone?: string
   status: EmployeeStatus
+  /** GC-set: employee portal daily log access regardless of role title. */
+  daily_log_access?: boolean
   current_compensation?: number
   created_at: string
   updated_at: string

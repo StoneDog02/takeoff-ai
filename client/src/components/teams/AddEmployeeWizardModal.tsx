@@ -179,6 +179,8 @@ export interface AddEmployeeWizardForm {
   overtimeEligible: boolean
   allowanceNotes: string
   inviteToPortal: boolean
+  /** GC: grant employee portal daily log access (any role / custom title). */
+  dailyLogAccess: boolean
   appRole: string
   assignJob: string
   certs: string[]
@@ -210,6 +212,7 @@ const initialForm: AddEmployeeWizardForm = {
   overtimeEligible: true,
   allowanceNotes: '',
   inviteToPortal: true,
+  dailyLogAccess: false,
   appRole: 'field',
   assignJob: '',
   certs: [],
@@ -310,6 +313,7 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
         phone: form.phone.trim() || undefined,
         status,
         current_compensation: current_compensation ?? undefined,
+        daily_log_access: form.dailyLogAccess,
       })
       setCreatedEmployee(created)
 
@@ -861,6 +865,37 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
                   </div>
                 </div>
 
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => set('dailyLogAccess', !form.dailyLogAccess)}
+                  onKeyDown={(e) => e.key === 'Enter' && set('dailyLogAccess', !form.dailyLogAccess)}
+                  className="flex items-center gap-3.5 p-3.5 rounded-xl cursor-pointer transition-all border-2 mt-3.5"
+                  style={{
+                    background: form.dailyLogAccess ? 'var(--red-glow-soft)' : 'var(--color-surface)',
+                    borderColor: form.dailyLogAccess ? 'var(--red)' : 'var(--border)',
+                  }}
+                >
+                  <div
+                    className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0"
+                    style={{
+                      borderColor: form.dailyLogAccess ? 'var(--red)' : 'var(--border)',
+                      background: form.dailyLogAccess ? 'var(--red)' : 'var(--bg-surface)',
+                    }}
+                  >
+                    {form.dailyLogAccess && <span className="text-white text-xs font-bold">✓</span>}
+                  </div>
+                  <div>
+                    <div className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      Daily log access (employee portal)
+                    </div>
+                    <div className="teams-muted text-[11px]">
+                      Lets this person fill out daily logs on assigned jobs from their phone. You can enable this for
+                      any roster title, including custom roles.
+                    </div>
+                  </div>
+                </div>
+
                 {form.inviteToPortal && (
                   <div style={{ marginTop: 14 }}>
                   <WizardField label="App Permission Level">
@@ -996,6 +1031,7 @@ export function AddEmployeeWizardModal({ onClose, onSuccess }: AddEmployeeWizard
 
               <ReviewSection title="Access & Assignment" onEdit={goTo} stepId={4}>
                 <ReviewRow label="Portal Invite" value={form.inviteToPortal ? `Yes → ${form.email}` : 'Not invited'} />
+                <ReviewRow label="Daily log access" value={form.dailyLogAccess ? 'Yes' : 'No'} />
                 <ReviewRow label="App Role" value={APP_ROLES.find((r) => r.value === form.appRole)?.label} />
                 <ReviewRow label="Job Assignment" value={form.assignJob ? jobs.find((j) => j.id === form.assignJob)?.name : 'None'} />
                 <ReviewRow label="Certifications" value={form.certs.length ? form.certs.join(', ') : 'None selected'} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import type { Employee, TimeEntry } from '@/types/global'
 import { dayjs, formatDateTime } from '@/lib/date'
@@ -21,9 +21,14 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
   const [addForEmployeeId, setAddForEmployeeId] = useState<string | null>(null)
   const [hoursRefreshKey, setHoursRefreshKey] = useState(0)
+  /** 0 = current calendar week; each increment steps one week into the past. */
+  const [weeksBack, setWeeksBack] = useState(0)
 
-  const weekStart = dayjs().startOf('week').toISOString()
-  const weekEnd = dayjs().endOf('week').toISOString()
+  const viewWeekStart = useMemo(() => dayjs().startOf('week').subtract(weeksBack, 'week'), [weeksBack])
+  const viewWeekEnd = useMemo(() => viewWeekStart.endOf('week'), [viewWeekStart])
+  const weekStartIso = viewWeekStart.toISOString()
+  const weekEndIso = viewWeekEnd.toISOString()
+  const weekRangeLabel = `${viewWeekStart.format('MMM D')}–${viewWeekEnd.format('MMM D, YYYY')}`
   const monthStart = dayjs().startOf('month').toISOString()
   const monthEnd = dayjs().endOf('month').toISOString()
 
@@ -32,7 +37,7 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
     Promise.all([
       teamsApi.employees.list(),
       getProjectsList().then((p) => p.map((x) => ({ id: x.id, name: x.name }))),
-      teamsApi.timeEntries.list({ from: weekStart, to: weekEnd }),
+      teamsApi.timeEntries.list({ from: weekStartIso, to: weekEndIso }),
       teamsApi.timeEntries.list({ from: monthStart, to: monthEnd }),
     ])
       .then(([e, j, weekEntries, monthEntries]) => {
@@ -55,7 +60,7 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [hoursRefreshKey])
+  }, [hoursRefreshKey, weekStartIso, weekEndIso, monthStart, monthEnd])
 
   const selectedEmployee = selectedIndex !== null ? employees[selectedIndex] : null
 
@@ -65,14 +70,14 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
       return
     }
     setDetailLoading(true)
-    const start = dayjs().subtract(7, 'day').toISOString()
-    const end = dayjs().add(1, 'day').toISOString()
     teamsApi.timeEntries
-      .list({ employee_id: selectedEmployee.id, from: start, to: end })
-      .then(setDetailEntries)
+      .list({ employee_id: selectedEmployee.id, from: weekStartIso, to: weekEndIso })
+      .then((rows) =>
+        setDetailEntries([...rows].sort((a, b) => new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime()))
+      )
       .catch(() => setDetailEntries([]))
       .finally(() => setDetailLoading(false))
-  }, [selectedEmployee?.id, hoursRefreshKey])
+  }, [selectedEmployee?.id, hoursRefreshKey, weekStartIso, weekEndIso])
 
   const closeTimeEntryModal = useCallback(() => {
     setEditEntry(null)
@@ -94,9 +99,9 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
     <div className="teams-tab-body">
       <div className="teams-metrics-row">
         <div className="teams-metric-card">
-          <div className="teams-metric-label">Total This Week</div>
+          <div className="teams-metric-label">{weeksBack === 0 ? 'Total This Week' : 'Week total'}</div>
           <div className="teams-metric-value">{loading ? '…' : `${Math.round(totalWeek * 100) / 100} hrs`}</div>
-          <div className="teams-metric-sub">All employees</div>
+          <div className="teams-metric-sub">{weeksBack === 0 ? 'All employees' : weekRangeLabel}</div>
         </div>
         <div className="teams-metric-card accent-blue">
           <div className="teams-metric-label">Total This Month</div>
@@ -106,7 +111,54 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
         <div className="teams-metric-card accent-green">
           <div className="teams-metric-label">Avg Hours/Employee</div>
           <div className="teams-metric-value">{loading ? '…' : `${avgWeek.toFixed(1)} hrs`}</div>
-          <div className="teams-metric-sub">This week</div>
+          <div className="teams-metric-sub">{weeksBack === 0 ? 'This week' : weekRangeLabel}</div>
+        </div>
+      </div>
+
+      <div
+        className="teams-detail-header"
+        style={{
+          marginTop: 4,
+          marginBottom: 8,
+          padding: '12px 14px',
+          borderRadius: 10,
+          border: '1px solid var(--border)',
+          background: 'var(--bg-raised)',
+          flexWrap: 'wrap',
+          gap: 10,
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="teams-btn teams-btn-ghost"
+            style={{ fontSize: 12, padding: '8px 12px' }}
+            onClick={() => setWeeksBack((w) => w + 1)}
+          >
+            ← Previous week
+          </button>
+          <button
+            type="button"
+            className="teams-btn teams-btn-primary"
+            style={{ fontSize: 12, padding: '8px 12px' }}
+            disabled={weeksBack === 0}
+            onClick={() => setWeeksBack(0)}
+          >
+            This week
+          </button>
+          <button
+            type="button"
+            className="teams-btn teams-btn-ghost"
+            style={{ fontSize: 12, padding: '8px 12px' }}
+            disabled={weeksBack === 0}
+            onClick={() => setWeeksBack((w) => Math.max(0, w - 1))}
+          >
+            Next week →
+          </button>
+        </div>
+        <div style={{ flex: 1, minWidth: 160 }} />
+        <div className="teams-cell-muted" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+          {weeksBack === 0 ? 'Viewing: This week' : `Viewing: ${weekRangeLabel}`}
         </div>
       </div>
 
@@ -127,7 +179,9 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
                 <TeamsAvatar initials={getInitials(emp.name)} size="sm" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="teams-cell-name">{emp.name}</div>
-                  <div className="teams-cell-muted" style={{ fontSize: 12 }}>This week</div>
+                  <div className="teams-cell-muted" style={{ fontSize: 12 }}>
+                    {weeksBack === 0 ? 'This week' : weekRangeLabel}
+                  </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div className="teams-metric-value" style={{ fontSize: 16 }}>{weekHrs.toFixed(1)}</div>
@@ -146,7 +200,8 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="teams-roster-name">{selectedEmployee.name}</div>
                   <div className="teams-cell-muted">
-                    {(weekHoursByEmployee[selectedEmployee.id] ?? 0).toFixed(1)} hrs this week · YTD —
+                    {(weekHoursByEmployee[selectedEmployee.id] ?? 0).toFixed(1)} hrs
+                    {weeksBack === 0 ? ' this week' : ` · ${weekRangeLabel}`} · YTD —
                   </div>
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -187,7 +242,9 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
                   ) : detailEntries.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="teams-cell-muted" style={{ padding: 24 }}>
-                        <div style={{ marginBottom: 12 }}>No clock-ins in the last 7 days for this employee.</div>
+                        <div style={{ marginBottom: 12 }}>
+                          No time entries for {weeksBack === 0 ? 'this week' : `the week of ${weekRangeLabel}`}.
+                        </div>
                         <button type="button" className="teams-btn teams-btn-primary" style={{ fontSize: 12 }} onClick={openAddTimeEntry}>
                           Add time entry
                         </button>
@@ -231,6 +288,11 @@ export function ManHoursTab({ onSelectEmployee }: ManHoursTabProps) {
       <EditTimeEntryModal
         entry={editEntry}
         addForEmployeeId={addForEmployeeId}
+        addClockInDefaultIso={
+          weeksBack > 0
+            ? viewWeekStart.hour(8).minute(0).second(0).millisecond(0).toISOString()
+            : null
+        }
         employeeName={
           selectedEmployee?.name ??
           (editEntry ? (employees.find((e) => e.id === editEntry.employee_id)?.name ?? editEntry.employee_id) : '')

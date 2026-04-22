@@ -62,7 +62,8 @@ router.get('/', async (req, res, next) => {
     }
 
     if (req.actingAsEmployee && req.employee) {
-      const { id, name, email, role, phone, status, current_compensation, created_at, updated_at } = req.employee
+      const { id, name, email, role, phone, status, current_compensation, created_at, updated_at, daily_log_access } =
+        req.employee
       return res.json({
         user,
         isAdmin,
@@ -76,6 +77,7 @@ router.get('/', async (req, res, next) => {
           role,
           phone: phone || '',
           status,
+          daily_log_access: daily_log_access === true,
           current_compensation: current_compensation ?? null,
           created_at,
           updated_at,
@@ -86,7 +88,8 @@ router.get('/', async (req, res, next) => {
     }
     if (profile?.role === 'employee') {
       if (req.employee) {
-        const { id, name, email, role, phone, status, current_compensation, created_at, updated_at } = req.employee
+        const { id, name, email, role, phone, status, current_compensation, created_at, updated_at, daily_log_access } =
+          req.employee
         return res.json({
           user,
           isAdmin,
@@ -100,6 +103,7 @@ router.get('/', async (req, res, next) => {
             role,
             phone: phone || '',
             status,
+            daily_log_access: daily_log_access === true,
             current_compensation: current_compensation ?? null,
             created_at,
             updated_at,

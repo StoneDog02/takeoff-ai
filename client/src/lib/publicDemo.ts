@@ -121,6 +121,7 @@ export function buildSyntheticMeResponse(): MeResponse {
         role: 'Site Super',
         phone: '(555) 000-1111',
         status: 'active',
+        daily_log_access: true,
         current_compensation: 32,
         created_at: now,
         updated_at: now,

@@ -5,7 +5,7 @@ export const EMPLOYEE_TRADE_ROLE_OPTIONS = [
   'Electrician',
   'Plumber',
   'Tile Installer',
-  'Framing Lead',
+  'Crew Lead',
   'Project Manager',
   'Site Supervisor',
   'Foreman',

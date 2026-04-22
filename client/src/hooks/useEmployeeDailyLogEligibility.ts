@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { teamsApi } from '@/api/teamsClient'
-import { isDailyLogFieldRole } from '@/lib/dailyLogFieldRoles'
+import { assignmentAllowsDailyLogAccess, rosterAllowsDailyLogAccess } from '@/lib/dailyLogFieldRoles'
 import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
 
 function computeEligible(
   assignments: { role_on_job?: string }[],
-  rosterRole: string | undefined | null
+  rosterRole: string | undefined | null,
+  dailyLogAccess: boolean | undefined | null
 ): boolean {
-  const byJob = assignments.some((a) => isDailyLogFieldRole(a.role_on_job))
-  const byProfile = isDailyLogFieldRole(rosterRole)
-  return byJob || byProfile
+  if (rosterAllowsDailyLogAccess(rosterRole, dailyLogAccess)) return true
+  return assignments.some((a) =>
+    assignmentAllowsDailyLogAccess(rosterRole, a.role_on_job, dailyLogAccess)
+  )
 }
 
 /** True when field lead on roster (employees.role) or on at least one active job assignment (role_on_job). */
@@ -18,6 +20,7 @@ export function useEmployeeDailyLogEligibility(): { eligible: boolean; loading: 
   const { employeeId } = useEffectiveEmployee()
   const { employee: authEmployee } = useAuth()
   const rosterRole = authEmployee?.role
+  const dailyLogAccess = authEmployee?.daily_log_access
   const [eligible, setEligible] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -25,11 +28,11 @@ export function useEmployeeDailyLogEligibility(): { eligible: boolean; loading: 
     if (!employeeId) return
     try {
       const list = await teamsApi.jobAssignments.list({ employee_id: employeeId, active_only: true })
-      setEligible(computeEligible(list, rosterRole))
+      setEligible(computeEligible(list, rosterRole, dailyLogAccess))
     } catch {
       setEligible(false)
     }
-  }, [employeeId, rosterRole])
+  }, [employeeId, rosterRole, dailyLogAccess])
 
   useEffect(() => {
     if (!employeeId) {
@@ -42,7 +45,7 @@ export function useEmployeeDailyLogEligibility(): { eligible: boolean; loading: 
     teamsApi.jobAssignments
       .list({ employee_id: employeeId, active_only: true })
       .then((list) => {
-        if (!cancelled) setEligible(computeEligible(list, rosterRole))
+        if (!cancelled) setEligible(computeEligible(list, rosterRole, dailyLogAccess))
       })
       .catch(() => {
         if (!cancelled) setEligible(false)
@@ -53,7 +56,7 @@ export function useEmployeeDailyLogEligibility(): { eligible: boolean; loading: 
     return () => {
       cancelled = true
     }
-  }, [employeeId, rosterRole])
+  }, [employeeId, rosterRole, dailyLogAccess])
 
   useEffect(() => {
     if (!employeeId) return

@@ -74,6 +74,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
     phone: string
     status: 'on_site' | 'off' | 'pto'
     current_compensation: number | ''
+    daily_log_access: boolean
   }>({
     name: '',
     role: '',
@@ -81,6 +82,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
     phone: '',
     status: 'off',
     current_compensation: '',
+    daily_log_access: false,
   })
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
@@ -113,6 +115,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
       phone: emp.phone ?? '',
       status: (emp.status as 'off' | 'on_site' | 'pto') ?? 'off',
       current_compensation: emp.current_compensation ?? '',
+      daily_log_access: emp.daily_log_access === true,
     })
     setLoading(true)
     const year = dayjs().year()
@@ -390,6 +393,22 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
                             }}
                           />
                         </div>
+                        <div className="teams-form-row teams-form-row--checkbox">
+                          <label className="teams-label m-0">Daily log access</label>
+                          <label className="flex cursor-pointer items-start gap-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={editForm.daily_log_access}
+                              onChange={(e) => setEditForm((f) => ({ ...f, daily_log_access: e.target.checked }))}
+                            />
+                            <span className="teams-muted text-[12px] leading-snug">
+                              Allow daily logs in the employee portal on assigned jobs. Use this for custom job titles or
+                              any role that should not rely on the automatic Project Manager / Site Supervisor /
+                              Superintendent rules.
+                            </span>
+                          </label>
+                        </div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                           <button
                             type="button"
@@ -406,6 +425,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
                                   phone: editForm.phone.trim() || undefined,
                                   status: editForm.status,
                                   current_compensation: editForm.current_compensation === '' ? undefined : Number(editForm.current_compensation),
+                                  daily_log_access: editForm.daily_log_access,
                                 }
                                 const updated = await teamsApi.employees.update(emp.id, payload)
                                 onEmployeeUpdated?.(updated)
@@ -433,6 +453,7 @@ export function EmployeePanel({ emp, onClose, onEmployeeUpdated, onEmployeeDelet
                                 phone: emp.phone ?? '',
                                 status: (emp.status as 'on_site' | 'off' | 'pto') ?? 'off',
                                 current_compensation: emp.current_compensation != null ? emp.current_compensation : '',
+                                daily_log_access: emp.daily_log_access === true,
                               })
                             }}
                           >

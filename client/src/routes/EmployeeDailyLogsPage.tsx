@@ -3,7 +3,7 @@ import { teamsApi, getProjectsList } from '@/api/teamsClient'
 import { DailyLogTab } from '@/components/projects/DailyLogTab'
 import { useEffectiveEmployee } from '@/hooks/useEffectiveEmployee'
 import { useAuth } from '@/contexts/AuthContext'
-import { isDailyLogFieldRole } from '@/lib/dailyLogFieldRoles'
+import { assignmentAllowsDailyLogAccess, rosterAllowsDailyLogAccess } from '@/lib/dailyLogFieldRoles'
 import type { JobAssignment, Project } from '@/types/global'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 
@@ -12,7 +12,7 @@ type EligibleJob = { project: Project; assignment: JobAssignment }
 export function EmployeeDailyLogsPage() {
   const { employeeId } = useEffectiveEmployee()
   const { employee: authEmployee } = useAuth()
-  const rosterFieldLead = isDailyLogFieldRole(authEmployee?.role)
+  const rosterDailyLogOk = rosterAllowsDailyLogAccess(authEmployee?.role, authEmployee?.daily_log_access)
   const [loading, setLoading] = useState(true)
   const [jobs, setJobs] = useState<EligibleJob[]>([])
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -33,9 +33,11 @@ export function EmployeeDailyLogsPage() {
     ])
       .then(([assignments, projects]) => {
         if (cancelled) return
-        const eligible = rosterFieldLead
+        const eligible = rosterDailyLogOk
           ? assignments
-          : assignments.filter((a) => isDailyLogFieldRole(a.role_on_job))
+          : assignments.filter((a) =>
+              assignmentAllowsDailyLogAccess(authEmployee?.role, a.role_on_job, authEmployee?.daily_log_access)
+            )
         const byProjectId = new Map(projects.map((p) => [p.id, p]))
         const list: EligibleJob[] = []
         for (const a of eligible) {
@@ -58,7 +60,7 @@ export function EmployeeDailyLogsPage() {
     return () => {
       cancelled = true
     }
-  }, [employeeId, rosterFieldLead])
+  }, [employeeId, rosterDailyLogOk, authEmployee?.role, authEmployee?.daily_log_access])
 
   const selected = useMemo(
     () => jobs.find((j) => j.project.id === projectId),
@@ -96,10 +98,10 @@ export function EmployeeDailyLogsPage() {
       <div className="dashboard-app employee-daily-logs-page w-full min-w-0 p-4 md:p-6">
         <h1 className="text-lg font-semibold text-[var(--text-primary)] m-0">Daily logs</h1>
         <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed">
-          Daily logs appear when you have an active job assignment and your contractor marks you as a field lead
-          either on your <strong>roster profile</strong> (e.g. Site Supervisor) or as your <strong>role on that
-          job</strong> under the project&apos;s <strong>Crew</strong> tab. If you should have access, ask them to
-          confirm you&apos;re on the crew for that job.
+          Daily logs need an <strong>active job assignment</strong>. Your contractor can turn on daily log access for
+          you on your employee profile, or set a field-lead role (e.g. Project Manager, Site Supervisor) on your roster
+          or under the project&apos;s <strong>Crew</strong> tab. If you should see a job here, ask them to confirm you
+          are assigned to that project.
         </p>
       </div>
     )

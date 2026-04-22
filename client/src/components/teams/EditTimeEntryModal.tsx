@@ -13,6 +13,8 @@ export interface EditTimeEntryModalProps {
   entry: TimeEntry | null
   /** With entry=null, opens add form for this employee (e.g. forgot to clock in). */
   addForEmployeeId?: string | null
+  /** When adding, pre-fill clock-in from this ISO time. Omit or null to default to now. */
+  addClockInDefaultIso?: string | null
   employeeName: string
   /** Edit mode: job label in subtitle */
   jobName?: string
@@ -24,6 +26,7 @@ export interface EditTimeEntryModalProps {
 export function EditTimeEntryModal({
   entry,
   addForEmployeeId = null,
+  addClockInDefaultIso = null,
   employeeName,
   jobName = '',
   jobs,
@@ -55,12 +58,16 @@ export function EditTimeEntryModal({
 
   useEffect(() => {
     if (!addForEmployeeId || entry) return
-    setEditClockIn(dayjs().format('YYYY-MM-DDTHH:mm'))
+    setEditClockIn(
+      addClockInDefaultIso
+        ? toDatetimeLocal(addClockInDefaultIso)
+        : dayjs().format('YYYY-MM-DDTHH:mm')
+    )
     setEditClockOut('')
     setEditStillIn(false)
     setAddJobId(jobs[0]?.id ?? '')
     setEditError(null)
-  }, [addForEmployeeId, entry, jobs])
+  }, [addForEmployeeId, entry, jobs, addClockInDefaultIso])
 
   useEffect(() => {
     if (!isOpen) return

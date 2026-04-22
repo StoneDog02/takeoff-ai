@@ -229,9 +229,10 @@ async function loadProjectForFieldDailyLogAccess(req, res, next) {
       .eq('job_id', trimmed)
       .is('ended_at', null)
       .maybeSingle()
+    const fieldByFlag = req.employee?.daily_log_access === true
     const fieldByJob = assignment && isDailyLogFieldRole(assignment.role_on_job)
     const fieldByProfile = assignment && req.employee?.role && isDailyLogFieldRole(req.employee.role)
-    if (fieldByJob || fieldByProfile) {
+    if (fieldByFlag || fieldByJob || fieldByProfile) {
       req.params.id = trimmed
       req.project = project
       return next()

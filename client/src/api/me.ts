@@ -24,6 +24,7 @@ export interface MeResponse {
     role: string
     phone: string
     status: string
+    daily_log_access?: boolean
     current_compensation: number | null
     created_at: string
     updated_at: string

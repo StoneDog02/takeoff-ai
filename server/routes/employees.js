@@ -88,7 +88,9 @@ router.post('/', async (req, res, next) => {
     if (req.employee) return res.status(403).json({ error: 'Employees cannot create other employees' })
     const supabase = req.supabase || defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Database not configured' })
-    const { name, role, email, phone, status, current_compensation } = req.body || {}
+    const { name, role, email, phone, status, current_compensation, daily_log_access } = req.body || {}
+    const dailyLogAccess =
+      daily_log_access === true || daily_log_access === 'true' || daily_log_access === 1
     const { data, error } = await supabase
       .from('employees')
       .insert({
@@ -99,6 +101,7 @@ router.post('/', async (req, res, next) => {
         phone: phone || '',
         status: status || 'off',
         current_compensation: current_compensation ?? null,
+        daily_log_access: dailyLogAccess,
       })
       .select()
       .single()
@@ -127,7 +130,7 @@ router.put('/:id', async (req, res, next) => {
       if (error) throw error
       return res.json(data)
     }
-    const { name, role, email, phone, status, current_compensation } = req.body || {}
+    const { name, role, email, phone, status, current_compensation, daily_log_access } = req.body || {}
     const updates = {}
     if (name !== undefined) updates.name = name
     if (role !== undefined) updates.role = role
@@ -135,6 +138,10 @@ router.put('/:id', async (req, res, next) => {
     if (phone !== undefined) updates.phone = phone
     if (status !== undefined) updates.status = status
     if (current_compensation !== undefined) updates.current_compensation = current_compensation
+    if (daily_log_access !== undefined) {
+      updates.daily_log_access =
+        daily_log_access === true || daily_log_access === 'true' || daily_log_access === 1
+    }
     updates.updated_at = new Date().toISOString()
     const { data, error } = await supabase
       .from('employees')

@@ -81,7 +81,11 @@ export const teamsApi = {
       const res = await fetch(`${API_BASE}/employees/${id}`, { headers })
       return handleResponse<Employee>(res)
     },
-    async create(body: Partial<Pick<Employee, 'name' | 'role' | 'email' | 'phone' | 'status' | 'current_compensation'>>): Promise<Employee> {
+    async create(
+      body: Partial<
+        Pick<Employee, 'name' | 'role' | 'email' | 'phone' | 'status' | 'current_compensation' | 'daily_log_access'>
+      >
+    ): Promise<Employee> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/employees`, {
         method: 'POST',
@@ -90,7 +94,12 @@ export const teamsApi = {
       })
       return handleResponse<Employee>(res)
     },
-    async update(id: string, body: Partial<Pick<Employee, 'name' | 'role' | 'email' | 'phone' | 'status' | 'current_compensation'>>): Promise<Employee> {
+    async update(
+      id: string,
+      body: Partial<
+        Pick<Employee, 'name' | 'role' | 'email' | 'phone' | 'status' | 'current_compensation' | 'daily_log_access'>
+      >
+    ): Promise<Employee> {
       const headers = await getAuthHeaders()
       const res = await fetch(`${API_BASE}/employees/${id}`, {
         method: 'PUT',
