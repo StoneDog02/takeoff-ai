@@ -856,11 +856,14 @@ function CheckEmailScreen({ email }: { email: string }) {
       <p style={{ color: "#666", fontSize: isMobile ? "14px" : "15px", maxWidth: "380px", margin: "0 auto 16px", lineHeight: "1.7" }}>
         We've sent a verification link to <strong style={{ color: DARK }}>{email}</strong>.
       </p>
-      <p style={{ color: "#888", fontSize: isMobile ? "13px" : "14px", maxWidth: "360px", margin: "0 auto 32px", lineHeight: "1.6" }}>
+      <p style={{ color: "#888", fontSize: isMobile ? "13px" : "14px", maxWidth: "360px", margin: "0 auto 12px", lineHeight: "1.6" }}>
         Click the link in that email to verify your account. Once verified, you'll be taken straight to your dashboard.
       </p>
+      <p style={{ color: "#888", fontSize: isMobile ? "13px" : "14px", maxWidth: "360px", margin: "0 auto 32px", lineHeight: "1.6" }}>
+        If you do not see it within a few minutes, check your spam or junk folder just in case.
+      </p>
       <p style={{ color: "#999", fontSize: "13px" }}>
-        Didn't get the email? Check your spam folder or try signing up again.
+        Didn't get the email? Try signing up again.
       </p>
     </div>
   );
