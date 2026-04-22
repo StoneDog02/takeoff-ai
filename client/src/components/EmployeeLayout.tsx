@@ -26,7 +26,7 @@ export function EmployeeLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const { isAdmin, employee: authEmployee } = useAuth()
+  const { isAdmin, employee: authEmployee, refetch } = useAuth()
   const { previewRole } = usePreview()
   const { eligible: dailyLogsEligible, loading: dailyLogsEligibilityLoading } = useEmployeeDailyLogEligibility()
   const { isOnline, syncPending, syncing } = useOfflineSync()
@@ -94,8 +94,9 @@ export function EmployeeLayout() {
 
   async function handleLogout() {
     if (isPublicDemo()) {
-      exitPublicDemo()
-      navigate('/', { replace: true })
+      const exitTo = exitPublicDemo()
+      await refetch()
+      navigate(exitTo ?? '/', { replace: true })
       return
     }
     await supabase?.auth.signOut()

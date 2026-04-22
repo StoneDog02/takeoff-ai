@@ -1,6 +1,6 @@
 /**
- * Public "See it in action" demo: no Supabase session, sessionStorage-backed persona.
- * Used by AuthProvider, API stubs, and landing CTA. Keep free of React imports.
+ * Public "See it in action" demo: sessionStorage-backed persona (with or without a real session).
+ * Used by AuthProvider, API stubs, landing CTA, and affiliate partner portal. Keep free of React imports.
  */
 
 import type { MeResponse } from '@/api/me'
@@ -8,6 +8,9 @@ import { DEMO_CONTRACTOR_USER_UUID, DEMO_EMPLOYEE_USER_UUID } from '@/data/demo/
 import { clearDemoBankTransactionSession } from '@/data/demo/bankTransactionFixtures'
 
 export const PUBLIC_DEMO_STORAGE_KEY = 'takeoff-public-demo'
+
+/** After exit, navigate here (must start with `/`). Cleared on exit. */
+const PUBLIC_DEMO_EXIT_TO_KEY = 'takeoff-public-demo-exit-to'
 
 export type PublicDemoPersona = 'pm' | 'employee'
 
@@ -56,19 +59,42 @@ export function setPublicDemoPersona(persona: PublicDemoPersona) {
   }
 }
 
-export function enterPublicDemo(persona: PublicDemoPersona = 'pm') {
+export function enterPublicDemo(
+  persona: PublicDemoPersona = 'pm',
+  options?: { exitTo?: string },
+) {
   saveStored({ persona, v: 1 })
+  try {
+    const to = options?.exitTo
+    if (typeof to === 'string' && to.startsWith('/') && !to.startsWith('//')) {
+      sessionStorage.setItem(PUBLIC_DEMO_EXIT_TO_KEY, to)
+    } else {
+      sessionStorage.removeItem(PUBLIC_DEMO_EXIT_TO_KEY)
+    }
+  } catch {
+    // ignore
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('takeoff-public-demo-change'))
   }
 }
 
-export function exitPublicDemo() {
+/** Ends the demo. Returns a pathname to navigate to (e.g. `/affiliate`) or `null` for home `/`. */
+export function exitPublicDemo(): string | null {
+  let exitTo: string | null = null
+  try {
+    const raw = sessionStorage.getItem(PUBLIC_DEMO_EXIT_TO_KEY)
+    if (raw && raw.startsWith('/') && !raw.startsWith('//')) exitTo = raw
+    sessionStorage.removeItem(PUBLIC_DEMO_EXIT_TO_KEY)
+  } catch {
+    // ignore
+  }
   saveStored(null)
   clearDemoBankTransactionSession()
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('takeoff-public-demo-change'))
   }
+  return exitTo
 }
 
 /** Synthetic /me payload for demo (no network). */
@@ -83,7 +109,8 @@ export function buildSyntheticMeResponse(): MeResponse {
         display_name: 'Jamie K.',
       },
       isAdmin: false,
-      bypass_feature_gates: false,
+      /** Marketing preview: show full product without a Stripe subscription row. */
+      bypass_feature_gates: true,
       type: 'employee',
       has_affiliate_portal: false,
       employee_id: DEMO_EMPLOYEE_ID,
@@ -107,7 +134,8 @@ export function buildSyntheticMeResponse(): MeResponse {
       display_name: 'Demo Contractor',
     },
     isAdmin: false,
-    bypass_feature_gates: false,
+    /** Marketing preview: show full product without a Stripe subscription row. */
+    bypass_feature_gates: true,
     type: 'contractor',
     has_affiliate_portal: false,
     role_label: 'Owner',

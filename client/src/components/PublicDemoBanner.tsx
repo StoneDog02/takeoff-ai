@@ -26,10 +26,10 @@ export function PublicDemoBanner() {
     }
   }
 
-  const handleExit = () => {
-    exitPublicDemo()
-    void refetch()
-    navigate('/', { replace: true })
+  const handleExit = async () => {
+    const exitTo = exitPublicDemo()
+    await refetch()
+    navigate(exitTo ?? '/', { replace: true })
   }
 
   return (
@@ -63,7 +63,7 @@ export function PublicDemoBanner() {
         >
           {persona === 'pm' ? 'Switch to employee view' : 'Switch to manager view'}
         </button>
-        <button type="button" className="btn btn-sm" onClick={handleExit}>
+        <button type="button" className="btn btn-sm" onClick={() => void handleExit()}>
           Exit demo
         </button>
       </span>

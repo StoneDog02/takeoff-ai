@@ -66,7 +66,7 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const isAffiliateActive = location.pathname.startsWith('/affiliate')
-  const { user, isAdmin, type, role_label, employee, loading, has_affiliate_portal } = useAuth()
+  const { user, isAdmin, type, role_label, employee, loading, has_affiliate_portal, refetch } = useAuth()
   const { previewRole } = usePreview()
   const { isTrialing, trialDaysRemaining, isLoading: subscriptionOrAuthLoading } = useSubscription()
   const [trialBannerDismissed, setTrialBannerDismissed] = useState(
@@ -172,8 +172,9 @@ export function AppLayout() {
 
   async function handleLogout() {
     if (isPublicDemo()) {
-      exitPublicDemo()
-      navigate('/', { replace: true })
+      const exitTo = exitPublicDemo()
+      await refetch()
+      navigate(exitTo ?? '/', { replace: true })
       return
     }
     await supabase?.auth.signOut()

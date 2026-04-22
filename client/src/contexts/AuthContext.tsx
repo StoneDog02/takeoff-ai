@@ -62,33 +62,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      if (isPublicDemo()) {
-        const me = buildSyntheticMeResponse()
-        setState({
-          user: me.user,
-          isAdmin: me.isAdmin,
-          bypass_feature_gates: Boolean(me.bypass_feature_gates),
-          loading: false,
-          type: me.type,
-          has_affiliate_portal: Boolean(me.has_affiliate_portal),
-          role_label: me.role_label,
-          employee: me.employee,
-          acting_as_employee: me.acting_as_employee,
-        })
-      } else {
-        setState({
-          user: null,
-          isAdmin: false,
-          bypass_feature_gates: false,
-          loading: false,
-          type: 'contractor',
-          has_affiliate_portal: false,
-          role_label: undefined,
-          employee: undefined,
-          acting_as_employee: undefined,
-        })
-      }
+    if (!session && !isPublicDemo()) {
+      setState({
+        user: null,
+        isAdmin: false,
+        bypass_feature_gates: false,
+        loading: false,
+        type: 'contractor',
+        has_affiliate_portal: false,
+        role_label: undefined,
+        employee: undefined,
+        acting_as_employee: undefined,
+      })
       return
     }
     try {

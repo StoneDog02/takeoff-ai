@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   getAffiliatePortalSummary,
   postAffiliatePortalSendInvite,
   type AffiliatePortalSummary,
 } from '@/api/affiliatePortal'
 import { Card, CardBody, CardHeader } from '@/components/settings/SettingsPrimitives'
+import { enterPublicDemo } from '@/lib/publicDemo'
 
 function formatMoney(cents: number) {
   const n = typeof cents === 'number' && Number.isFinite(cents) ? cents : 0
@@ -21,6 +23,7 @@ function formatDate(iso: string | null) {
 }
 
 export function AffiliateDashboardPage() {
+  const navigate = useNavigate()
   const [data, setData] = useState<AffiliatePortalSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -117,6 +120,25 @@ export function AffiliateDashboardPage() {
           </div>
         )}
       </div>
+
+      <Card>
+        <CardHeader
+          title="Walk through the product"
+          desc="Open the same interactive demo as the marketing site—sample jobs and data, nothing is saved—so you can show a prospect the full app before they subscribe. When you exit the demo, you return here."
+        />
+        <CardBody>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              enterPublicDemo('pm', { exitTo: '/affiliate' })
+              navigate('/dashboard', { replace: true })
+            }}
+          >
+            Start product demo
+          </button>
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader

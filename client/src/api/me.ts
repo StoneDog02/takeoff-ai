@@ -1,6 +1,5 @@
 import { API_BASE } from '@/api/config'
 import { getSessionAuthHeaders } from '@/api/authHeaders'
-import { supabase } from '@/lib/supabaseClient'
 import { isPublicDemo, buildSyntheticMeResponse } from '@/lib/publicDemo'
 
 export interface MeResponse {
@@ -34,14 +33,8 @@ export interface MeResponse {
 }
 
 export async function getMe(): Promise<MeResponse> {
-  if (supabase) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    if (!session?.access_token && isPublicDemo()) {
-      return buildSyntheticMeResponse()
-    }
-  } else if (isPublicDemo()) {
+  /** Logged-in users (e.g. affiliates) can still run the interactive demo; it overrides /me. */
+  if (isPublicDemo()) {
     return buildSyntheticMeResponse()
   }
   const headers = await getSessionAuthHeaders()
