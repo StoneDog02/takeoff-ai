@@ -18,6 +18,21 @@ const TIER_PRICES: Record<PricingTier, number> = {
   pro: 199,
 };
 
+/** Short blurbs for tier cards (landing + signup). Aligns with what each tier bundles vs add-ons. */
+export const TIER_CARD_DESCRIPTION: Record<PricingTier, string> = {
+  core:
+    "Jobs, schedule, and tasks—the operational core for running projects in Proj-X.",
+  plus:
+    "Everything in Core PM, plus budgets, field collaboration, and Estimating Suite included—line-item bids, markups, and estimate versions tied to each job.",
+  pro:
+    "Everything in Plus, plus Bid & Client Portals included—publish bid packages to subs and client approval links, with estimating still bundled in.",
+};
+
+/** Section above estimating/portals: explains tier bundling vs Core line items (landing + signup). */
+const TIER_STACK_SECTION_TITLE = "What’s included with each base plan";
+const TIER_STACK_SECTION_INTRO =
+  "Estimating and portals are folded into Core PM Plus and Core PM Pro. The cards below show which tier each capability ships with; on Core PM you can still add them as separate billing lines at signup if that matches your workflow.";
+
 export const PRICING_ADDON = {
   estimating: "estimating",
   portals: "portals",
@@ -99,12 +114,15 @@ const sectionTitleStyle: CSSProperties = {
 export function PlanRadioCard({
   name,
   priceLabel,
+  description,
   selected,
   onSelect,
   fullWidth,
 }: {
   name: string;
   priceLabel: string;
+  /** Shown under the price on tier cards (landing + signup). */
+  description?: string;
   selected: boolean;
   onSelect: () => void;
   /** Stack vertically (e.g. signup on narrow screens). */
@@ -146,7 +164,22 @@ export function PlanRadioCard({
         ) : null}
       </div>
       <div style={{ fontWeight: "700", fontSize: "14px", color: DARK, marginBottom: "4px" }}>{name}</div>
-      <div style={{ fontSize: "18px", fontWeight: "800", color: selected ? ACCENT : DARK }}>{priceLabel}</div>
+      <div style={{ fontSize: "18px", fontWeight: "800", color: selected ? ACCENT : DARK, marginBottom: description ? "8px" : 0 }}>
+        {priceLabel}
+      </div>
+      {description ? (
+        <p
+          style={{
+            margin: 0,
+            fontSize: "12px",
+            lineHeight: 1.5,
+            color: "#666",
+            fontWeight: "400",
+          }}
+        >
+          {description}
+        </p>
+      ) : null}
     </button>
   );
 }
@@ -156,6 +189,7 @@ export function AddonInfoCard({
   title,
   priceLabel,
   description,
+  bundleWithPlans,
   selected,
   onSelect = () => {},
   disabled,
@@ -165,6 +199,8 @@ export function AddonInfoCard({
   title: string;
   priceLabel: string;
   description: string;
+  /** When set (e.g. tier stack section), show which base tiers bundle this before the billing note. */
+  bundleWithPlans?: string;
   selected?: boolean;
   onSelect?: () => void;
   disabled?: boolean;
@@ -187,11 +223,27 @@ export function AddonInfoCard({
     opacity: disabled ? 0.55 : 1,
   };
 
+  const bundleLayout = Boolean(bundleWithPlans);
+
   if (disabled) {
     return (
       <div style={commonInteractive}>
         <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: "4px" }}>{title}</div>
-        <div style={{ fontSize: "14px", fontWeight: "700", color: ACCENT, marginBottom: "8px" }}>{priceLabel}</div>
+        {bundleWithPlans ? (
+          <p style={{ margin: "0 0 6px", fontSize: "12px", fontWeight: "600", color: ACCENT, lineHeight: 1.45 }}>
+            {bundleWithPlans}
+          </p>
+        ) : null}
+        <div
+          style={{
+            fontSize: bundleLayout ? "12px" : "14px",
+            fontWeight: bundleLayout ? "500" : "700",
+            color: bundleLayout ? "#555" : ACCENT,
+            marginBottom: "8px",
+          }}
+        >
+          {priceLabel}
+        </div>
         <p style={{ margin: 0, fontSize: "13px", color: "#666", lineHeight: 1.55 }}>{description}</p>
       </div>
     );
@@ -212,8 +264,22 @@ export function AddonInfoCard({
           background: "#fff",
         }}
       >
-        <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: "4px" }}>{title}</div>
-        <div style={{ fontSize: "14px", fontWeight: "700", color: ACCENT, marginBottom: "8px" }}>{priceLabel}</div>
+        <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: bundleLayout ? "6px" : "4px" }}>{title}</div>
+        {bundleWithPlans ? (
+          <p style={{ margin: "0 0 6px", fontSize: "12px", fontWeight: "600", color: ACCENT, lineHeight: 1.45 }}>
+            {bundleWithPlans}
+          </p>
+        ) : null}
+        <div
+          style={{
+            fontSize: bundleLayout ? "12px" : "14px",
+            fontWeight: bundleLayout ? "500" : "700",
+            color: bundleLayout ? "#555" : ACCENT,
+            marginBottom: "8px",
+          }}
+        >
+          {priceLabel}
+        </div>
         <p style={{ margin: 0, fontSize: "13px", color: "#666", lineHeight: 1.55 }}>{description}</p>
         {children != null ? <div style={{ marginTop: "12px" }}>{children}</div> : null}
       </div>
@@ -222,8 +288,22 @@ export function AddonInfoCard({
 
   return (
     <button type="button" onClick={onSelect} aria-pressed={sel} style={commonInteractive}>
-      <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: "4px" }}>{title}</div>
-      <div style={{ fontSize: "14px", fontWeight: "700", color: ACCENT, marginBottom: "8px" }}>{priceLabel}</div>
+      <div style={{ fontWeight: "700", fontSize: "15px", color: DARK, marginBottom: bundleLayout ? "6px" : "4px" }}>{title}</div>
+      {bundleWithPlans ? (
+        <p style={{ margin: "0 0 6px", fontSize: "12px", fontWeight: "600", color: ACCENT, lineHeight: 1.45 }}>
+          {bundleWithPlans}
+        </p>
+      ) : null}
+      <div
+        style={{
+          fontSize: bundleLayout ? "12px" : "14px",
+          fontWeight: bundleLayout ? "500" : "700",
+          color: bundleLayout ? "#555" : ACCENT,
+          marginBottom: "8px",
+        }}
+      >
+        {priceLabel}
+      </div>
       <p style={{ margin: 0, fontSize: "13px", color: "#666", lineHeight: 1.55 }}>{description}</p>
       {children != null ? <div style={{ marginTop: "14px" }}>{children}</div> : null}
     </button>
@@ -233,6 +313,7 @@ export function AddonInfoCard({
 export function AddonRow({
   title,
   priceLabel,
+  bundleHint,
   note,
   checked,
   onToggle,
@@ -241,6 +322,8 @@ export function AddonRow({
 }: {
   title: string;
   priceLabel: string;
+  /** Which base tiers bundle this; shown under the title on signup. */
+  bundleHint?: string;
   note?: string;
   checked: boolean;
   onToggle: () => void;
@@ -292,6 +375,11 @@ export function AddonRow({
             <span style={{ fontWeight: "600", fontSize: "14px", color: DARK }}>{title}</span>
             <span style={{ fontSize: "14px", fontWeight: "700", color: ACCENT }}>{priceLabel}</span>
           </div>
+          {bundleHint ? (
+            <p style={{ margin: "6px 0 0", fontSize: "12px", color: ACCENT, fontWeight: "600", lineHeight: 1.45 }}>
+              {bundleHint}
+            </p>
+          ) : null}
           {note ? (
             <p style={{ margin: "6px 0 0", fontSize: "12px", color: "#888", lineHeight: 1.5 }}>{note}</p>
           ) : null}
@@ -518,6 +606,7 @@ export function PricingPickForm({
         <PlanRadioCard
           name="Core PM"
           priceLabel="$99/mo"
+          description={TIER_CARD_DESCRIPTION.core}
           selected={tier === "core"}
           onSelect={() => setTier("core")}
           fullWidth={narrow}
@@ -525,6 +614,7 @@ export function PricingPickForm({
         <PlanRadioCard
           name="Core PM Plus"
           priceLabel="$149/mo"
+          description={TIER_CARD_DESCRIPTION.plus}
           selected={tier === "plus"}
           onSelect={() => setTier("plus")}
           fullWidth={narrow}
@@ -532,6 +622,7 @@ export function PricingPickForm({
         <PlanRadioCard
           name="Core PM Pro"
           priceLabel="$199/mo"
+          description={TIER_CARD_DESCRIPTION.pro}
           selected={tier === "pro"}
           onSelect={() => setTier("pro")}
           fullWidth={narrow}
@@ -540,12 +631,24 @@ export function PricingPickForm({
 
       {(tier === "core" || tier === "plus") && (
         <>
-          <h3 style={{ ...sectionTitleStyle, marginTop: "8px" }}>Optional upgrades</h3>
+          <h3 style={{ ...sectionTitleStyle, marginTop: "8px" }}>{TIER_STACK_SECTION_TITLE}</h3>
+          <p
+            style={{
+              margin: "0 0 18px",
+              fontSize: "13px",
+              lineHeight: 1.55,
+              color: "#666",
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            {TIER_STACK_SECTION_INTRO}
+          </p>
           {tier === "core" ? (
             useCards ? (
               <AddonInfoCard
                 title="Estimating Suite"
-                priceLabel="$79/mo"
+                bundleWithPlans="Included with Core PM Plus and Core PM Pro."
+                priceLabel="On Core PM only: billed as a separate line item ($79/mo)."
                 description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.estimating]}
                 readOnly
               />
@@ -553,6 +656,7 @@ export function PricingPickForm({
               <AddonRow
                 title="Estimating Suite"
                 priceLabel="$79/mo"
+                bundleHint="Included in Core PM Plus & Pro — select to add on Core PM."
                 checked={addonSet.has(PRICING_ADDON.estimating)}
                 onToggle={() => toggleAddon(PRICING_ADDON.estimating)}
               />
@@ -561,7 +665,12 @@ export function PricingPickForm({
           {useCards ? (
             <AddonInfoCard
               title="Bid & Client Portals"
-              priceLabel="$69/mo"
+              bundleWithPlans="Included with Core PM Pro."
+              priceLabel={
+                tier === "core"
+                  ? "On Core PM or Plus: billed separately ($69/mo), or choose Core PM Pro to bundle."
+                  : "On Core PM Plus: billed as a separate line item ($69/mo), or upgrade to Pro to bundle."
+              }
               description={ADDON_CARD_DESCRIPTION[PRICING_ADDON.portals]}
               readOnly
             />
@@ -569,6 +678,11 @@ export function PricingPickForm({
             <AddonRow
               title="Bid & Client Portals"
               priceLabel="$69/mo"
+              bundleHint={
+                tier === "core"
+                  ? "Included in Core PM Pro — select to add on Core PM or Plus."
+                  : "Included in Core PM Pro — select to add Portals on Plus."
+              }
               checked={addonSet.has(PRICING_ADDON.portals)}
               onToggle={() => toggleAddon(PRICING_ADDON.portals)}
             />
