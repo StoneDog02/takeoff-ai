@@ -8,8 +8,9 @@ import { StripeElementsProvider } from '@/lib/stripe'
 import { API_BASE } from '@/api/config'
 import { createInitialSubscriptionEdge } from '@/lib/billingEdge'
 import {
-  clearPendingSignupSubscription,
-  savePendingSignupSubscription,
+  clearAllPendingSignupBillingState,
+  USER_META_PENDING_PRICING_JSON,
+  USER_META_PENDING_STRIPE_CUSTOMER,
 } from '@/lib/pendingSignupSubscription'
 
 export function SignUpPage() {
@@ -45,6 +46,9 @@ export function SignUpPage() {
           phone: form.phone || undefined,
           trades: form.trades.length ? form.trades : undefined,
           plan: form.plan || undefined,
+          // Tied to the auth user so first sign-in / email confirm works on any device (not localStorage-only).
+          [USER_META_PENDING_STRIPE_CUSTOMER]: stripeCustomerId,
+          [USER_META_PENDING_PRICING_JSON]: JSON.stringify(form.pricingSelection),
         },
       },
     })
@@ -71,7 +75,7 @@ export function SignUpPage() {
       if (errorMessage || httpStatus >= 400) {
         return errorMessage ?? 'Subscription setup failed.'
       }
-      clearPendingSignupSubscription()
+      await clearAllPendingSignupBillingState()
       return undefined
     }
 
@@ -88,16 +92,10 @@ export function SignUpPage() {
       } catch {
         return 'Subscription setup failed. Your account was created — please contact support to activate your plan.'
       }
-    } else if (data.user?.id) {
-      // Email confirmation required: no JWT yet — finish subscription on first SIGNED_IN (see pendingSignupSubscription).
-      savePendingSignupSubscription({
-        email: form.email.trim(),
-        stripeCustomerId,
-        pricingSelection: form.pricingSelection,
-      })
-    } else {
+    } else if (!data.user?.id) {
       return 'Account could not be created. Please try again.'
     }
+    // Email-confirm path: pending billing is already on user_metadata from signUp `options.data`.
 
     if (data.session) {
       try {

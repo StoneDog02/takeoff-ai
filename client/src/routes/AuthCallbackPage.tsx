@@ -4,7 +4,7 @@ import { getMe } from '@/api/me'
 import { supabase } from '@/lib/supabaseClient'
 import { useSubscription } from '@/contexts/SubscriptionContext'
 import {
-  hasPendingSignupSubscription,
+  hasAnyPendingSignupBilling,
   tryCompletePendingSignupSubscription,
   waitForSubscriptionRowVisible,
 } from '@/lib/pendingSignupSubscription'
@@ -59,20 +59,20 @@ export function AuthCallbackPage() {
     }
 
     if (hasImplicitTokens || hasPkceCode) {
-      const hadPendingSignup = hasPendingSignupSubscription()
       void (async () => {
         const ok = await waitForSession()
         if (!ok) {
           setError('Could not establish a session. Try signing in.')
           return
         }
+        const hadPendingBilling = await hasAnyPendingSignupBilling()
         // Email-confirmation signups: single-flight pending completion (see pendingSignupSubscription).
         try {
           await tryCompletePendingSignupSubscription()
         } catch {
           // non-fatal — AuthContext also awaits the same single-flight run
         }
-        if (hadPendingSignup) {
+        if (hadPendingBilling) {
           await waitForSubscriptionRowVisible(18000)
         }
         // Row can exist before React Query / realtime; reload billing gates without a full page refresh.

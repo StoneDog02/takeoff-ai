@@ -1,13 +1,20 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { PricingSelection } from "@/components/landing/PricingStep";
+import {
+  isPricingSelectionValid,
+  type PricingSelection,
+} from "@/components/landing/PricingStep";
 import { createInitialSubscriptionEdge } from "@/lib/billingEdge";
 
 const STORAGE_KEY = "takeoff_pending_subscription_v1";
 
+/** Stored on the auth user at sign-up so email-confirm + first sign-in works on any device. */
+export const USER_META_PENDING_STRIPE_CUSTOMER = "pending_billing_stripe_customer_id";
+export const USER_META_PENDING_PRICING_JSON = "pending_billing_pricing_json";
+
 /** Single-flight: concurrent SIGNED_IN + /auth/callback must not each create a Stripe subscription. */
 let pendingCompletionFlight: Promise<void> | null = null;
 
-export function hasPendingSignupSubscription(): boolean {
+function hasLegacyLocalStoragePending(): boolean {
   try {
     return Boolean(localStorage.getItem(STORAGE_KEY)?.trim());
   } catch {
@@ -15,10 +22,43 @@ export function hasPendingSignupSubscription(): boolean {
   }
 }
 
+/** @deprecated Prefer hasAnyPendingSignupBilling(); kept for callers that only need the legacy key. */
+export function hasPendingSignupSubscription(): boolean {
+  return hasLegacyLocalStoragePending();
+}
+
+/** After `waitForSession`, true if this session may still be finishing initial Stripe setup. */
+export async function hasAnyPendingSignupBilling(): Promise<boolean> {
+  if (hasLegacyLocalStoragePending()) return true;
+  if (!supabase) return false;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return parsePendingBillingFromUserMetadata(user?.user_metadata) !== null;
+}
+
+function parsePendingBillingFromUserMetadata(
+  meta: Record<string, unknown> | undefined | null,
+): Omit<PendingSignupSubscription, "email"> | null {
+  if (!meta || typeof meta !== "object") return null;
+  const stripeCustomerId = meta[USER_META_PENDING_STRIPE_CUSTOMER];
+  const pricingJson = meta[USER_META_PENDING_PRICING_JSON];
+  if (typeof stripeCustomerId !== "string" || !stripeCustomerId.startsWith("cus_")) return null;
+  if (typeof pricingJson !== "string" || !pricingJson.trim()) return null;
+  try {
+    const pricing = JSON.parse(pricingJson) as PricingSelection;
+    if (!isPricingSelectionValid(pricing)) return null;
+    return { stripeCustomerId, pricingSelection: pricing };
+  } catch {
+    return null;
+  }
+}
+
 async function waitForSessionWithAccessToken(maxWaitMs = 16000): Promise<{
   userId: string;
   email: string;
   accessToken: string;
+  userMetadata: Record<string, unknown>;
 } | null> {
   if (!supabase) return null;
   const deadline = Date.now() + maxWaitMs;
@@ -46,7 +86,11 @@ async function waitForSessionWithAccessToken(maxWaitMs = 16000): Promise<{
       await new Promise((r) => setTimeout(r, 100));
       continue;
     }
-    return { userId: user.id, email, accessToken: t };
+    const userMetadata =
+      user.user_metadata && typeof user.user_metadata === "object"
+        ? (user.user_metadata as Record<string, unknown>)
+        : {};
+    return { userId: user.id, email, accessToken: t, userMetadata };
   }
   return null;
 }
@@ -57,20 +101,36 @@ export type PendingSignupSubscription = {
   pricingSelection: PricingSelection;
 };
 
-export function savePendingSignupSubscription(payload: PendingSignupSubscription): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    /* ignore */
-  }
-}
-
 export function clearPendingSignupSubscription(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
     /* ignore */
   }
+}
+
+async function clearPendingBillingUserMetadata(): Promise<void> {
+  if (!supabase) return;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return;
+    await supabase.auth.updateUser({
+      data: {
+        [USER_META_PENDING_STRIPE_CUSTOMER]: "",
+        [USER_META_PENDING_PRICING_JSON]: "",
+      },
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** Clears legacy localStorage and user_metadata pending billing (after subscription exists or is abandoned). */
+export async function clearAllPendingSignupBillingState(): Promise<void> {
+  clearPendingSignupSubscription();
+  await clearPendingBillingUserMetadata();
 }
 
 /**
@@ -93,20 +153,33 @@ export async function tryCompletePendingSignupSubscription(): Promise<void> {
 
 async function runPendingSignupCompletion(): Promise<void> {
   if (!supabase) return;
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return;
-  }
-  if (!raw) return;
 
-  let pending: PendingSignupSubscription;
-  try {
-    pending = JSON.parse(raw) as PendingSignupSubscription;
-  } catch {
-    clearPendingSignupSubscription();
-    return;
+  const hydrated = await waitForSessionWithAccessToken();
+  if (!hydrated) return;
+
+  const fromMeta = parsePendingBillingFromUserMetadata(hydrated.userMetadata);
+  let pending: PendingSignupSubscription | null = fromMeta
+    ? {
+        email: hydrated.email,
+        stripeCustomerId: fromMeta.stripeCustomerId,
+        pricingSelection: fromMeta.pricingSelection,
+      }
+    : null;
+
+  if (!pending) {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      pending = JSON.parse(raw) as PendingSignupSubscription;
+    } catch {
+      clearPendingSignupSubscription();
+      return;
+    }
   }
 
   if (
@@ -119,9 +192,6 @@ async function runPendingSignupCompletion(): Promise<void> {
     return;
   }
 
-  const hydrated = await waitForSessionWithAccessToken();
-  if (!hydrated) return;
-
   const email = hydrated.email.toLowerCase().trim();
   if (email !== pending.email.toLowerCase().trim()) return;
 
@@ -133,7 +203,7 @@ async function runPendingSignupCompletion(): Promise<void> {
 
   if (selErr) return;
   if (existing) {
-    clearPendingSignupSubscription();
+    await clearAllPendingSignupBillingState();
     return;
   }
 
@@ -147,7 +217,7 @@ async function runPendingSignupCompletion(): Promise<void> {
   );
 
   if (!errorMessage) {
-    clearPendingSignupSubscription();
+    await clearAllPendingSignupBillingState();
   }
 }
 
