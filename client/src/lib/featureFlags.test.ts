@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import {
+  AI_TAKEOFF_PRODUCT_ENABLED,
   getAllFeatureFlagsSet,
   getEnabledFeatures,
   hasFeature,
@@ -50,6 +51,19 @@ describe("getEnabledFeatures", () => {
       status: "active",
     };
     expectSetEqual(getEnabledFeatures(sub), [...CORE, ...ESTIMATING, ...PORTALS]);
+  });
+
+  it("core + aitakeoff addon does not enable AI takeoff when product is disabled", () => {
+    const sub: UserSubscription = {
+      tier: "core",
+      addons: ["ai-takeoff"],
+      status: "active",
+    };
+    if (!AI_TAKEOFF_PRODUCT_ENABLED) {
+      expect(getEnabledFeatures(sub).has("aiTakeoff")).toBe(false);
+    } else {
+      expect(getEnabledFeatures(sub).has("aiTakeoff")).toBe(true);
+    }
   });
 
   it("core + financials addon: Core PM + Financial Suite (stacking)", () => {
@@ -103,7 +117,7 @@ describe("getAllFeatureFlagsSet", () => {
     expect(all.has("projects")).toBe(true);
     expect(all.has("estimateBuilder")).toBe(true);
     expect(all.has("subBidPortal")).toBe(true);
-    expect(all.has("aiTakeoff")).toBe(true);
+    expect(all.has("aiTakeoff")).toBe(AI_TAKEOFF_PRODUCT_ENABLED);
     expect(all.has("payroll")).toBe(true);
     expect(all.has("documentVault")).toBe(true);
     expect(all.has("messaging")).toBe(true);

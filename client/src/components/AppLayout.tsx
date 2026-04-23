@@ -16,6 +16,7 @@ import { usePreview } from '@/contexts/PreviewContext'
 import { useSubscription } from '@/contexts/SubscriptionContext'
 import type { FeatureFlag } from '@/lib/featureFlags'
 import { TrialBanner, TRIAL_BANNER_SESSION_KEY } from '@/components/TrialBanner'
+import { TrialWeekLeftModal } from '@/components/billing/TrialWeekLeftModal'
 import { supabase } from '@/lib/supabaseClient'
 import { api } from '@/api/client'
 import { isPublicDemo, exitPublicDemo } from '@/lib/publicDemo'
@@ -376,6 +377,7 @@ export function AppLayout() {
         </div>
       </div>
 
+      <TrialWeekLeftModal />
       <SupportBubble connectionStatus={{ isOnline, syncing }} />
 
       {notificationsPanelOpen && (

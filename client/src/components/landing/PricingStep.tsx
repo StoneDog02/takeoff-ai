@@ -76,7 +76,18 @@ const ADDON_PRICES: Record<string, number> = {
   [PRICING_ADDON.directory]: 29,
 };
 
-function StepHeader({ title, sub, compact }: { title: string; sub: string; compact?: boolean }) {
+function StepHeader({
+  title,
+  sub,
+  compact,
+  callout,
+}: {
+  title: string;
+  sub: string;
+  compact?: boolean;
+  /** Accent-bordered callout for important trial / plan disclaimers (draws attention above body copy). */
+  callout?: { title: string; body: string };
+}) {
   return (
     <div style={{ marginBottom: compact ? "20px" : "28px" }}>
       <h2
@@ -84,13 +95,66 @@ function StepHeader({ title, sub, compact }: { title: string; sub: string; compa
           fontFamily: "'DM Serif Display', serif",
           fontSize: compact ? "22px" : "26px",
           color: DARK,
-          margin: "0 0 6px",
+          margin: "0 0 12px",
           lineHeight: compact ? 1.2 : undefined,
         }}
       >
         {title}
       </h2>
-      <p style={{ color: "#888", fontSize: compact ? "13px" : "14px", margin: 0, lineHeight: 1.45 }}>{sub}</p>
+      {callout ? (
+        <div
+          role="note"
+          style={{
+            marginBottom: compact ? "14px" : "18px",
+            borderRadius: "10px",
+            border: "1px solid #e8c4c0",
+            borderLeftWidth: "5px",
+            borderLeftColor: ACCENT,
+            background: "linear-gradient(90deg, #fff9f8 0%, #fdf0ef 38%, #fdf0ef 100%)",
+            boxShadow: "0 4px 18px rgba(192, 57, 43, 0.1)",
+          }}
+        >
+          <div style={{ padding: compact ? "12px 14px 12px 12px" : "14px 18px 14px 14px" }}>
+            <div
+              style={{
+                fontSize: compact ? "11px" : "12px",
+                fontWeight: "800",
+                color: ACCENT,
+                letterSpacing: "0.07em",
+                marginBottom: "8px",
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            >
+              {callout.title}
+            </div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: compact ? "13px" : "14px",
+                lineHeight: 1.55,
+                color: "#4a1f18",
+                fontWeight: "600",
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            >
+              {callout.body}
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {sub.trim() ? (
+        <p
+          style={{
+            color: callout ? "#555" : "#888",
+            fontSize: compact ? "13px" : "14px",
+            margin: 0,
+            lineHeight: 1.5,
+            fontWeight: callout ? "500" : "400",
+          }}
+        >
+          {sub}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -501,11 +565,19 @@ export interface PricingStepProps {
   setSelection: (next: PricingSelection | ((prev: PricingSelection) => PricingSelection)) => void;
   /** Passed from signup wizard on narrow screens. */
   compactLayout?: boolean;
+  allowAiTakeoffAddon?: boolean;
+  /** Optional copy overrides for full-trial signup. */
+  stepTitle?: string;
+  stepSub?: string;
+  /** Highlighted box under the title (e.g. “AI takeoff not included yet”). */
+  stepCallout?: { title: string; body: string };
+  /** Signup full-trial: no tier/add-on controls — show locked-in line items from `selection` only. */
+  readOnlyIncludedSummary?: boolean;
 }
 
 export type PricingPickDisplayMode = "checkbox" | "cards";
 
-const ADDON_CARD_DESCRIPTION: Record<string, string> = {
+export const ADDON_CARD_DESCRIPTION: Record<string, string> = {
   [PRICING_ADDON.estimating]:
     "Line-item estimates, markups, grouped scopes, and estimate versions tied to each job — so you can build and revise bids without spreadsheets.",
   [PRICING_ADDON.portals]:
@@ -527,6 +599,8 @@ export interface PricingPickFormProps extends PricingStepProps {
   displayMode?: PricingPickDisplayMode;
   /** Narrow viewport: stacked plan cards and spacing tuned for phones. */
   compactLayout?: boolean;
+  /** When true (e.g. full-trial signup), AI takeoff can stay selected and its row is interactive. */
+  allowAiTakeoffAddon?: boolean;
 }
 
 /** Shared tier + add-ons + summary UI (signup wizard and landing pricing). */
@@ -535,6 +609,7 @@ export function PricingPickForm({
   setSelection,
   displayMode = "checkbox",
   compactLayout = false,
+  allowAiTakeoffAddon = false,
 }: PricingPickFormProps) {
   const useCards = displayMode === "cards";
   const narrow = compactLayout;
@@ -543,13 +618,13 @@ export function PricingPickForm({
 
   /** AI Material Takeoff is shown for awareness but cannot be selected until launch. */
   useLayoutEffect(() => {
-    if (useCards) return;
+    if (useCards || allowAiTakeoffAddon) return;
     if (!addons.includes(PRICING_ADDON.aiTakeoff)) return;
     setSelection((prev) => ({
       ...prev,
       addons: prev.addons.filter((a) => a !== PRICING_ADDON.aiTakeoff),
     }));
-  }, [useCards, addons, setSelection]);
+  }, [useCards, allowAiTakeoffAddon, addons, setSelection]);
 
   const setTier = (t: PricingTier) => {
     setSelection((prev) => {
@@ -740,11 +815,15 @@ export function PricingPickForm({
       ) : (
         <AddonRow
           title="AI Material Takeoff"
-          priceLabel="$99/mo (planned)"
-          note="We’re still rolling this out in production — it isn’t offered as an add-on yet. When it’s ready, you’ll be able to add it from billing."
-          checked={false}
-          disabled
-          onToggle={() => {}}
+          priceLabel={allowAiTakeoffAddon ? "$99/mo" : "$99/mo (planned)"}
+          note={
+            allowAiTakeoffAddon
+              ? "Included with your full trial. Uncheck before your trial ends if you do not want this line on your subscription."
+              : "We’re still rolling this out in production — it isn’t offered as an add-on yet. When it’s ready, you’ll be able to add it from billing."
+          }
+          checked={addonSet.has(PRICING_ADDON.aiTakeoff)}
+          disabled={!allowAiTakeoffAddon}
+          onToggle={() => toggleAddon(PRICING_ADDON.aiTakeoff)}
         />
       )}
       {useCards ? (
@@ -963,16 +1042,104 @@ export function PricingPickForm({
   );
 }
 
-export function PricingStep({ selection, setSelection, compactLayout }: PricingStepProps) {
+function ReadOnlyTrialIncludedSummary({
+  selection,
+  compact,
+}: {
+  selection: PricingSelection;
+  compact?: boolean;
+}) {
+  const { lines, total } = computePricingMonthly(selection);
+  return (
+    <div
+      style={{
+        border: `1px solid ${BORDER}`,
+        borderRadius: "10px",
+        background: "#fff",
+        padding: compact ? "14px 16px" : "18px 20px",
+        marginTop: compact ? "4px" : "8px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "11px",
+          fontWeight: "700",
+          color: ACCENT,
+          letterSpacing: "0.06em",
+          marginBottom: "12px",
+          fontFamily: "'DM Sans', sans-serif",
+        }}
+      >
+        FULL ACCESS FOR 30 DAYS — EVERYTHING BELOW IS ON FOR YOUR TRIAL
+      </div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {lines.map((l) => (
+          <li
+            key={l.label}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              padding: "8px 0",
+              borderBottom: `1px solid ${BORDER}`,
+              fontSize: "13px",
+              color: DARK,
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            <span style={{ fontWeight: "600" }}>{l.label}</span>
+            <span style={{ fontWeight: "700", color: ACCENT, flexShrink: 0 }}>${l.amount}/mo</span>
+          </li>
+        ))}
+      </ul>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginTop: "12px",
+          paddingTop: "10px",
+        }}
+      >
+        <span style={{ fontSize: "14px", fontWeight: "700", color: DARK }}>Estimated monthly after trial</span>
+        <span style={{ fontSize: "20px", fontWeight: "800", color: ACCENT }}>${total}/mo</span>
+      </div>
+      <p style={{ margin: "10px 0 0", fontSize: "12px", color: "#888", lineHeight: 1.45 }}>
+        Nothing to toggle here — this is the plan you&apos;re starting on. You won&apos;t be charged until your trial
+        ends; the next step is only to save a card on file.
+      </p>
+    </div>
+  );
+}
+
+const DEFAULT_STEP_SUB =
+  "Pick a base tier and any add-ons. Next you’ll add a payment method — you won’t be charged until your trial ends.";
+
+export function PricingStep({
+  selection,
+  setSelection,
+  compactLayout,
+  allowAiTakeoffAddon,
+  stepTitle,
+  stepSub,
+  stepCallout,
+  readOnlyIncludedSummary,
+}: PricingStepProps) {
   const narrow = !!compactLayout;
+  const resolvedSub = readOnlyIncludedSummary ? (stepSub ?? "") : (stepSub ?? DEFAULT_STEP_SUB);
   return (
     <div style={{ paddingBottom: narrow ? "40px" : "100px" }}>
-      <StepHeader
-        title="Choose your plan"
-        sub="Pick a base tier and any add-ons. Next you’ll add a payment method — you won’t be charged until your trial ends."
-        compact={narrow}
-      />
-      <PricingPickForm selection={selection} setSelection={setSelection} compactLayout={narrow} />
+      <StepHeader title={stepTitle ?? "Choose your plan"} sub={resolvedSub} compact={narrow} callout={stepCallout} />
+      {readOnlyIncludedSummary ? (
+        <ReadOnlyTrialIncludedSummary selection={selection} compact={narrow} />
+      ) : (
+        <PricingPickForm
+          selection={selection}
+          setSelection={setSelection}
+          compactLayout={narrow}
+          allowAiTakeoffAddon={allowAiTakeoffAddon}
+        />
+      )}
     </div>
   );
 }

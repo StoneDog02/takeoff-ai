@@ -2,6 +2,12 @@
  * Gateable product features for Proj-X. Map subscription tier + add-ons → enabled flags.
  */
 
+/**
+ * When false, AI Material Takeoff is off in-app for everyone (including admin bypass)
+ * until the product ships. Subscription add-on state is ignored for this flag.
+ */
+export const AI_TAKEOFF_PRODUCT_ENABLED = false;
+
 export type FeatureFlag =
   // Core PM (any paid/trialing subscription)
   | "projects"
@@ -95,7 +101,9 @@ const ALL_FLAGS: readonly FeatureFlag[] = [
 
 /** Full product surface regardless of Stripe tier or add-ons. */
 export function getAllFeatureFlagsSet(): Set<FeatureFlag> {
-  return new Set(ALL_FLAGS);
+  const s = new Set<FeatureFlag>(ALL_FLAGS);
+  if (!AI_TAKEOFF_PRODUCT_ENABLED) s.delete("aiTakeoff");
+  return s;
 }
 
 function normalizeTier(tier: string | null | undefined): "core" | "plus" | "pro" {
@@ -158,7 +166,7 @@ export function getEnabledFeatures(subscription: UserSubscription): Set<FeatureF
   const hasPortals = tier === "pro" || addonKeys.has("portals");
   if (hasPortals) addAll(out, PORTALS);
 
-  if (addonKeys.has("aitakeoff")) addAll(out, AI_TAKEOFF);
+  if (AI_TAKEOFF_PRODUCT_ENABLED && addonKeys.has("aitakeoff")) addAll(out, AI_TAKEOFF);
   if (addonKeys.has("financials")) addAll(out, FINANCIAL_SUITE);
   if (addonKeys.has("fieldpayroll")) addAll(out, FIELD_OPS_PAYROLL);
   if (addonKeys.has("docs")) addAll(out, DOCUMENT_VAULT);

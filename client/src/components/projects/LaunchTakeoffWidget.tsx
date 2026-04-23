@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import type { MaterialList, TakeoffItem } from '@/types/global'
 import { dayjs } from '@/lib/date'
 import { api } from '@/api/client'
+import { useSubscription } from '@/contexts/SubscriptionContext'
 
 const PROGRESS_MESSAGES = [
   'Uploading plan…',
@@ -209,6 +210,9 @@ export function LaunchTakeoffWidget({
   takeoffProgress: parentProgress,
   takeoffMessage: parentMessage,
 }: LaunchTakeoffWidgetProps) {
+  const { hasFeature } = useSubscription()
+  const takeoffEnabled = hasFeature('aiTakeoff')
+
   const [file, setFile] = useState<File | null>(null)
   const [tradeOptions, setTradeOptions] = useState<{ key: string; label: string }[]>([])
   const [tradeFilter, setTradeFilter] = useState<TakeoffTradeFilter>(null)
@@ -373,17 +377,23 @@ export function LaunchTakeoffWidget({
     })()
   }
 
+  if (!takeoffEnabled) {
+    return (
+      <div className="rounded-lg border border-border dark:border-border-dark bg-surface-elevated dark:bg-dark-3 p-4 shadow-card">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-2">Launch Takeoff</h2>
+        <p className="text-sm text-muted dark:text-white-dim leading-relaxed m-0">
+          AI Material Takeoff is not available in the app yet. When it launches, you&apos;ll run plan takeoffs from
+          here. For now, open <strong className="text-gray-800 dark:text-landing-white">Estimating</strong> for this job
+          and use <strong className="text-gray-800 dark:text-landing-white">Bypass takeoff</strong> to continue without
+          plan-generated quantities, or add materials manually in your estimate.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-lg border border-border dark:border-border-dark bg-surface-elevated dark:bg-dark-3 p-4 shadow-card">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-landing-white mb-3">Launch Takeoff</h2>
-      <div
-        className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
-        role="note"
-      >
-        <strong>Work in progress.</strong> You can run takeoffs and explore what the tool produces, but it is still
-        evolving. Always verify quantities and materials against your plans — do not rely on this output alone for
-        purchasing or bidding yet.
-      </div>
       <div className="flex items-center justify-between gap-4 mb-4">
         <p className="text-sm text-muted dark:text-white-dim">
           Upload PDF blueprints/plans to generate a structured material takeoff with trade tags and cost estimates.

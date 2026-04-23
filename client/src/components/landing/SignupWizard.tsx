@@ -20,6 +20,7 @@ import {
   type PricingSelection,
   type PricingTier,
 } from "@/components/landing/PricingStep";
+import { fullTrialPricingSelection } from "@/lib/billingTrialDefaults";
 
 export type { PricingTier, PricingSelection } from "@/components/landing/PricingStep";
 
@@ -35,7 +36,7 @@ const STEPS = [
   { id: 2, label: "Company" },
   { id: 3, label: "Your Role" },
   { id: 4, label: "Contact" },
-  { id: 5, label: "Choose Plan" },
+  { id: 5, label: "Your plan" },
   { id: 6, label: "Payment" },
 ];
 
@@ -1023,7 +1024,7 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
     role: "",
     phone: "",
     contactPref: "",
-    pricingSelection: { tier: "core", addons: [], employees: 5 },
+    pricingSelection: fullTrialPricingSelection(5),
     plan: "",
     cardName: "",
     cardNumber: "",
@@ -1317,6 +1318,12 @@ export default function SignupWizard({ onSignUp }: SignupWizardProps) {
         }))
       }
       compactLayout={isMobile}
+      readOnlyIncludedSummary
+      stepTitle="Your 30-day trial plan"
+      stepCallout={{
+        title: "HERE'S WHAT YOU GET",
+        body: "You get Core PM Pro plus every add-on we ship today for your first month so you can try the full product. AI Material Takeoff is still in development and stays off in the app until launch. On the next step you'll add a payment method — you won't be charged until your trial ends.",
+      }}
     />,
     <StepPayment
       key="6-pay"

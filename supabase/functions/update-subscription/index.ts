@@ -106,7 +106,10 @@ function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
 }
 
-function encodeSubscriptionUpdate(items: { id?: string; deleted?: boolean; price?: string; quantity?: number }[]) {
+function encodeSubscriptionUpdate(
+  items: { id?: string; deleted?: boolean; price?: string; quantity?: number }[],
+  prorationBehavior: 'none' | 'create_prorations',
+) {
   const p = new URLSearchParams()
   items.forEach((item, i) => {
     if (item.id) p.set(`items[${i}][id]`, item.id)
@@ -114,12 +117,13 @@ function encodeSubscriptionUpdate(items: { id?: string; deleted?: boolean; price
     if (item.price) p.set(`items[${i}][price]`, item.price)
     if (item.quantity != null) p.set(`items[${i}][quantity]`, String(item.quantity))
   })
-  p.set('proration_behavior', 'create_prorations')
+  p.set('proration_behavior', prorationBehavior)
   return p.toString()
 }
 
 type StripeSubRetrieve = {
   id?: string
+  status?: string
   items?: { data?: { id: string }[] }
   error?: { message?: string }
   current_period_end?: number
@@ -272,7 +276,10 @@ serve(async (req) => {
     ...newItems.map((li) => ({ price: li.price, quantity: li.quantity })),
   ]
 
-  const formBody = encodeSubscriptionUpdate(updatePayload)
+  const trialing = (existing.status ?? '').toLowerCase() === 'trialing'
+  /** During trial, avoid proration invoices; subscription items still update so the first paid invoice matches. */
+  const prorationBehavior = trialing ? 'none' : 'create_prorations'
+  const formBody = encodeSubscriptionUpdate(updatePayload, prorationBehavior)
 
   const updateRes = await fetch(
     `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,

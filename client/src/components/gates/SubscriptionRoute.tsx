@@ -4,7 +4,7 @@ import { Lock } from "lucide-react";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { useSubscription } from "@/contexts/SubscriptionContext";
 import { FEATURE_LABELS } from "@/components/gates/FeatureGate";
-import type { FeatureFlag } from "@/lib/featureFlags";
+import { AI_TAKEOFF_PRODUCT_ENABLED, type FeatureFlag } from "@/lib/featureFlags";
 
 const BILLING_TO = "/settings/billing";
 
@@ -127,12 +127,51 @@ type SubscriptionRouteProps = {
   children: ReactNode;
 };
 
+/** Standalone /takeoff route when the product is not shipped yet (not a billing upgrade). */
+function AiTakeoffComingSoon() {
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6 py-16 text-center"
+      style={{
+        background: "#0b0e14",
+        color: "var(--color-white)",
+        fontFamily: "'DM Sans', sans-serif",
+      }}
+    >
+      <div className="w-full max-w-lg">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-white)] mb-4">
+          AI Material Takeoff — coming soon
+        </h1>
+        <p className="text-base leading-relaxed text-[var(--color-white-dim)] mb-4">
+          This feature is not available in the app yet. On jobs, use{" "}
+          <strong className="text-[var(--color-white)]">Bypass takeoff</strong> in Estimating to continue without
+          plan-generated quantities, or add line items manually in your estimate.
+        </p>
+        <p className="text-base leading-relaxed text-[var(--color-white-dim)] mb-10">
+          We&apos;ll turn this on here when the experience is ready for production use.
+        </p>
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center justify-center rounded-lg px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C0392B] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0e14]"
+          style={{ backgroundColor: "#C0392B" }}
+        >
+          Back to dashboard
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Route guard: shows page skeleton while subscription loads, children when allowed,
  * or a full-page {@link UpgradeWall} when the feature is not on the current plan.
  */
 export function SubscriptionRoute({ feature, children }: SubscriptionRouteProps) {
   const { hasFeature, isLoading } = useSubscription();
+
+  if (feature === "aiTakeoff" && !AI_TAKEOFF_PRODUCT_ENABLED) {
+    return <AiTakeoffComingSoon />;
+  }
 
   if (isLoading) {
     return (
