@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { getMe } from '@/api/me'
 import { AuthPageLayout } from '@/components/landing/AuthPageLayout'
+import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabaseClient'
 
 function safeInternalNext(raw: string | null): string | null {
@@ -17,6 +17,7 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { refetch } = useAuth()
   const [searchParams] = useSearchParams()
   const nextPath = safeInternalNext(searchParams.get('next'))
 
@@ -40,24 +41,26 @@ export function SignInPage() {
         setLoading(false)
         return
       }
-      try {
-        const me = await getMe()
-        if (nextPath) {
-          navigate(nextPath, { replace: true })
-          return
-        }
-        if (me.type === 'employee') navigate('/employee/clock', { replace: true })
-        else if (me.isAdmin) {
-          try {
-            sessionStorage.removeItem('takeoff-admin-preview')
-          } catch {
-            // ignore
-          }
-          navigate('/admin', { replace: true })
-        } else navigate('/dashboard', { replace: true })
-      } catch {
-        navigate('/dashboard', { replace: true })
+      // Await so AuthContext has the user before we navigate. AppLayout redirects to /sign-in when
+      // !user, which races with the async onAuthStateChange refetch if we only called getMe here.
+      const me = await refetch()
+      if (!me?.user) {
+        setError('Could not load your account. Please try again.')
+        return
       }
+      if (nextPath) {
+        navigate(nextPath, { replace: true })
+        return
+      }
+      if (me.type === 'employee') navigate('/employee/clock', { replace: true })
+      else if (me.isAdmin) {
+        try {
+          sessionStorage.removeItem('takeoff-admin-preview')
+        } catch {
+          // ignore
+        }
+        navigate('/admin', { replace: true })
+      } else navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {

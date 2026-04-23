@@ -33,15 +33,15 @@ const defaultState: AuthState = {
   has_affiliate_portal: false,
 }
 
-const AuthContext = createContext<AuthState & { refetch: () => Promise<void> }>({
+const AuthContext = createContext<AuthState & { refetch: () => Promise<MeResponse | null> }>({
   ...defaultState,
-  refetch: async () => {},
+  refetch: async () => null,
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(defaultState)
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (): Promise<MeResponse | null> => {
     if (!supabase) {
       if (isPublicDemo()) {
         const me = buildSyntheticMeResponse()
@@ -56,10 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           employee: me.employee,
           acting_as_employee: me.acting_as_employee,
         })
+        return me
       } else {
         setState((s) => ({ ...s, loading: false }))
       }
-      return
+      return null
     }
     const { data: { session } } = await supabase.auth.getSession()
     if (!session && !isPublicDemo()) {
@@ -74,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         employee: undefined,
         acting_as_employee: undefined,
       })
-      return
+      return null
     }
     try {
       const me = await getMe()
@@ -94,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // never block auth
       }
+      return me
     } catch {
       setState({
         user: null,
@@ -106,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         employee: undefined,
         acting_as_employee: undefined,
       })
+      return null
     }
   }, [])
 
