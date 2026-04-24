@@ -72,7 +72,7 @@ router.get('/setup', async (req, res, next) => {
 /**
  * POST /api/affiliates/portal/setup
  * Body: { token, password }
- * Public: create auth user, link affiliates.auth_user_id, clear token. Keeps default contractor profile role.
+ * Public: create auth user, set profiles.role to affiliate (not contractor PM), link affiliates.auth_user_id, clear token.
  */
 router.post('/setup', async (req, res, next) => {
   try {
@@ -127,33 +127,17 @@ router.post('/setup', async (req, res, next) => {
     const userId = created.user.id
 
     const nowIso = new Date().toISOString()
-    const { data: existingProf, error: profReadErr } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .eq('id', userId)
-      .maybeSingle()
-    if (profReadErr) {
+    const { error: profUpsertErr } = await supabaseAdmin.from('profiles').upsert(
+      { id: userId, role: 'affiliate', updated_at: nowIso },
+      { onConflict: 'id' }
+    )
+    if (profUpsertErr) {
       try {
         await supabaseAdmin.auth.admin.deleteUser(userId)
       } catch (e) {
         console.warn('[affiliatePortal/setup] rollback deleteUser failed:', e?.message)
       }
-      throw profReadErr
-    }
-    if (!existingProf) {
-      const { error: insProfErr } = await supabaseAdmin.from('profiles').insert({
-        id: userId,
-        role: 'project_manager',
-        updated_at: nowIso,
-      })
-      if (insProfErr) {
-        try {
-          await supabaseAdmin.auth.admin.deleteUser(userId)
-        } catch (e) {
-          console.warn('[affiliatePortal/setup] rollback deleteUser failed:', e?.message)
-        }
-        throw insProfErr
-      }
+      throw profUpsertErr
     }
 
     const { error: linkErr } = await supabaseAdmin

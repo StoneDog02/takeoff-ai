@@ -6,6 +6,8 @@ import { Card, CardHeader, CardBody } from '@/components/settings/SettingsPrimit
 import { usePreview } from '@/contexts/PreviewContext'
 import type { Employee } from '@/types/global'
 
+const ADMIN_USERS_PAGE_SIZE = 20
+
 export function AdminPage() {
   const navigate = useNavigate()
   const { setPreviewAsPm, setPreviewAsEmployee } = usePreview()
@@ -16,9 +18,14 @@ export function AdminPage() {
     totalUsers: number
     newUsersLast7Days: number
     newUsersLast30Days: number
+    subscriptionsTrialing: number
+    subscriptionsPaid: number
   } | null>(null)
+  const [statsNewWindow, setStatsNewWindow] = useState<7 | 30>(7)
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [usersTotal, setUsersTotal] = useState(0)
   const [usersPage, setUsersPage] = useState(1)
+  const [usersLoading, setUsersLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -45,12 +52,22 @@ export function AdminPage() {
 
   useEffect(() => {
     let cancelled = false
-    getAdminUsers(usersPage, 20)
+    setUsersLoading(true)
+    getAdminUsers(usersPage, ADMIN_USERS_PAGE_SIZE)
       .then((data) => {
-        if (!cancelled) setUsers(data.users)
+        if (!cancelled) {
+          setUsers(data.users)
+          setUsersTotal(typeof data.total === 'number' ? data.total : data.users.length)
+        }
       })
       .catch(() => {
-        if (!cancelled) setUsers([])
+        if (!cancelled) {
+          setUsers([])
+          setUsersTotal(0)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setUsersLoading(false)
       })
   }, [usersPage])
 
@@ -83,24 +100,35 @@ export function AdminPage() {
 
       <div className="kpi-row">
         <div className="kpi-card users">
-          <div className="kpi-label">Total users</div>
+          <div className="kpi-label">Total contractor signups</div>
           <div className="kpi-value">{loading ? '…' : (stats?.totalUsers ?? 0)}</div>
-          <div className="kpi-meta">
-            <span className="kpi-delta flat">All time</span>
-          </div>
         </div>
-        <div className="kpi-card new7">
-          <div className="kpi-label">New users (7d)</div>
-          <div className="kpi-value">{loading ? '…' : (stats?.newUsersLast7Days ?? 0)}</div>
-          <div className="kpi-meta">
-            <span className="kpi-delta flat">Last week</span>
+        <div className="kpi-card new-signups">
+          <div className="kpi-label">New contractor signups</div>
+          <div className="kpi-value">
+            {loading
+              ? '…'
+              : statsNewWindow === 7
+                ? (stats?.newUsersLast7Days ?? 0)
+                : (stats?.newUsersLast30Days ?? 0)}
           </div>
-        </div>
-        <div className="kpi-card new30">
-          <div className="kpi-label">New users (30d)</div>
-          <div className="kpi-value">{loading ? '…' : (stats?.newUsersLast30Days ?? 0)}</div>
-          <div className="kpi-meta">
-            <span className="kpi-delta flat">Last 30 days</span>
+          <div className="kpi-meta admin-kpi-window-toggle" role="group" aria-label="Time window for new signups">
+            <button
+              type="button"
+              className={`admin-kpi-window-btn${statsNewWindow === 7 ? ' admin-kpi-window-btn--active' : ''}`}
+              onClick={() => setStatsNewWindow(7)}
+              aria-pressed={statsNewWindow === 7}
+            >
+              7 days
+            </button>
+            <button
+              type="button"
+              className={`admin-kpi-window-btn${statsNewWindow === 30 ? ' admin-kpi-window-btn--active' : ''}`}
+              onClick={() => setStatsNewWindow(30)}
+              aria-pressed={statsNewWindow === 30}
+            >
+              30 days
+            </button>
           </div>
         </div>
       </div>
@@ -169,10 +197,15 @@ export function AdminPage() {
           <CardHeader title="Subscription overview" desc="Billing and plan metrics" />
           <CardBody>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
-              Connect Stripe to see subscription analytics. Paid plans, trials, and churn will appear here once billing is integrated.
+              Counts come from the <code className="text-[12px]">subscriptions</code> table (Stripe webhooks and
+              checkout). Trial = status <code className="text-[12px]">trialing</code>; paid includes{' '}
+              <code className="text-[12px]">active</code>, <code className="text-[12px]">past_due</code>, and{' '}
+              <code className="text-[12px]">paused</code>.
             </p>
             <div style={{ marginTop: 12, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
-              0 paid · 0 trials
+              {loading
+                ? '…'
+                : `${stats?.subscriptionsPaid ?? 0} paid · ${stats?.subscriptionsTrialing ?? 0} trials`}
             </div>
           </CardBody>
         </Card>
@@ -190,7 +223,10 @@ export function AdminPage() {
       </div>
 
       <Card>
-        <CardHeader title="Users" desc="Recent sign-ups and last sign-in" />
+        <CardHeader
+          title="Contractor accounts"
+          desc="Project managers, field supervisors, and subcontractors from the main sign-up flow (employee portal invites are excluded). Roster size counts team members under each account."
+        />
         <CardBody style={{ padding: 0 }}>
           <div className="admin-users-table-wrap">
             <table className="admin-users-table">
@@ -199,13 +235,21 @@ export function AdminPage() {
                   <th>Email</th>
                   <th>Signed up</th>
                   <th>Last sign-in</th>
+                  <th style={{ textAlign: 'right' }}>Active employees</th>
                 </tr>
               </thead>
               <tbody>
-                {users.length === 0 && !loading && (
+                {users.length === 0 && !usersLoading && (
                   <tr>
-                    <td colSpan={3} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
-                      No users yet
+                    <td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                      No contractor accounts yet
+                    </td>
+                  </tr>
+                )}
+                {usersLoading && users.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                      Loading…
                     </td>
                   </tr>
                 )}
@@ -214,29 +258,33 @@ export function AdminPage() {
                     <td>{u.email || '(no email)'}</td>
                     <td>{formatDate(u.created_at)}</td>
                     <td>{formatDate(u.last_sign_in_at)}</td>
+                    <td style={{ textAlign: 'right' }}>{u.active_employee_count ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderTop: '1px solid var(--border, #e5e7eb)' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Page {usersPage}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Page {usersPage}
+              {usersTotal > 0 ? ` · ${usersTotal} total` : ''}
+            </span>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="button"
-                disabled={usersPage <= 1}
+                disabled={usersPage <= 1 || usersLoading}
                 onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
                 className="btn btn-sm"
-                style={{ opacity: usersPage <= 1 ? 0.5 : 1 }}
+                style={{ opacity: usersPage <= 1 || usersLoading ? 0.5 : 1 }}
               >
                 Previous
               </button>
               <button
                 type="button"
-                disabled={users.length < 20}
+                disabled={usersLoading || usersPage * ADMIN_USERS_PAGE_SIZE >= usersTotal}
                 onClick={() => setUsersPage((p) => p + 1)}
                 className="btn btn-sm"
-                style={{ opacity: users.length < 20 ? 0.5 : 1 }}
+                style={{ opacity: usersLoading || usersPage * ADMIN_USERS_PAGE_SIZE >= usersTotal ? 0.5 : 1 }}
               >
                 Next
               </button>

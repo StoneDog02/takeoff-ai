@@ -9,6 +9,12 @@ const { sendAffiliateReferralInviteEmail } = require('../lib/affiliateInviteSend
 
 const PER_PAGE = 50
 
+/**
+ * Main marketing-site / contractor signups: GC, PM (field supervisor), and subs from the same funnel.
+ * Excludes `employee` and `affiliate` profile roles, and auth ids used as employee-portal logins.
+ */
+const MAIN_APP_CONTRACTOR_ROLES = ['project_manager', 'field_supervisor', 'subcontractor']
+
 function isUuid(s) {
   return (
     typeof s === 'string' &&
@@ -16,54 +22,80 @@ function isUuid(s) {
   )
 }
 
-/** GET /api/admin/stats - Aggregates for admin dashboard (user counts) */
+/** Auth users linked as the employee-portal login (`employees.auth_user_id`), even if profile.role were wrong. */
+async function fetchEmployeePortalAuthUserIds() {
+  const { data, error } = await supabaseAdmin
+    .from('employees')
+    .select('auth_user_id')
+    .not('auth_user_id', 'is', null)
+  if (error) throw error
+  return [...new Set((data ?? []).map((r) => r.auth_user_id).filter(Boolean))]
+}
+
+function applyMainAppContractorProfileFilters(query, excludeAuthIds) {
+  let q = query.in('role', MAIN_APP_CONTRACTOR_ROLES)
+  if (excludeAuthIds.length > 0) {
+    const inList = excludeAuthIds.map((id) => `"${id}"`).join(',')
+    q = q.not('id', 'in', `(${inList})`)
+  }
+  return q
+}
+
+/** GET /api/admin/stats — main-app contractor signups only (profiles.role + profiles.created_at) */
 router.get('/stats', async (req, res, next) => {
   try {
     if (!supabaseAdmin) {
       return res.status(503).json({ error: 'Admin client not configured' })
     }
-    const now = new Date()
-    const sevenDaysAgo = new Date(now)
+    const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const thirtyDaysAgo = new Date(now)
+    const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const sevenIso = sevenDaysAgo.toISOString()
+    const thirtyIso = thirtyDaysAgo.toISOString()
 
-    let totalUsers = 0
-    let newUsersLast7Days = 0
-    let newUsersLast30Days = 0
-    let page = 1
-    let hasMore = true
+    const excludeEmployeeAuthIds = await fetchEmployeePortalAuthUserIds()
+    const roleFilter = (q) => applyMainAppContractorProfileFilters(q, excludeEmployeeAuthIds)
 
-    while (hasMore) {
-      const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-        page,
-        perPage: PER_PAGE,
-      })
-      if (error) {
-        return res.status(500).json({ error: error.message })
-      }
-      const users = data?.users ?? []
-      totalUsers += users.length
-      for (const u of users) {
-        const createdAt = u.created_at ? new Date(u.created_at) : null
-        if (createdAt && createdAt >= thirtyDaysAgo) newUsersLast30Days++
-        if (createdAt && createdAt >= sevenDaysAgo) newUsersLast7Days++
-      }
-      hasMore = users.length === PER_PAGE
-      page++
+    const [
+      { count: totalUsers, error: e1 },
+      { count: c7, error: e2 },
+      { count: c30, error: e3 },
+      { count: subscriptionsTrialing, error: e4 },
+      { count: subscriptionsPaid, error: e5 },
+    ] = await Promise.all([
+      roleFilter(supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true })),
+      roleFilter(
+        supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', sevenIso)
+      ),
+      roleFilter(
+        supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', thirtyIso)
+      ),
+      supabaseAdmin.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'trialing'),
+      supabaseAdmin
+        .from('subscriptions')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['active', 'past_due', 'paused']),
+    ])
+
+    const err = e1 || e2 || e3 || e4 || e5
+    if (err) {
+      return res.status(500).json({ error: err.message })
     }
 
     res.json({
-      totalUsers,
-      newUsersLast7Days,
-      newUsersLast30Days,
+      totalUsers: totalUsers ?? 0,
+      newUsersLast7Days: c7 ?? 0,
+      newUsersLast30Days: c30 ?? 0,
+      subscriptionsTrialing: subscriptionsTrialing ?? 0,
+      subscriptionsPaid: subscriptionsPaid ?? 0,
     })
   } catch (err) {
     next(err)
   }
 })
 
-/** GET /api/admin/users - Paginated list of users (id, email, created_at, last_sign_in_at) */
+/** GET /api/admin/users — main-app contractor accounts (profiles), with roster employee counts */
 router.get('/users', async (req, res, next) => {
   try {
     if (!supabaseAdmin) {
@@ -71,21 +103,59 @@ router.get('/users', async (req, res, next) => {
     }
     const page = Math.max(1, parseInt(req.query.page, 10) || 1)
     const perPage = Math.min(100, Math.max(1, parseInt(req.query.per_page, 10) || 20))
+    const from = (page - 1) * perPage
+    const to = from + perPage - 1
 
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-      page,
-      perPage,
-    })
-    if (error) {
-      return res.status(500).json({ error: error.message })
+    const excludeEmployeeAuthIds = await fetchEmployeePortalAuthUserIds()
+
+    const { data: profileRows, error: profErr, count: total } = await applyMainAppContractorProfileFilters(
+      supabaseAdmin.from('profiles').select('id', { count: 'exact' }),
+      excludeEmployeeAuthIds
+    )
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to)
+
+    if (profErr) {
+      return res.status(500).json({ error: profErr.message })
     }
-    const users = (data?.users ?? []).map((u) => ({
-      id: u.id,
-      email: u.email ?? '',
-      created_at: u.created_at ?? null,
-      last_sign_in_at: u.last_sign_in_at ?? null,
-    }))
-    res.json({ users, page, perPage })
+
+    const ids = (profileRows ?? []).map((r) => r.id).filter(Boolean)
+    if (ids.length === 0) {
+      return res.json({ users: [], page, perPage, total: total ?? 0 })
+    }
+
+    const employeeCountByOwner = new Map()
+    const { data: empRows, error: empErr } = await supabaseAdmin.from('employees').select('user_id').in('user_id', ids)
+    if (empErr) {
+      return res.status(500).json({ error: empErr.message })
+    }
+    for (const row of empRows ?? []) {
+      const uid = row.user_id
+      if (!uid) continue
+      employeeCountByOwner.set(uid, (employeeCountByOwner.get(uid) || 0) + 1)
+    }
+
+    const authResults = await Promise.all(
+      ids.map((id) => supabaseAdmin.auth.admin.getUserById(id))
+    )
+
+    const users = []
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]
+      const { data: authData, error: authErr } = authResults[i]
+      if (authErr || !authData?.user) continue
+      const u = authData.user
+      users.push({
+        id: u.id,
+        email: u.email ?? '',
+        created_at: u.created_at ?? null,
+        last_sign_in_at: u.last_sign_in_at ?? null,
+        active_employee_count: employeeCountByOwner.get(id) || 0,
+      })
+    }
+
+    res.json({ users, page, perPage, total: total ?? 0 })
   } catch (err) {
     next(err)
   }
@@ -150,6 +220,7 @@ async function buildAffiliateAdminPayload(affiliateRow, referralCode) {
     signup_count: signupCount,
     completed_referrals: completedCount,
     commission_cents_total: commissionCentsTotal,
+    portal_signed_up: Boolean(affiliateRow.auth_user_id),
   }
 }
 
@@ -212,6 +283,7 @@ router.get('/affiliates', async (req, res, next) => {
         signup_count: signupCount.get(a.id) || 0,
         completed_referrals: completedCount.get(a.id) || 0,
         commission_cents_total: tracksCommission ? commissionSumCents.get(a.id) || 0 : 0,
+        portal_signed_up: Boolean(a.auth_user_id),
       }
     })
 

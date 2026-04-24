@@ -11,10 +11,15 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   return headers
 }
 
+/** Main marketing contractor signups (PM / field supervisor / subcontractor). Excludes employee portal logins and partner-portal-only profiles (`affiliate` role). */
 export interface AdminStats {
   totalUsers: number
   newUsersLast7Days: number
   newUsersLast30Days: number
+  /** Rows in `subscriptions` with Stripe-synced status `trialing`. */
+  subscriptionsTrialing: number
+  /** Paying or retained plans: `active`, `past_due`, or `paused`. */
+  subscriptionsPaid: number
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -32,12 +37,15 @@ export interface AdminUser {
   email: string
   created_at: string | null
   last_sign_in_at: string | null
+  /** Roster rows in `employees` for this contractor (`user_id` = auth id). */
+  active_employee_count: number
 }
 
 export interface AdminUsersResponse {
   users: AdminUser[]
   page: number
   perPage: number
+  total: number
 }
 
 export async function getAdminUsers(page = 1, perPage = 20): Promise<AdminUsersResponse> {
@@ -65,9 +73,12 @@ export interface AdminAffiliate {
   created_at: string
   updated_at: string
   referral_code: string | null
+  /** Referred customers who created an account with this partner’s code */
   signup_count: number
   completed_referrals: number
   commission_cents_total: number
+  /** Partner completed portal password setup (affiliates.auth_user_id is set). */
+  portal_signed_up: boolean
 }
 
 export async function getAdminAffiliates(): Promise<{ affiliates: AdminAffiliate[] }> {

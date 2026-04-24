@@ -449,7 +449,7 @@ export function AffiliatesAdminPage() {
         <Card>
           <CardHeader
             title="Partners"
-            desc="Signups with a completed first paid cycle count toward completed referrals. Commission totals sum Stripe accruals."
+            desc="Partner signed up means they finished the partner-portal password flow (linked auth). Referred customer signups use the code column. Completed = first paid cycle; commission sums Stripe accruals."
           />
           <CardBody style={{ padding: 0 }}>
             <div className="admin-users-table-wrap">
@@ -460,6 +460,7 @@ export function AffiliatesAdminPage() {
                     <th>Email</th>
                     <th>Phone</th>
                     <th>Code / link</th>
+                    <th>Partner signed up</th>
                     <th>Signups</th>
                     <th>Completed</th>
                     <th>Commission %</th>
@@ -470,14 +471,14 @@ export function AffiliatesAdminPage() {
                 <tbody>
                   {loading && (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                         Loading…
                       </td>
                     </tr>
                   )}
                   {!loading && affiliates.length === 0 && (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                         No affiliates yet
                       </td>
                     </tr>
@@ -551,6 +552,17 @@ function AffiliateRow({
         ) : (
           <span style={{ color: 'var(--text-muted)' }}>—</span>
         )}
+      </td>
+      <td>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: a.portal_signed_up === true ? 'var(--green-700, #15803d)' : 'var(--text-muted)',
+          }}
+        >
+          {a.portal_signed_up === true ? 'Yes' : 'No'}
+        </span>
       </td>
       <td>{a.signup_count}</td>
       <td>{a.completed_referrals}</td>
