@@ -2,10 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createFinancialConnectionsSession,
   getFinancialConnectionsStatus,
-  syncBankTransactionsFromStripe,
-  syncFinancialConnections,
   type FinancialConnectionsAccount,
 } from '@/api/financialConnections'
+import { runFinancialConnectionsLinkForSignedInUser } from '@/lib/runFinancialConnectionsCollect'
 import { isStripeConfigured, stripePromise } from '@/lib/stripe'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -51,6 +50,42 @@ export function LinkBankAccountPanel({
 
   const runLink = async () => {
     setError(null)
+    if (variant === 'settings') {
+      if (!isStripeConfigured || !stripePromise) {
+        setError('Stripe is not configured.')
+        return
+      }
+      if (!supabase) {
+        setError('You need to be signed in.')
+        return
+      }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const accessToken = session?.access_token ?? null
+      if (!accessToken) {
+        setError('You need to be signed in.')
+        return
+      }
+
+      setBusy(true)
+      try {
+        const out = await runFinancialConnectionsLinkForSignedInUser(accessToken)
+        if (out.errorMessage) {
+          setError(out.errorMessage)
+          return
+        }
+        const { accounts: list } = await getFinancialConnectionsStatus(accessToken)
+        setAccounts(list)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Something went wrong.')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+
+    // signup: pre-account; session created with email only
     if (!isStripeConfigured || !stripePromise) {
       setError('Stripe is not configured.')
       return
@@ -68,53 +103,27 @@ export function LinkBankAccountPanel({
       return
     }
 
+    const email = signupEmail?.trim()
+    if (!email) {
+      setError('Email is required to link your bank.')
+      return
+    }
+
     setBusy(true)
     try {
-      let accessToken: string | null = null
-      if (variant === 'settings' && supabase) {
-        const { data: { session } } = await supabase.auth.getSession()
-        accessToken = session?.access_token ?? null
-        if (!accessToken) {
-          setError('You need to be signed in.')
-          setBusy(false)
-          return
-        }
-      }
-
-      const email =
-        variant === 'signup' ? signupEmail?.trim() : undefined
-      if (variant === 'signup' && !email) {
-        setError('Email is required to link your bank.')
-        setBusy(false)
-        return
-      }
-
       const { client_secret } = await createFinancialConnectionsSession({
-        accessToken,
+        accessToken: null,
         email,
       })
 
       const result = await collect.call(stripe, { clientSecret: client_secret })
       if (result.error) {
         setError(result.error.message || 'Bank linking was cancelled or failed.')
-        setBusy(false)
         return
       }
 
       const linked = (result.financialConnectionsSession?.accounts?.length ?? 0) > 0
-      if (variant === 'signup') {
-        setSignupLinked(linked)
-        setBusy(false)
-        return
-      }
-
-      if (accessToken) {
-        const { accounts: synced } = await syncFinancialConnections(accessToken)
-        setAccounts(synced)
-        await syncBankTransactionsFromStripe(accessToken).catch(() => {
-          /* transactions may lag until Stripe finishes refresh */
-        })
-      }
+      setSignupLinked(linked)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.')
     } finally {
@@ -173,7 +182,7 @@ export function LinkBankAccountPanel({
               fontFamily: "'DM Sans', sans-serif",
             }}
           >
-            {busy ? 'Opening bank link…' : 'Link bank account'}
+            {busy ? 'Opening bank link…' : 'Link Bank'}
           </button>
         )}
       </div>
@@ -220,7 +229,7 @@ export function LinkBankAccountPanel({
         disabled={busy}
         className="rounded-lg border border-[#111] bg-white px-4 py-2 text-[13px] font-semibold text-[#111] transition-opacity hover:bg-[#fafafa] disabled:cursor-wait disabled:opacity-70 dark:border-[var(--border)] dark:bg-[var(--bg-surface)] dark:text-[var(--text-primary)] dark:hover:bg-[var(--bg-hover)]"
       >
-        {busy ? 'Opening Stripe…' : accounts.length > 0 ? 'Link another account' : 'Link bank account'}
+        {busy ? 'Opening Stripe…' : accounts.length > 0 ? 'Link another bank' : 'Link Bank'}
       </button>
       {accounts.length > 0 ? (
         <p className="mt-3 text-[11px] text-[#9ca3af]">

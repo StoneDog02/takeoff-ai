@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { getFinancialConnectionsStatus } from '@/api/financialConnections'
 import { useTransactions, EXPENSE_TYPES } from '@/hooks/useTransactions'
@@ -7,6 +6,7 @@ import { formatCurrency } from '@/lib/pipeline'
 import { formatDate } from '@/lib/date'
 import { isStripeConfigured } from '@/lib/stripe'
 import { supabase } from '@/lib/supabaseClient'
+import { runFinancialConnectionsLinkForSignedInUser } from '@/lib/runFinancialConnectionsCollect'
 
 function maskAccount(accountId) {
   if (!accountId) return '••••'
@@ -51,6 +51,8 @@ export function FinancialsTransactions() {
 
   const [bankLinkLoading, setBankLinkLoading] = useState(true)
   const [hasLinkedBank, setHasLinkedBank] = useState(false)
+  const [linkBankBusy, setLinkBankBusy] = useState(false)
+  const [linkBankError, setLinkBankError] = useState(null)
 
   const loadBankLinkStatus = useCallback(async () => {
     if (!user || !supabase) {
@@ -90,6 +92,32 @@ export function FinancialsTransactions() {
 
   const showLinkBankPrompt =
     isStripeConfigured && !bankLinkLoading && !hasLinkedBank
+
+  const handleLinkBank = useCallback(async () => {
+    if (!supabase) return
+    setLinkBankError(null)
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const token = session?.access_token
+    if (!token) {
+      setLinkBankError('You need to be signed in.')
+      return
+    }
+    setLinkBankBusy(true)
+    try {
+      const out = await runFinancialConnectionsLinkForSignedInUser(token)
+      if (out.errorMessage) {
+        setLinkBankError(out.errorMessage)
+        return
+      }
+      await loadBankLinkStatus()
+    } catch (e) {
+      setLinkBankError(e instanceof Error ? e.message : 'Something went wrong.')
+    } finally {
+      setLinkBankBusy(false)
+    }
+  }, [loadBankLinkStatus])
 
   const [expandedId, setExpandedId] = useState(null)
   const [draft, setDraft] = useState({
@@ -198,13 +226,20 @@ export function FinancialsTransactions() {
                   ? 'You don’t have any transaction data here yet. Link a business bank account to import transactions and track spending on this page.'
                   : 'Link a business bank account to import new transactions automatically. You can still tag and manage entries already in Proj-X.'}
               </p>
+              {linkBankError ? (
+                <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+                  {linkBankError}
+                </p>
+              ) : null}
             </div>
-            <Link
-              to="/settings?section=integrations"
-              className="shrink-0 inline-flex items-center justify-center rounded-lg bg-[var(--red)] hover:opacity-95 text-white text-sm font-medium px-4 py-2.5 whitespace-nowrap"
+            <button
+              type="button"
+              onClick={() => void handleLinkBank()}
+              disabled={linkBankBusy}
+              className="shrink-0 inline-flex items-center justify-center rounded-lg bg-[var(--red)] hover:opacity-95 disabled:opacity-60 disabled:cursor-wait text-white text-sm font-medium px-4 py-2.5 whitespace-nowrap"
             >
-              Link bank in Settings
-            </Link>
+              {linkBankBusy ? 'Opening Stripe…' : 'Link Bank'}
+            </button>
           </div>
         </div>
       ) : null}

@@ -11,6 +11,7 @@ import {
   type ConnectedAccountRow,
 } from "@/lib/financialConnectionsEdge";
 import { isStripeConfigured, stripePromise } from "@/lib/stripe";
+import { runFinancialConnectionsLinkForSignedInUser } from "@/lib/runFinancialConnectionsCollect";
 import { syncBankTransactionsFromStripe, syncFinancialConnections } from "@/api/financialConnections";
 
 type CollectFcFn = (opts: { clientSecret: string }) => Promise<{
@@ -66,40 +67,58 @@ export function ConnectedAccountsSection() {
 
   const connect = async () => {
     setError(null);
-    if (!stripeCustomerId) {
-      setError("No Stripe customer on file.");
-      return;
-    }
     if (!isStripeConfigured || !stripePromise) {
       setError("Stripe is not configured.");
-      return;
-    }
-    const stripe = await stripePromise;
-    if (!stripe) {
-      setError("Stripe failed to load.");
-      return;
-    }
-    const collect = stripe.collectFinancialConnectionsAccounts as unknown as CollectFcFn | undefined;
-    if (typeof collect !== "function") {
-      setError("Update @stripe/stripe-js to use bank linking.");
       return;
     }
 
     setConnectBusy(true);
     try {
-      const { data, errorMessage } = await createFinancialConnectionSessionEdge(stripeCustomerId);
-      if (errorMessage || !data?.clientSecret) {
-        setError(errorMessage ?? "Could not start bank linking.");
+      if (stripeCustomerId) {
+        const stripe = await stripePromise;
+        if (!stripe) {
+          setError("Stripe failed to load.");
+          return;
+        }
+        const collect = stripe.collectFinancialConnectionsAccounts as unknown as CollectFcFn | undefined;
+        if (typeof collect !== "function") {
+          setError("Update @stripe/stripe-js to use bank linking.");
+          return;
+        }
+        const { data, errorMessage } = await createFinancialConnectionSessionEdge(stripeCustomerId);
+        if (errorMessage || !data?.clientSecret) {
+          setError(errorMessage ?? "Could not start bank linking.");
+          return;
+        }
+        const result = await collect.call(stripe, { clientSecret: data.clientSecret });
+        if (result.error) {
+          setError(result.error.message || "Bank linking was cancelled or failed.");
+          return;
+        }
+        const linked = (result.financialConnectionsSession?.accounts?.length ?? 0) > 0;
+        if (linked) await afterLinkSuccess();
+        else await refresh();
         return;
       }
-      const result = await collect.call(stripe, { clientSecret: data.clientSecret });
-      if (result.error) {
-        setError(result.error.message || "Bank linking was cancelled or failed.");
+
+      if (!supabase) {
+        setError("Sign in to link a bank account.");
         return;
       }
-      const linked = (result.financialConnectionsSession?.accounts?.length ?? 0) > 0;
-      if (linked) await afterLinkSuccess();
-      else await refresh();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setError("You need to be signed in.");
+        return;
+      }
+      const out = await runFinancialConnectionsLinkForSignedInUser(token);
+      if (out.errorMessage) {
+        setError(out.errorMessage);
+        return;
+      }
+      await afterLinkSuccess();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -201,14 +220,11 @@ export function ConnectedAccountsSection() {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={connectBusy || !stripeCustomerId}
+            disabled={connectBusy}
             onClick={() => void connect()}
           >
-            {connectBusy ? "Opening Stripe…" : "Connect bank account"}
+            {connectBusy ? "Opening Stripe…" : accounts.length > 0 ? "Link another bank" : "Link Bank"}
           </button>
-          {!stripeCustomerId ? (
-            <p className="mt-3 text-[12px] text-[#9ca3af]">A Stripe customer id is required. Complete subscription setup first.</p>
-          ) : null}
         </CardBody>
       </Card>
     </FeatureGate>
