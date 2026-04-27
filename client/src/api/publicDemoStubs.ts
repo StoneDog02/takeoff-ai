@@ -209,6 +209,9 @@ export const publicDemoApi = {
       const base = getMockProjectDetail(pid(id)).project
       return Promise.resolve({ ...base, ...body, id: base.id })
     },
+    reconcileBillingCompletion(): Promise<{ checked: number; completed: number }> {
+      return Promise.resolve({ checked: 0, completed: 0 })
+    },
     seedBudgetFromEstimate(): Promise<{ ok: boolean }> {
       return Promise.resolve({ ok: true })
     },

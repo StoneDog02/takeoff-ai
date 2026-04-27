@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import type { Job, Invoice, Estimate, JobExpense, JobSpendSummary } from '@/types/global'
 import { dayjs } from '@/lib/date'
@@ -63,6 +63,7 @@ export interface RevenueLiveDataResult {
   lastYear: LastYearPoint[] | null
   loading: boolean
   error: string | null
+  refetch: () => void
 }
 
 export function useRevenueLiveData({
@@ -83,7 +84,7 @@ export function useRevenueLiveData({
   const to = parseDate(toDate)
   const jobId = jobFilter === 'All jobs' || !jobFilter ? undefined : jobFilter
 
-  useEffect(() => {
+  const refetch = useCallback(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -112,6 +113,11 @@ export function useRevenueLiveData({
       cancelled = true
     }
   }, [jobId])
+
+  useEffect(() => {
+    const cleanup = refetch()
+    return typeof cleanup === 'function' ? cleanup : undefined
+  }, [refetch])
 
   const derived = useMemo(() => {
     const paidInvoices = invoices.filter((i) => i.status === 'paid')
@@ -295,5 +301,6 @@ export function useRevenueLiveData({
     ...derived,
     loading,
     error,
+    refetch,
   }
 }

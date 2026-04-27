@@ -6,6 +6,7 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
 const { recordEstimateSentPaperTrail, syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
+const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -364,6 +365,9 @@ router.post('/:id/convert-to-invoice', async (req, res) => {
       .single()
     if (updateErr) {
       console.error('Update estimate invoiced_amount error:', updateErr)
+    }
+    if (est.job_id && req.user?.id) {
+      void maybeAutoCompleteProjectAfterBilling(supabase, req.user.id, est.job_id)
     }
     res.status(201).json({
       invoice: { ...inv, recipient_emails: inv.recipient_emails || [] },

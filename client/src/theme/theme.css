@@ -17601,6 +17601,8 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
 }
 .projects-board-column { flex: 1 1 0; min-width: 0; background: var(--bg-surface); border-radius: 12px; border: 1.5px solid var(--border); border-top-width: 3px; border-top-style: solid; display: flex; flex-direction: column; }
 .projects-board-column-header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.projects-board-see-all { flex-shrink: 0; margin: 0; padding: 0; background: none; border: none; font-size: 11px; font-weight: 600; color: var(--text-muted); text-decoration: underline; cursor: pointer; font-family: inherit; }
+.projects-board-see-all:hover { color: var(--text-primary); }
 .projects-board-column-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .projects-board-column-label { flex: 1; min-width: 0; }
 .projects-board-column-count { font-size: 11px; font-weight: 500; color: var(--text-muted); background: var(--bg-surface); padding: 2px 8px; border-radius: 10px; }
@@ -17633,6 +17635,39 @@ html[data-theme='dark'] .add-product-delete-modal__cancel:hover:not(:disabled) {
 }
 .projects-board-card-delete { position: absolute; top: 10px; right: 10px; padding: 4px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-radius: 6px; }
 .projects-board-card-delete:hover { color: #dc2626; background: rgba(220,38,38,0.1); }
+.projects-board-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.projects-board-card-completed-on {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.25;
+  min-width: 0;
+  flex: 1;
+}
+.projects-board-card-completed-on-date {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.projects-board-card-footer__docs {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.projects-board-card-footer .doc-count-badge--board {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  width: auto;
+}
 /* Paper-trail document count (board cards) */
 .projects-board-card-documents {
   display: flex;

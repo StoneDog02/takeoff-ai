@@ -38,6 +38,7 @@ import { DailyLogTab } from '@/components/projects/DailyLogTab'
 import { GeofenceTab } from '@/components/teams/GeofenceTab'
 import { ImportScheduleModal } from '@/components/projects/ImportScheduleModal'
 import { ConfirmDeleteProjectModal } from '@/components/projects/ConfirmDeleteProjectModal'
+import { CompletedProjectsModal } from '@/components/projects/CompletedProjectsModal'
 import { ScheduleBuilder, apiToBuilder, weekToDate } from '@/components/projects/ScheduleBuilder'
 import type { BuilderPhase, BuilderMilestone } from '@/components/projects/ScheduleBuilder'
 import { formatDate, dayjs, formatRelative } from '@/lib/date'
@@ -198,6 +199,28 @@ function colMatchesStatus(colKey: string, status: string): boolean {
   return colKey === normalized
 }
 
+/** Completed board column: show projects completed (by last update) in the last N days; older go to "See all". */
+const COMPLETED_BOARD_RECENT_DAYS = 7
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/** Prefer server `completed_at`; fall back for rows before migration. */
+function projectCompletedAtForBoard(p: DashboardProject): number {
+  if (normStatus(p.status ?? '') !== 'completed') return 0
+  const raw = p.completed_at || p.updated_at || p.created_at
+  if (!raw) return 0
+  return new Date(raw).getTime()
+}
+
+function isRecentForCompletedBoard(p: DashboardProject, days: number): boolean {
+  if (normStatus(p.status ?? '') !== 'completed') return false
+  return projectCompletedAtForBoard(p) >= Date.now() - days * MS_PER_DAY
+}
+
+function completedOnLabel(p: DashboardProject): string {
+  const raw = p.completed_at || p.updated_at || p.created_at
+  return formatDate(raw ?? null)
+}
+
 /** Human-readable status for list/cards (backlog + legacy approved state). */
 /** Short label for list rows (e.g. "Stoney H.") */
 function formatPmShortLabel(name: string | null | undefined): string {
@@ -296,6 +319,7 @@ export function ProjectsPage() {
   const [estimateModalJobs, setEstimateModalJobs] = useState<Job[]>([])
   const [filter, setFilter] = useState<'all' | 'estimating' | 'awaiting_approval' | 'backlog' | 'active' | 'on_hold' | 'completed'>('all')
   const [search, setSearch] = useState('')
+  const [completedArchiveOpen, setCompletedArchiveOpen] = useState(false)
   const [listView, setListView] = useState<'board' | 'grid' | 'table'>('board')
   const [scheduleImportOpen, setScheduleImportOpen] = useState(false)
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
@@ -1620,6 +1644,7 @@ export function ProjectsPage() {
       return colMatchesStatus(filter, p.status ?? '')
     }
     const displayedProjects = searchFilteredProjects.filter(filterMatch)
+    const allCompletedInView = displayedProjects.filter((p) => colMatchesStatus('completed', p.status ?? ''))
     const activeCount = displayedProjects.filter((p) => (p.status ?? 'active').toLowerCase() === 'active').length
 
     const renderBoardCard = (p: DashboardProject, col: (typeof PIPELINE_COLUMNS)[number]) => {
@@ -1697,7 +1722,18 @@ export function ProjectsPage() {
               Activate →
             </button>
           ) : null}
-          <ProjectDocumentCountBadge count={p.document_count ?? 0} variant="board" />
+          {col.key === 'completed' || (p.document_count ?? 0) > 0 ? (
+            <div className="projects-board-card-footer">
+              {col.key === 'completed' ? (
+                <span className="projects-board-card-completed-on">
+                  Completed on <span className="projects-board-card-completed-on-date">{completedOnLabel(p)}</span>
+                </span>
+              ) : null}
+              <div className="projects-board-card-footer__docs">
+                <ProjectDocumentCountBadge count={p.document_count ?? 0} variant="board" />
+              </div>
+            </div>
+          ) : null}
           <button
             type="button"
             className="projects-board-card-delete"
@@ -1859,17 +1895,38 @@ export function ProjectsPage() {
                 aria-label="Project pipeline columns"
               >
                 {PIPELINE_COLUMNS_MAIN.map((col) => {
-                  const columnProjects = displayedProjects.filter((p) => colMatchesStatus(col.key, p.status ?? ''))
+                  const allInCol = displayedProjects.filter((p) => colMatchesStatus(col.key, p.status ?? ''))
+                  const isCompletedCol = col.key === 'completed'
+                  const columnProjects = isCompletedCol
+                    ? allInCol.filter((p) => isRecentForCompletedBoard(p, COMPLETED_BOARD_RECENT_DAYS))
+                    : allInCol
+                  const showCompletedSeeAll =
+                    isCompletedCol && allInCol.length > 0 && allInCol.length > columnProjects.length
                   return (
                     <div key={col.key} className="projects-board-column" style={{ borderTopColor: col.barColor }}>
                       <div className="projects-board-column-header">
                         <span className="projects-board-column-dot" style={{ backgroundColor: col.dotColor }} />
                         <span className="projects-board-column-label">{col.label}</span>
-                        <span className="projects-board-column-count">{columnProjects.length}</span>
+                        {showCompletedSeeAll ? (
+                          <button
+                            type="button"
+                            className="projects-board-see-all"
+                            onClick={() => setCompletedArchiveOpen(true)}
+                          >
+                            See all
+                          </button>
+                        ) : null}
+                        <span className="projects-board-column-count" style={{ marginLeft: 'auto' }}>
+                          {columnProjects.length}
+                        </span>
                       </div>
                       <div className="projects-board-column-cards">
                         {columnProjects.length === 0 ? (
-                          <div className="projects-board-empty">Empty</div>
+                          <div className="projects-board-empty">
+                            {isCompletedCol && allInCol.length > 0
+                              ? 'None in the last 7 days'
+                              : 'Empty'}
+                          </div>
                         ) : (
                           columnProjects.map((p) => renderBoardCard(p, col))
                         )}
@@ -2102,6 +2159,13 @@ export function ProjectsPage() {
               onConfirm={handleDeleteProject}
               isDeleting={isDeletingProject}
               error={deleteError}
+            />
+          )}
+          {completedArchiveOpen && (
+            <CompletedProjectsModal
+              projects={allCompletedInView}
+              onClose={() => setCompletedArchiveOpen(false)}
+              onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
             />
           )}
           {convertConfirmProject && (

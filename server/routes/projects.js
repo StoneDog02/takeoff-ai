@@ -15,8 +15,15 @@ const {
 const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
 const { budgetOverSummary, notifyBudgetThresholdCrossed } = require('../lib/eventNotificationEmails')
 const { isEmployeePortalRequest } = require('../middleware/auth')
+const { reconcileBillingCompletionForUser } = require('../lib/projectAutoComplete')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
+
+function normProjectStatus(s) {
+  return String(s ?? '')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+}
 
 /** Convert stored media URL/path to a storage object path. */
 function getStoragePathFromUrlOrPath(value, bucket) {
@@ -256,7 +263,7 @@ router.get('/', (req, res, next) => {
       return res.json([])
     }
     const projectSelect =
-      'id, name, status, scope, created_at, updated_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, client_email, client_phone, plan_type'
+      'id, name, status, scope, created_at, updated_at, completed_at, user_id, address_line_1, address_line_2, city, state, postal_code, expected_start_date, expected_end_date, estimated_value, assigned_to_name, client_email, client_phone, plan_type'
     let projectsQuery
     // Employee portal (real employee or act-as): assignment-based list only. Unlinked employee profile => [].
     if (req.profile?.role === 'employee' && !req.employee) {
@@ -422,11 +429,15 @@ router.post('/', async (req, res, next) => {
       client_phone,
       plan_type,
     } = req.body || {}
+    const statusVal = status || 'active'
     const insert = {
       user_id: req.user?.id,
       name: name || 'New Project',
-      status: status || 'active',
+      status: statusVal,
       scope: scope ?? '',
+    }
+    if (normProjectStatus(statusVal) === 'completed') {
+      insert.completed_at = new Date().toISOString()
     }
     if (address_line_1 !== undefined) insert.address_line_1 = address_line_1 || null
     if (address_line_2 !== undefined) insert.address_line_2 = address_line_2 || null
@@ -458,6 +469,23 @@ router.get('/trades', (req, res) => {
   res.json(TRADE_ORDER.map((key) => ({ key, label: TRADE_MAP[key].label, csiDivision: TRADE_MAP[key].csi })))
 })
 
+/** POST /projects/reconcile-billing-completion — backfill job status from billing (non-completed projects only). Body: { project_id?: string } */
+router.post('/reconcile-billing-completion', async (req, res, next) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' })
+  const supabase = defaultSupabase
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' })
+  try {
+    const body = req.body || {}
+    const projectId = body.project_id ?? body.projectId
+    const result = await reconcileBillingCompletionForUser(supabase, req.user.id, {
+      projectId: projectId != null && String(projectId).trim() ? String(projectId).trim() : undefined,
+    })
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/:id', loadProject, async (req, res) => {
   res.json(req.project)
 })
@@ -480,7 +508,16 @@ router.put('/:id', loadProject, async (req, res, next) => {
     } = req.body || {}
     const updates = {}
     if (name !== undefined) updates.name = name
-    if (status !== undefined) updates.status = status
+    if (status !== undefined) {
+      updates.status = status
+      const newS = normProjectStatus(status)
+      const oldS = normProjectStatus(req.project.status)
+      if (newS === 'completed' && oldS !== 'completed') {
+        updates.completed_at = new Date().toISOString()
+      } else if (newS !== 'completed' && oldS === 'completed') {
+        updates.completed_at = null
+      }
+    }
     if (scope !== undefined) updates.scope = scope
     if (address_line_1 !== undefined) updates.address_line_1 = address_line_1 || null
     if (expected_start_date !== undefined) updates.expected_start_date = expected_start_date || null

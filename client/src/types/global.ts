@@ -14,6 +14,8 @@ export interface Project {
   scope?: string
   created_at?: string
   updated_at?: string
+  /** When the project was marked completed; cleared if reopened. */
+  completed_at?: string | null
   /** First time an estimate was accepted for this project (ISO). Used for post-approval budget / CO UX. */
   estimate_approved_at?: string | null
   user_id?: string

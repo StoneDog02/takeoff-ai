@@ -151,6 +151,10 @@ export interface DashboardProject {
   city?: string | null
   state?: string | null
   postal_code?: string | null
+  created_at?: string
+  updated_at?: string
+  /** When status became completed (null if not completed). */
+  completed_at?: string | null
   /** From projects table when list returns raw project shape. */
   expected_start_date?: string | null
   expected_end_date?: string | null
@@ -323,6 +327,19 @@ export const api = {
         body: JSON.stringify(body),
       })
       return handleResponse<Project>(res)
+    },
+    /** Re-run auto-complete rules on existing jobs (e.g. paid invoices but status still active). */
+    async reconcileBillingCompletion(body?: {
+      project_id?: string
+    }): Promise<{ checked: number; completed: number }> {
+      if (isPublicDemo()) return publicDemoApi.projects.reconcileBillingCompletion()
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_BASE}/projects/reconcile-billing-completion`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' } as HeadersInit,
+        body: JSON.stringify(body ?? {}),
+      })
+      return handleResponse<{ checked: number; completed: number }>(res)
     },
     /**
      * Re-apply budget from accepted estimate (groups meta). Idempotent; optional estimate_id targets a specific accepted estimate.

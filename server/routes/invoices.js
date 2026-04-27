@@ -15,6 +15,7 @@ const {
 } = require('../lib/invoiceClientAttachments')
 const { sendInvoicePortalEmail } = require('../lib/sendPortalEmails')
 const { parseManualInvoiceSnapshot } = require('../lib/invoiceManualSnapshot')
+const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } })
 const invoiceAttachmentUploadSingle = upload.single('file')
@@ -295,6 +296,17 @@ router.patch('/:id', async (req, res) => {
         }
       }
     }
+    const patchUid = data.user_id || before.user_id || req.user?.id
+    const patchJid = data.job_id || before.job_id
+    if (
+      status !== undefined &&
+      patchJid &&
+      patchUid &&
+      String(before.status || '').toLowerCase() === 'draft' &&
+      String(status || '').toLowerCase() !== 'draft'
+    ) {
+      void maybeAutoCompleteProjectAfterBilling(supabase, patchUid, patchJid)
+    }
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Invoice update error:', err)
@@ -430,6 +442,10 @@ router.post('/:id/send', async (req, res) => {
         oldStatus: existingSend?.status || 'draft',
         newStatus: 'sent',
       })
+    }
+    const jobForAuto = data.job_id || existingSend?.job_id
+    if (jobForAuto && req.user?.id && prevSt === 'draft') {
+      void maybeAutoCompleteProjectAfterBilling(supabase, req.user.id, jobForAuto)
     }
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {

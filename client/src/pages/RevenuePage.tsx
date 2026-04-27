@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
+import { api } from '@/api/client'
 import { dayjs } from '@/lib/date'
 import { STATUS_CONFIG } from '@/data/revenueSeedData'
 import type { TrendPeriodKey } from '@/data/revenueSeedData'
@@ -44,12 +45,64 @@ export function RevenuePage() {
   const [fromDate, setFromDate] = useState(defaultDates.from)
   const [toDate, setToDate] = useState(defaultDates.to)
 
-  const { jobs: JOBS, trendData: chartData, cashflow: CASHFLOW, expenditure: EXPENDITURE, lastYear, loading, error } = useRevenueLiveData({
+  const {
+    jobs: JOBS,
+    trendData: chartData,
+    cashflow: CASHFLOW,
+    expenditure: EXPENDITURE,
+    lastYear,
+    loading,
+    error,
+    refetch: refetchRevenue,
+  } = useRevenueLiveData({
     jobFilter: jobFilter || 'All jobs',
     period,
     fromDate,
     toDate,
   })
+
+  const [completingJobId, setCompletingJobId] = useState<string | null>(null)
+  const [reconcileBusy, setReconcileBusy] = useState(false)
+
+  const handleReconcileBilling = useCallback(async () => {
+    setReconcileBusy(true)
+    try {
+      const body = jobFilter.trim() ? { project_id: jobFilter.trim() } : undefined
+      const { checked, completed } = await api.projects.reconcileBillingCompletion(body)
+      refetchRevenue()
+      window.alert(
+        completed > 0
+          ? `Marked ${completed} job(s) completed (${checked} checked).`
+          : `No jobs matched the billing rules (${checked} checked). Jobs without a billable estimate need contract value on the job, or use Complete project.`,
+      )
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not reconcile.')
+    } finally {
+      setReconcileBusy(false)
+    }
+  }, [jobFilter, refetchRevenue])
+
+  const handleCompleteProject = useCallback(
+    async (job: { id: string; name: string }) => {
+      if (
+        !window.confirm(
+          `Mark "${job.name}" as completed? You can change status later from the project.`,
+        )
+      ) {
+        return
+      }
+      setCompletingJobId(job.id)
+      try {
+        await api.projects.update(job.id, { status: 'completed' })
+        refetchRevenue()
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'Could not update project.')
+      } finally {
+        setCompletingJobId(null)
+      }
+    },
+    [refetchRevenue],
+  )
 
   useEffect(() => {
     const { from, to } = getDefaultDates(period)
@@ -426,8 +479,24 @@ export function RevenuePage() {
           {/* Revenue by Job */}
           <div className="revenue-overhaul-card revenue-overhaul-jobs-card">
             <div className="revenue-overhaul-card-head">
-              <div className="revenue-overhaul-card-title">Revenue by Job</div>
-              <div className="revenue-overhaul-card-sub">YTD performance across active projects</div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4 w-full">
+                <div className="min-w-0">
+                  <div className="revenue-overhaul-card-title">Revenue by Job</div>
+                  <div className="revenue-overhaul-card-sub">YTD performance across active projects</div>
+                  <p className="text-[11px] text-muted mt-1.5 max-w-xl leading-snug">
+                    New invoices can auto-complete jobs. For older paid work still showing Active, run Sync from billing
+                    (all open jobs, or only the job selected in the filter above).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={reconcileBusy || loading}
+                  onClick={() => void handleReconcileBilling()}
+                  className="shrink-0 text-xs font-semibold rounded-lg border border-border dark:border-white/15 px-3 py-2 text-gray-800 dark:text-gray-100 hover:bg-black/[0.04] dark:hover:bg-white/10 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {reconcileBusy ? 'Syncing…' : 'Sync from billing'}
+                </button>
+              </div>
             </div>
             <div className="revenue-overhaul-jobs-thead">
               {['JOB', 'INVOICED', 'COLLECTED', 'MARGIN'].map((h) => (
@@ -450,22 +519,34 @@ export function RevenuePage() {
                   className={`revenue-overhaul-job-row ${i < JOBS.length - 1 ? 'border' : ''}`}
                 >
                   <div className="revenue-overhaul-job-grid">
-                    <div className="revenue-overhaul-job-cell-main">
-                      <div
-                        className="revenue-overhaul-job-avatar"
-                        style={{ background: j.color + '20', color: j.color }}
-                      >
-                        {j.initials}
-                      </div>
-                      <div>
-                        <div className="revenue-overhaul-job-name">{j.name}</div>
-                        <span
-                          className="revenue-overhaul-job-status"
-                          style={{ background: st.bg, color: st.color }}
+                    <div className="revenue-overhaul-job-cell-main flex-wrap justify-between gap-y-2">
+                      <div className="flex items-center gap-[9px] min-w-0 flex-1">
+                        <div
+                          className="revenue-overhaul-job-avatar"
+                          style={{ background: j.color + '20', color: j.color }}
                         >
-                          {st.label}
-                        </span>
+                          {j.initials}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="revenue-overhaul-job-name">{j.name}</div>
+                          <span
+                            className="revenue-overhaul-job-status"
+                            style={{ background: st.bg, color: st.color }}
+                          >
+                            {st.label}
+                          </span>
+                        </div>
                       </div>
+                      {j.status !== 'completed' && (
+                        <button
+                          type="button"
+                          disabled={completingJobId === j.id}
+                          onClick={() => handleCompleteProject(j)}
+                          className="shrink-0 text-[11px] font-semibold rounded-md border border-border dark:border-white/15 px-2.5 py-1 text-gray-700 dark:text-gray-200 hover:bg-black/[0.04] dark:hover:bg-white/10 disabled:opacity-50"
+                        >
+                          {completingJobId === j.id ? 'Saving…' : 'Complete project'}
+                        </button>
+                      )}
                     </div>
                     <div className="revenue-overhaul-job-cell right">{fmt(j.invoiced)}</div>
                     <div className="revenue-overhaul-job-cell right">{fmt(j.collected)}</div>
