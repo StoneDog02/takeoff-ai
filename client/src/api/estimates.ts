@@ -321,6 +321,20 @@ export const estimatesApi = {
     return handleResponse<Estimate>(res)
   },
 
+  /** Resend the client portal link using reminder copy (estimate must already be sent; same token). */
+  async sendEstimateReminder(estimateId: string): Promise<{ ok: boolean; emailed_to: string }> {
+    if (isPublicDemo()) {
+      return Promise.resolve({ ok: true, emailed_to: 'client@example.com' })
+    }
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/estimates/${estimateId}/remind`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    return handleResponse<{ ok: boolean; emailed_to: string }>(res)
+  },
+
   // Invoices
   async getInvoices(jobId?: string): Promise<Invoice[]> {
     if (isPublicDemo()) {

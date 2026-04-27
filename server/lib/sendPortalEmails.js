@@ -7,7 +7,7 @@
  * Env: RESEND_API_KEY (required to send). PORTAL_EMAIL_FROM (optional; defaults to INVITE_EMAIL_FROM).
  */
 const { sendEmail, getPortalFrom } = require('./emailUtils')
-const { renderEstimatePortalEmail } = require('../emails/estimatePortalEmail')
+const { renderEstimatePortalEmail, renderEstimateReminderEmail } = require('../emails/estimatePortalEmail')
 const { renderBidPortalEmail } = require('../emails/bidPortalEmail')
 const { renderInvoicePortalEmail } = require('../emails/invoicePortalEmail')
 
@@ -28,6 +28,27 @@ async function sendEstimatePortalEmail({ to, clientName, gcName, projectName, po
   const result = await sendEmail({ from, to, subject, html, text })
   if (result.sent) {
     console.log('[sendEstimatePortalEmail] Sent to', to, '→', portalUrl)
+  }
+  return result
+}
+
+/**
+ * Send follow-up / reminder for an already-sent estimate (same portal URL; does not rotate token).
+ * @param {{ to: string, clientName?: string, gcName?: string, projectName?: string, portalUrl: string, documentKind?: 'estimate' | 'change_order' }} opts
+ * @returns {{ sent: boolean, error?: unknown }}
+ */
+async function sendEstimateReminderEmail({ to, clientName, gcName, projectName, portalUrl, documentKind = 'estimate' }) {
+  const from = getPortalFrom()
+  const { subject, html, text } = renderEstimateReminderEmail({
+    clientName: clientName || 'there',
+    gcName: gcName || 'Your contractor',
+    projectName: projectName || 'your project',
+    portalUrl,
+    documentKind,
+  })
+  const result = await sendEmail({ from, to, subject, html, text })
+  if (result.sent) {
+    console.log('[sendEstimateReminderEmail] Sent to', to, '→', portalUrl)
   }
   return result
 }
@@ -70,4 +91,4 @@ async function sendInvoicePortalEmail({ to, clientName, projectName, portalUrl, 
   return result
 }
 
-module.exports = { sendEstimatePortalEmail, sendBidPortalEmail, sendInvoicePortalEmail }
+module.exports = { sendEstimatePortalEmail, sendEstimateReminderEmail, sendBidPortalEmail, sendInvoicePortalEmail }

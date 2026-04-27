@@ -3,7 +3,7 @@ const express = require('express')
 const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstimate')
 const router = express.Router()
 const { supabase: defaultSupabase } = require('../db/supabase')
-const { sendEstimatePortalEmail } = require('../lib/sendPortalEmails')
+const { sendEstimatePortalEmail, sendEstimateReminderEmail } = require('../lib/sendPortalEmails')
 const { recordEstimateSentPaperTrail, syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
@@ -451,6 +451,88 @@ router.post('/:id/send', async (req, res) => {
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Estimate send error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/** POST /api/estimates/:id/remind — follow-up email with same portal link (does not rotate client_token). */
+router.post('/:id/remind', async (req, res) => {
+  const supabase = getSupabase(req)
+  if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const { id } = req.params
+    const { data: est, error: fetchErr } = await supabase
+      .from('estimates')
+      .select('id, job_id, user_id, title, status, client_token, recipient_emails')
+      .eq('id', id)
+      .single()
+    if (fetchErr || !est) return res.status(404).json({ error: 'Not found' })
+    if (est.user_id !== req.user.id) return res.status(404).json({ error: 'Not found' })
+
+    const st = String(est.status || '').toLowerCase()
+    if (!['sent', 'viewed'].includes(st)) {
+      return res.status(400).json({
+        error: 'Reminders can only be sent for estimates already with the client (sent or viewed).',
+      })
+    }
+
+    const token = est.client_token && String(est.client_token).trim() ? String(est.client_token).trim() : ''
+    if (!token) {
+      return res.status(400).json({ error: 'No portal link on file. Send the estimate to the client once from the estimate editor first.' })
+    }
+
+    const emails = Array.isArray(est.recipient_emails) ? est.recipient_emails : []
+    const clientEmail = emails[0] ? String(emails[0]).trim() : ''
+    if (!clientEmail) {
+      return res.status(400).json({
+        error: 'No client email on file. Add a recipient on the estimate, then send it once from the estimate editor.',
+      })
+    }
+
+    let projectDisplayName = 'your project'
+    let clientDisplayName = 'there'
+    if (est.job_id) {
+      const { data: proj } = await supabase
+        .from('projects')
+        .select('name, assigned_to_name')
+        .eq('id', est.job_id)
+        .eq('user_id', req.user.id)
+        .maybeSingle()
+      if (proj?.name) projectDisplayName = String(proj.name).trim()
+      if (proj?.assigned_to_name && String(proj.assigned_to_name).trim()) {
+        clientDisplayName = String(proj.assigned_to_name).trim()
+      }
+    }
+
+    const { data: company } = await supabase.from('company_settings').select('name').eq('user_id', req.user.id).maybeSingle()
+    const gcDisplayName = company?.name && String(company.name).trim() ? String(company.name).trim() : 'Your contractor'
+
+    const baseUrlRaw = process.env.PUBLIC_APP_URL || process.env.APP_URL || `${req.protocol}://${req.get('host') || 'localhost'}`
+    const baseUrl = String(baseUrlRaw).replace(/\/$/, '')
+    const portalUrl = `${baseUrl}/estimate/${encodeURIComponent(token)}`
+    const documentKind = isChangeOrderEstimateTitle(est.title) ? 'change_order' : 'estimate'
+
+    const result = await sendEstimateReminderEmail({
+      to: clientEmail,
+      clientName: clientDisplayName,
+      gcName: gcDisplayName,
+      projectName: projectDisplayName,
+      portalUrl,
+      documentKind,
+    })
+
+    if (!result.sent) {
+      const msg = result.error
+        ? 'Could not send email. Check your email provider configuration and try again.'
+        : 'Email could not be sent. Set RESEND_API_KEY (and PORTAL_EMAIL_FROM or INVITE_EMAIL_FROM) to deliver reminders.'
+      return res.status(503).json({ error: msg })
+    }
+
+    await supabase.from('estimates').update({ updated_at: new Date().toISOString() }).eq('id', id)
+
+    res.json({ ok: true, emailed_to: clientEmail })
+  } catch (err) {
+    console.error('Estimate remind error:', err)
     res.status(500).json({ error: err.message })
   }
 })

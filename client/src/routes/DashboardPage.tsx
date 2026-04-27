@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -8,6 +8,8 @@ import type { ScheduleItem } from '@/types/global'
 import type { ConversationListItem } from '@/api/client'
 import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 import { ReferralDiscountBanner } from '@/components/ReferralDiscountBanner'
+import { DashboardCreateTaskModal } from '@/components/dashboard/DashboardCreateTaskModal'
+import { estimatesApi } from '@/api/estimates'
 
 // --- Icons (inline SVGs) ---
 function IconPlus({ className, style }: { className?: string; style?: React.CSSProperties }) {
@@ -308,10 +310,51 @@ export function DashboardPage() {
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [scheduleDaysDates, setScheduleDaysDates] = useState<string[]>([])
   const [scheduleDaysMonth, setScheduleDaysMonth] = useState<string>('')
+  const [createTaskOpen, setCreateTaskOpen] = useState(false)
+  /** Bumps after creating a task so schedule list + calendar dots refetch. */
+  const [scheduleRefresh, setScheduleRefresh] = useState(0)
+  const [reminderSendingId, setReminderSendingId] = useState<string | null>(null)
+  const [reminderFlash, setReminderFlash] = useState<{ alertId: string; message: string; error: boolean } | null>(null)
 
   const navigate = useNavigate()
 
+  useEffect(() => {
+    if (!reminderFlash) return
+    const t = window.setTimeout(() => setReminderFlash(null), 6000)
+    return () => window.clearTimeout(t)
+  }, [reminderFlash])
+
   const visibleAlerts = alerts.filter((a) => !dismissedAlerts.includes(a.id))
+
+  const handleAlertPrimary = useCallback(
+    async (alert: import('@/api/client').DashboardAlert) => {
+      if (alert.type === 'estimate') {
+        setReminderSendingId(alert.id)
+        setReminderFlash(null)
+        try {
+          const r = await estimatesApi.sendEstimateReminder(alert.entityId)
+          setReminderFlash({
+            alertId: alert.id,
+            message: `Reminder sent to ${r.emailed_to}.`,
+            error: false,
+          })
+        } catch (e) {
+          setReminderFlash({
+            alertId: alert.id,
+            message: e instanceof Error ? e.message : 'Could not send reminder.',
+            error: true,
+          })
+        } finally {
+          setReminderSendingId(null)
+        }
+        return
+      }
+      if (alert.type === 'budget_overrun') navigate(`/projects/${alert.entityId}`)
+      else if (alert.type === 'invoice') navigate('/financials/invoicing')
+      else navigate('/financials/overview')
+    },
+    [navigate]
+  )
 
   // Map API schedule items to today's schedule display (time placeholder when not available)
   const scheduleForDisplay = scheduleItems.length > 0
@@ -339,7 +382,7 @@ export function DashboardPage() {
       }
     })
     return () => { cancelled = true }
-  }, [selectedTaskDate])
+  }, [selectedTaskDate, scheduleRefresh])
 
   useEffect(() => {
     let cancelled = false
@@ -424,7 +467,7 @@ export function DashboardPage() {
       }
     })
     return () => { cancelled = true }
-  }, [calendarMonthKey])
+  }, [calendarMonthKey, scheduleRefresh])
 
   const calendarBusyDays = calendarMonthKey === scheduleDaysMonth
     ? new Set(scheduleDaysDates.map((d) => parseInt(d.split('-')[2], 10)))
@@ -528,11 +571,8 @@ export function DashboardPage() {
             {visibleAlerts.map((alert) => {
               const u = URGENCY_STYLES[alert.urgency]
               const icon = alert.type === 'invoice' ? '🧾' : alert.type === 'estimate' ? '📋' : '⚠️'
-              const onAction = () => {
-                if (alert.type === 'budget_overrun') navigate(`/projects/${alert.entityId}`)
-                else if (alert.type === 'estimate') navigate('/financials/invoicing')
-                else navigate('/financials/overview')
-              }
+              const sending = reminderSendingId === alert.id
+              const flash = reminderFlash?.alertId === alert.id ? reminderFlash : null
               return (
                 <div
                   key={alert.id}
@@ -541,11 +581,27 @@ export function DashboardPage() {
                 >
                   <span className="text-base shrink-0" aria-hidden>{icon}</span>
                   <div className="flex-1 min-w-0">
-                    <span className="text-[13px] font-semibold" style={{ color: u.color }}>{alert.label}</span>
-                    <span className="text-xs text-gray-500 dark:text-white-dim ml-2">{alert.sub}</span>
+                    <div>
+                      <span className="text-[13px] font-semibold" style={{ color: u.color }}>{alert.label}</span>
+                      <span className="text-xs text-gray-500 dark:text-white-dim ml-2">{alert.sub}</span>
+                    </div>
+                    {flash ? (
+                      <p
+                        className={`text-[11px] mt-1 m-0 ${flash.error ? 'text-red-700 dark:text-red-400' : 'text-emerald-800 dark:text-emerald-300'}`}
+                        role="status"
+                      >
+                        {flash.message}
+                      </p>
+                    ) : null}
                   </div>
-                  <button type="button" onClick={onAction} className="text-[11px] font-semibold text-white px-3 py-1 rounded-md shrink-0" style={{ background: u.color }}>
-                    {alert.action}
+                  <button
+                    type="button"
+                    onClick={() => void handleAlertPrimary(alert)}
+                    disabled={sending}
+                    className="text-[11px] font-semibold text-white px-3 py-1 rounded-md shrink-0 disabled:opacity-60"
+                    style={{ background: u.color }}
+                  >
+                    {sending ? 'Sending…' : alert.action}
                   </button>
                   <button
                     type="button"
@@ -637,7 +693,11 @@ export function DashboardPage() {
         <div className="rounded-2xl border border-gray-200 dark:border-border-dark bg-white dark:bg-dark-3 overflow-hidden mb-6">
           <div className="px-5 py-3.5 border-b border-gray-100 dark:border-border flex items-center justify-between">
             <span className="text-[13px] font-bold text-gray-900 dark:text-landing-white">Today&apos;s Schedule</span>
-            <button type="button" className="text-[11px] px-2.5 py-1 rounded-md border border-gray-200 dark:border-border-dark text-gray-500 dark:text-white-dim hover:bg-gray-50 dark:hover:bg-dark-4">
+            <button
+              type="button"
+              className="text-[11px] px-2.5 py-1 rounded-md border border-gray-200 dark:border-border-dark text-gray-500 dark:text-white-dim hover:bg-gray-50 dark:hover:bg-dark-4"
+              onClick={() => setCreateTaskOpen(true)}
+            >
               + Add
             </button>
           </div>
@@ -828,6 +888,14 @@ export function DashboardPage() {
             </div>
           </div>
         </div>
+
+      <DashboardCreateTaskModal
+        open={createTaskOpen}
+        onClose={() => setCreateTaskOpen(false)}
+        scheduleDate={selectedTaskDate}
+        projects={dashboardProjects}
+        onCreated={() => setScheduleRefresh((n) => n + 1)}
+      />
     </div>
   )
 }

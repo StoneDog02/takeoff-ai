@@ -100,7 +100,7 @@ router.get('/alerts', async (req, res, next) => {
           urgency: 'medium',
           label: `Estimate awaiting client response`,
           sub: `${nameMap[est.job_id] || 'Project'} · Sent ${daysAgo} days ago`,
-          action: 'Follow Up',
+          action: 'Send reminder',
           entityId: est.id,
           entityType: 'estimate',
           jobId: est.job_id,

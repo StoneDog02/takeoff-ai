@@ -400,7 +400,14 @@ export function AppLayout() {
                 ) : dismissedAlerts.length > 0 ? (
                   <ul className="notifications-panel-alerts" role="list">
                     {dismissedAlerts.map((a) => {
-                      const href = a.type === 'budget_overrun' ? `/projects/${a.entityId}` : a.type === 'estimate' ? '/financials/invoicing' : '/financials/overview'
+                      const href =
+                        a.type === 'budget_overrun'
+                          ? `/projects/${a.entityId}`
+                          : a.type === 'estimate' && a.jobId && a.entityId
+                            ? `/projects/${a.jobId}?editEstimate=${encodeURIComponent(a.entityId)}`
+                            : a.type === 'invoice'
+                              ? '/financials/invoicing'
+                              : '/financials/overview'
                       return (
                         <li key={a.id}>
                           <Link to={href} className="notifications-panel-alert" onClick={() => setNotificationsPanelOpen(false)}>
