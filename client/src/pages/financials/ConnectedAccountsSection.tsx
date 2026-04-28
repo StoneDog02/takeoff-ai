@@ -12,7 +12,11 @@ import {
 } from "@/lib/financialConnectionsEdge";
 import { isStripeConfigured, stripePromise } from "@/lib/stripe";
 import { runFinancialConnectionsLinkForSignedInUser } from "@/lib/runFinancialConnectionsCollect";
-import { syncBankTransactionsFromStripe, syncFinancialConnections } from "@/api/financialConnections";
+import {
+  getFinancialConnectionsStatus,
+  syncBankTransactionsFromStripe,
+  syncFinancialConnections,
+} from "@/api/financialConnections";
 
 type CollectFcFn = (opts: { clientSecret: string }) => Promise<{
   error?: { message?: string };
@@ -26,6 +30,7 @@ function maskLast4(last4: string | null): string {
 
 export function ConnectedAccountsSection() {
   const { stripeCustomerId } = useSubscription();
+  const [effectiveStripeCustomerId, setEffectiveStripeCustomerId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ConnectedAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectBusy, setConnectBusy] = useState(false);
@@ -33,21 +38,55 @@ export function ConnectedAccountsSection() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!stripeCustomerId) {
-      setAccounts([]);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
-    const { data, errorMessage } = await getConnectedAccountsEdge(stripeCustomerId);
-    if (errorMessage) {
-      setError(errorMessage);
+    try {
+      // Prefer subscription customer id (fastest, supports disconnect edge fn).
+      if (stripeCustomerId) {
+        setEffectiveStripeCustomerId(stripeCustomerId);
+        const { data, errorMessage } = await getConnectedAccountsEdge(stripeCustomerId);
+        if (errorMessage) {
+          setError(errorMessage);
+          setAccounts([]);
+        } else {
+          setAccounts(data?.accounts ?? []);
+        }
+        return;
+      }
+
+      // Fallback: for users without a loaded subscription customer id, use signed-in status endpoint.
+      if (!supabase) {
+        setAccounts([]);
+        setEffectiveStripeCustomerId(null);
+        return;
+      }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token ?? null;
+      if (!token) {
+        setAccounts([]);
+        setEffectiveStripeCustomerId(null);
+        return;
+      }
+
+      const status = await getFinancialConnectionsStatus(token);
+      setEffectiveStripeCustomerId(status.stripe_customer_id ?? null);
+      setAccounts(
+        (status.accounts ?? []).map((a) => ({
+          id: a.id,
+          institutionName: a.institution_name ?? a.display_name ?? null,
+          last4: a.last4 ?? null,
+          status: a.status ?? null,
+        })),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load linked accounts.");
       setAccounts([]);
-    } else {
-      setAccounts(data?.accounts ?? []);
+      setEffectiveStripeCustomerId(stripeCustomerId ?? null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [stripeCustomerId]);
 
   useEffect(() => {
@@ -127,11 +166,12 @@ export function ConnectedAccountsSection() {
   };
 
   const disconnect = async (accountId: string) => {
-    if (!stripeCustomerId) return;
+    const customerId = stripeCustomerId ?? effectiveStripeCustomerId;
+    if (!customerId) return;
     setDisconnectId(accountId);
     setError(null);
     try {
-      const { errorMessage } = await disconnectFinancialAccountEdge(stripeCustomerId, accountId);
+      const { errorMessage } = await disconnectFinancialAccountEdge(customerId, accountId);
       if (errorMessage) {
         setError(errorMessage);
         return;
