@@ -75,7 +75,15 @@ serve(async (req) => {
     .limit(1)
     .maybeSingle()
 
-  if (ownErr || !owns) {
+  const { data: ownsFc, error: ownFcErr } = await supabaseAdmin
+    .from('user_financial_connections')
+    .select('user_id')
+    .eq('user_id', userRes.user.id)
+    .eq('stripe_customer_id', stripeCustomerId)
+    .limit(1)
+    .maybeSingle()
+
+  if (ownErr || ownFcErr || (!owns && !ownsFc)) {
     return jsonResponse({ error: 'Forbidden' }, 403)
   }
 

@@ -1076,19 +1076,72 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                 ) : null}
                 {manualLines.map((line) => (
                   <div key={line.id} className="new-invoice-line-row">
-                    <input className="estimate-wizard-input" placeholder="Description" value={line.description} onChange={(e) => setManualField(line.id, { description: e.target.value })} />
-                    <input className="estimate-wizard-input" type="number" min={0} value={line.qty} onChange={(e) => setManualField(line.id, { qty: Number(e.target.value) || 0 })} />
-                    <input className="estimate-wizard-input" value={line.unit} onChange={(e) => setManualField(line.id, { unit: e.target.value })} />
-                    <input className="estimate-wizard-input" type="number" min={0} step={0.01} value={line.unitPrice} onChange={(e) => setManualField(line.id, { unitPrice: Number(e.target.value) || 0 })} />
-                    <div className="new-invoice-line-total">{formatCurrency(line.qty * line.unitPrice)}</div>
-                    <button
-                      type="button"
-                      className="new-invoice-line-remove"
-                      aria-label="Remove line item"
-                      onClick={() => removeManualLine(line.id)}
-                    >
-                      Remove
-                    </button>
+                    <div className="new-invoice-line-cell new-invoice-line-cell--desc">
+                      <label className="new-invoice-line-field-label" htmlFor={`new-inv-line-${line.id}-desc`}>
+                        Description
+                      </label>
+                      <input
+                        id={`new-inv-line-${line.id}-desc`}
+                        className="estimate-wizard-input"
+                        placeholder="Description"
+                        value={line.description}
+                        onChange={(e) => setManualField(line.id, { description: e.target.value })}
+                      />
+                    </div>
+                    <div className="new-invoice-line-cell new-invoice-line-cell--qty">
+                      <label className="new-invoice-line-field-label" htmlFor={`new-inv-line-${line.id}-qty`}>
+                        Qty
+                      </label>
+                      <input
+                        id={`new-inv-line-${line.id}-qty`}
+                        className="estimate-wizard-input estimate-wizard-input--num"
+                        type="number"
+                        min={0}
+                        value={line.qty}
+                        onChange={(e) => setManualField(line.id, { qty: Number(e.target.value) || 0 })}
+                      />
+                    </div>
+                    <div className="new-invoice-line-cell new-invoice-line-cell--unit">
+                      <label className="new-invoice-line-field-label" htmlFor={`new-inv-line-${line.id}-unit`}>
+                        Unit
+                      </label>
+                      <input
+                        id={`new-inv-line-${line.id}-unit`}
+                        className="estimate-wizard-input"
+                        value={line.unit}
+                        onChange={(e) => setManualField(line.id, { unit: e.target.value })}
+                      />
+                    </div>
+                    <div className="new-invoice-line-cell new-invoice-line-cell--price">
+                      <label className="new-invoice-line-field-label" htmlFor={`new-inv-line-${line.id}-price`}>
+                        Unit price
+                      </label>
+                      <input
+                        id={`new-inv-line-${line.id}-price`}
+                        className="estimate-wizard-input estimate-wizard-input--num"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={line.unitPrice}
+                        onChange={(e) => setManualField(line.id, { unitPrice: Number(e.target.value) || 0 })}
+                      />
+                    </div>
+                    <div className="new-invoice-line-cell new-invoice-line-cell--total">
+                      <span className="new-invoice-line-field-label">Line total</span>
+                      <div className="new-invoice-line-total" aria-live="polite">
+                        {formatCurrency(line.qty * line.unitPrice)}
+                      </div>
+                    </div>
+                    <div className="new-invoice-line-cell new-invoice-line-cell--remove">
+                      <button
+                        type="button"
+                        className="new-invoice-line-remove"
+                        aria-label="Remove line item"
+                        onClick={() => removeManualLine(line.id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
                 <button type="button" className="btn btn-ghost" onClick={() => setManualLines((p) => [...p, initialManualLine()])}>

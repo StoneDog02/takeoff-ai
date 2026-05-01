@@ -7622,6 +7622,11 @@ body {
   gap: 14px;
   padding: 10px 0 12px;
 }
+@media (max-width: 560px) {
+  .new-invoice-choice-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .new-invoice-choice-card {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -8359,9 +8364,44 @@ html[data-theme='dark'] .new-invoice-review-summary-anchor {
 .new-invoice-lines-empty-hint { margin: 0 0 4px; }
 .new-invoice-line-row {
   display: grid;
-  grid-template-columns: 1.8fr 0.5fr 0.5fr 0.7fr minmax(96px, auto) min-content;
+  grid-template-columns:
+    minmax(0, 1.85fr)
+    minmax(72px, 0.52fr)
+    minmax(52px, 0.42fr)
+    minmax(88px, 0.78fr)
+    minmax(88px, auto)
+    min-content;
   gap: 8px;
-  align-items: center;
+  align-items: end;
+}
+.new-invoice-line-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.new-invoice-line-cell--remove {
+  justify-content: flex-end;
+}
+.new-invoice-line-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+@media (min-width: 641px) {
+  .new-invoice-line-field-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 .new-invoice-line-total {
   min-width: 96px;
@@ -8386,6 +8426,55 @@ html[data-theme='dark'] .new-invoice-review-summary-anchor {
   color: var(--red, #b91c1c);
   border-color: color-mix(in srgb, var(--red, #b91c1c) 35%, var(--border));
   background: var(--bg-hover);
+}
+@media (max-width: 640px) {
+  .new-invoice-line-row {
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: stretch;
+    gap: 10px 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-surface);
+  }
+  html.dark .new-invoice-line-row,
+  html[data-theme='dark'] .new-invoice-line-row {
+    background: var(--bg-raised, #1e293b);
+  }
+  .new-invoice-line-cell--desc {
+    grid-column: 1 / -1;
+  }
+  .new-invoice-line-cell--qty {
+    grid-column: 1;
+  }
+  .new-invoice-line-cell--unit {
+    grid-column: 2;
+  }
+  .new-invoice-line-cell--price {
+    grid-column: 3;
+  }
+  .new-invoice-line-cell--total {
+    grid-column: 1 / span 2;
+  }
+  .new-invoice-line-cell--remove {
+    grid-column: 3;
+    justify-content: flex-end;
+  }
+  .new-invoice-line-row .estimate-wizard-input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .new-invoice-line-total {
+    min-width: 0;
+    text-align: left;
+    font-size: 15px;
+    padding-top: 2px;
+  }
+  .new-invoice-line-remove {
+    min-height: 44px;
+    width: 100%;
+    font-size: 12px;
+  }
 }
 
 .new-invoice-attachments-section {
