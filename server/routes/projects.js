@@ -16,6 +16,7 @@ const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
 const { budgetOverSummary, notifyBudgetThresholdCrossed } = require('../lib/eventNotificationEmails')
 const { isEmployeePortalRequest } = require('../middleware/auth')
 const { reconcileBillingCompletionForUser } = require('../lib/projectAutoComplete')
+const { syncJobRecipientEmailsFromProjectClientEmail } = require('../lib/jobClientEmail')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
 
@@ -524,7 +525,15 @@ router.put('/:id', loadProject, async (req, res, next) => {
     if (expected_end_date !== undefined) updates.expected_end_date = expected_end_date || null
     if (estimated_value !== undefined) updates.estimated_value = estimated_value != null ? Number(estimated_value) : null
     if (assigned_to_name !== undefined) updates.assigned_to_name = assigned_to_name || null
-    if (client_email !== undefined) updates.client_email = client_email ? String(client_email).trim() || null : null
+    let syncedClientEmail = null
+    if (client_email !== undefined) {
+      const newClientEmail = client_email ? String(client_email).trim() || null : null
+      updates.client_email = newClientEmail
+      const prevClientEmail = req.project.client_email ? String(req.project.client_email).trim() : ''
+      if (newClientEmail && newClientEmail !== prevClientEmail) {
+        syncedClientEmail = newClientEmail
+      }
+    }
     if (client_phone !== undefined) updates.client_phone = client_phone ? String(client_phone).trim() || null : null
     if (plan_type !== undefined) updates.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : req.project.plan_type
     updates.updated_at = new Date().toISOString()
@@ -535,6 +544,14 @@ router.put('/:id', loadProject, async (req, res, next) => {
       .select()
       .single()
     if (error) throw error
+    if (syncedClientEmail && req.user?.id) {
+      await syncJobRecipientEmailsFromProjectClientEmail(
+        supabase,
+        req.user.id,
+        req.params.id,
+        syncedClientEmail
+      )
+    }
     res.json(data)
   } catch (err) {
     next(err)

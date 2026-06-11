@@ -112,6 +112,12 @@ export function DocumentDetailModal({
     (invoice && jobs.find((j) => j.id === invoice.job_id)?.name) ||
     '—'
 
+  const linkedJob =
+    (estimate && jobs.find((j) => j.id === estimate.job_id)) ||
+    (invoice && jobs.find((j) => j.id === invoice.job_id)) ||
+    null
+  const projectClientEmail = linkedJob?.client_email ?? null
+
   const doc = type === 'estimate' ? estimate : invoice
   const total =
     type === 'estimate'
@@ -423,6 +429,7 @@ export function DocumentDetailModal({
           type={type}
           documentId={id}
           document={doc}
+          projectClientEmail={projectClientEmail}
           jobName={jobName}
           total={Number(total)}
           lineItems={previewLineItems}

@@ -5,6 +5,10 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 const { buildViewerEnvelope, attachProjectName } = require('../lib/documentViewerData')
 const { sendEstimatePortalEmail, sendBidPortalEmail, sendInvoicePortalEmail } = require('../lib/sendPortalEmails')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
+const {
+  resolveJobClientEmail,
+  persistResolvedRecipientIfChanged,
+} = require('../lib/jobClientEmail')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -220,10 +224,11 @@ router.post('/:id/resend', async (req, res) => {
         return res.status(400).json({ error: 'No portal link on file. Send this estimate from Estimates first.' })
       }
       const emails = est.recipient_emails
-      const clientEmail = Array.isArray(emails) && emails[0] ? String(emails[0]).trim() : ''
+      const clientEmail = await resolveJobClientEmail(supabase, userId, est)
       if (!clientEmail) {
         return res.status(400).json({ error: 'No client email on file for this estimate.' })
       }
+      await persistResolvedRecipientIfChanged(supabase, 'estimates', est.id, emails, clientEmail)
 
       let projectDisplayName = 'your project'
       let clientDisplayName = 'there'
@@ -272,10 +277,11 @@ router.post('/:id/resend', async (req, res) => {
       }
 
       const emails = inv.recipient_emails
-      const clientEmail = Array.isArray(emails) && emails[0] ? String(emails[0]).trim() : ''
+      const clientEmail = await resolveJobClientEmail(supabase, userId, inv)
       if (!clientEmail) {
         return res.status(400).json({ error: 'No recipient email on file for this invoice.' })
       }
+      await persistResolvedRecipientIfChanged(supabase, 'invoices', inv.id, emails, clientEmail)
 
       let projectDisplayName = 'your project'
       let clientDisplayName = 'there'

@@ -12,6 +12,8 @@ interface SendEstimateInvoiceProps {
     status?: string
     due_date?: string
   }
+  /** Current project client email — preferred over saved document recipients when set. */
+  projectClientEmail?: string | null
   jobName: string
   total: number
   lineItems: EstimateLineItem[]
@@ -25,6 +27,7 @@ export function SendEstimateInvoice({
   type,
   documentId,
   document,
+  projectClientEmail,
   jobName,
   total,
   lineItems,
@@ -33,9 +36,12 @@ export function SendEstimateInvoice({
   onClose,
   onSent,
 }: SendEstimateInvoiceProps) {
-  const [emailsText, setEmailsText] = useState(
-    (document.recipient_emails ?? []).join(', ')
-  )
+  const initialEmails = (() => {
+    const projectEmail = projectClientEmail?.trim() ?? ''
+    if (projectEmail) return projectEmail
+    return (document.recipient_emails ?? []).join(', ')
+  })()
+  const [emailsText, setEmailsText] = useState(initialEmails)
   const [showPreview, setShowPreview] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)

@@ -7,6 +7,10 @@ const { sendEstimatePortalEmail, sendEstimateReminderEmail } = require('../lib/s
 const { recordEstimateSentPaperTrail, syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
+const {
+  resolveJobClientEmail,
+  persistResolvedRecipientIfChanged,
+} = require('../lib/jobClientEmail')
 
 function getSupabase(req) {
   return req.supabase || defaultSupabase
@@ -482,12 +486,13 @@ router.post('/:id/remind', async (req, res) => {
     }
 
     const emails = Array.isArray(est.recipient_emails) ? est.recipient_emails : []
-    const clientEmail = emails[0] ? String(emails[0]).trim() : ''
+    const clientEmail = await resolveJobClientEmail(supabase, req.user.id, est)
     if (!clientEmail) {
       return res.status(400).json({
         error: 'No client email on file. Add a recipient on the estimate, then send it once from the estimate editor.',
       })
     }
+    await persistResolvedRecipientIfChanged(supabase, 'estimates', id, emails, clientEmail)
 
     let projectDisplayName = 'your project'
     let clientDisplayName = 'there'
