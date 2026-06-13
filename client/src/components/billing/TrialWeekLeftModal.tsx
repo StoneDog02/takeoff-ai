@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/contexts/SubscriptionContext";
 import { api } from "@/api/client";
@@ -100,10 +101,12 @@ export function TrialWeekLeftModal() {
   }, [subscription, employees]);
 
   useEffect(() => {
-    if (isPublicDemo() || isLoading || !user || bypass_feature_gates) {
+    if (isPublicDemo() || !user || bypass_feature_gates) {
       setOpen(false);
       return;
     }
+    // Keep the modal open while subscription data refreshes in the background.
+    if (isLoading && !subscription) return;
     if (
       !isTrialing ||
       trialDaysRemaining == null ||
@@ -141,10 +144,14 @@ export function TrialWeekLeftModal() {
 
   useEffect(() => {
     if (!open || baseline == null) return;
-    setSelection(baseline);
+    setSelection((prev) => (prev && pricingSelectionsMatch(prev, baseline) ? prev : baseline));
+  }, [open, baseline]);
+
+  useEffect(() => {
+    if (!open) return;
     setFeedback("");
     setError(null);
-  }, [open, baseline]);
+  }, [open]);
 
   const onToggle = useCallback((id: string) => {
     setSelection((prev) => (prev ? toggleAddon(prev, id) : prev));
@@ -156,6 +163,19 @@ export function TrialWeekLeftModal() {
       return { ...prev, addons: maxTrialAddonsForTier(prev.tier) };
     });
   }, []);
+
+  const acknowledgeAndClose = useCallback(() => {
+    if (!stripeSubscriptionId || !trialEndsAt) return;
+    try {
+      localStorage.setItem(
+        trialExitAckStorageKey(stripeSubscriptionId, trialEndsAt.getTime()),
+        "1",
+      );
+    } catch {
+      /* non-fatal */
+    }
+    setOpen(false);
+  }, [stripeSubscriptionId, trialEndsAt]);
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
@@ -239,15 +259,16 @@ export function TrialWeekLeftModal() {
   const addonIds = orderedAddonIdsForTier(tier);
   const { total } = computePricingMonthly(selection);
 
-  return (
+  const modal = (
     <div className="trial-week-modal-overlay" role="presentation">
       <div
         className="trial-week-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="trial-week-modal-title"
+        onMouseDown={(e) => e.stopPropagation()}
       >
-        <form onSubmit={handleSubmit}>
+        <form className="trial-week-modal__form" onSubmit={handleSubmit}>
           <div className="trial-week-modal__header">
             <h2 id="trial-week-modal-title">About a week left on your trial</h2>
             <p className="trial-week-modal__lead">
@@ -332,9 +353,20 @@ export function TrialWeekLeftModal() {
             <button type="submit" className="trial-week-modal__submit" disabled={submitting}>
               {submitting ? "Saving…" : "Save and continue"}
             </button>
+            <button
+              type="button"
+              className="trial-week-modal__skip"
+              disabled={submitting}
+              onClick={acknowledgeAndClose}
+            >
+              Continue with current plan
+            </button>
           </div>
         </form>
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return modal;
+  return createPortal(modal, document.body);
 }
