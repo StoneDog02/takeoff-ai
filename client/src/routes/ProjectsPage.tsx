@@ -409,6 +409,8 @@ export function ProjectsPage() {
   } | null>(null)
   /** Awaiting approval: latest open estimate id (sent/viewed/changes_requested) for hero-menu edit. */
   const [pendingApprovalEstimateId, setPendingApprovalEstimateId] = useState<string | null>(null)
+  /** Project detail: open EstimateBuilderModal directly for awaiting-approval revise (avoids build prefetch race). */
+  const [detailReviseEstimateId, setDetailReviseEstimateId] = useState<string | null>(null)
   /** When opening Build Estimate, prefer this estimate id if it still exists (e.g. client change request). */
   const buildEstimatePreferredEstimateIdRef = useRef<string | null>(null)
   /** List view: estimates for awaiting_approval column (project id → estimate). */
@@ -603,6 +605,7 @@ export function ProjectsPage() {
     setEstimatingTakeoffBypassed(false)
     setEstimatingBidSheetSkipped(false)
     setShowProductLibrary(false)
+    setDetailReviseEstimateId(null)
   }, [id])
 
   useEffect(() => {
@@ -693,9 +696,7 @@ export function ProjectsPage() {
       const eid =
         estimateIdOverride ?? pendingApprovalEstimateId ?? clientChangesRequested?.estimateId ?? null
       if (!eid || !id) return
-      buildEstimatePreferredEstimateIdRef.current = eid
-      setBuildEstimateBlankMode(false)
-      setBuildEstimateOpen(true)
+      setDetailReviseEstimateId(eid)
     },
     [pendingApprovalEstimateId, clientChangesRequested?.estimateId, id]
   )
@@ -703,21 +704,27 @@ export function ProjectsPage() {
   const handleHeroMenuEdit = useCallback(() => {
     setHeroMenuOpen(false)
     const sk = (project?.status ?? '').toLowerCase().replace(/[\s-]+/g, '_')
-    if (sk === 'awaiting_approval' && pendingApprovalEstimateId) {
+    const canEditPendingEstimate =
+      sk === 'awaiting_approval' &&
+      Boolean(pendingApprovalEstimateId ?? clientChangesRequested?.estimateId)
+    if (canEditPendingEstimate) {
       openEditPendingEstimate()
       return
     }
     setSetupWizardOpen(true)
-  }, [project?.status, pendingApprovalEstimateId, openEditPendingEstimate])
+  }, [
+    project?.status,
+    pendingApprovalEstimateId,
+    clientChangesRequested?.estimateId,
+    openEditPendingEstimate,
+  ])
 
   /** Deep link: /projects/:id?editEstimate=<uuid> opens the estimate builder (e.g. from document viewer). */
   useEffect(() => {
     const eid = searchParams.get('editEstimate')
     if (!eid || !id) return
     if (!project || project.id !== id) return
-    buildEstimatePreferredEstimateIdRef.current = eid
-    setBuildEstimateBlankMode(false)
-    setBuildEstimateOpen(true)
+    setDetailReviseEstimateId(eid)
     const next = new URLSearchParams(searchParams)
     next.delete('editEstimate')
     if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
@@ -2405,7 +2412,8 @@ export function ProjectsPage() {
     ].includes(statusKey)
   const budgetShowsAwaitingApproval = statusKey === 'awaiting_approval'
   const heroMenuEditOpensEstimate =
-    budgetShowsAwaitingApproval && Boolean(pendingApprovalEstimateId)
+    budgetShowsAwaitingApproval &&
+    Boolean(pendingApprovalEstimateId ?? clientChangesRequested?.estimateId)
   const heroMenuEditLabel = heroMenuEditOpensEstimate ? 'Edit estimate' : 'Edit'
   const hasEstimateBudgetPreview =
     budgetShowsAwaitingApproval &&
@@ -4377,6 +4385,20 @@ export function ProjectsPage() {
             }
             setDetailRefreshTrigger((t) => t + 1)
             if (projectId) api.projects.getBuildPlans(projectId).then(setBuildPlans).catch(() => setBuildPlans([]))
+          }}
+        />
+      )}
+
+      {detailReviseEstimateId && project && (
+        <EstimateBuilderModal
+          jobs={[]}
+          projectId={project.id}
+          estimateId={detailReviseEstimateId}
+          prefillClientInfo={buildEstimatePrefillClientInfo ?? undefined}
+          onClose={() => setDetailReviseEstimateId(null)}
+          onSave={() => {
+            setDetailReviseEstimateId(null)
+            setDetailRefreshTrigger((t) => t + 1)
           }}
         />
       )}
