@@ -354,7 +354,8 @@ export function ProjectsPage() {
   const [activateSubmitting, setActivateSubmitting] = useState(false)
   const [activateError, setActivateError] = useState<string | null>(null)
   const [activateSuccessToast, setActivateSuccessToast] = useState<string | null>(null)
-  const heroMenuRef = useRef<HTMLDivElement>(null)
+  const heroMenuDesktopRef = useRef<HTMLDivElement>(null)
+  const heroMenuMobileRef = useRef<HTMLDivElement>(null)
   const listActionsMenuRef = useRef<HTMLDivElement>(null)
   const [buildEstimateOpen, setBuildEstimateOpen] = useState(false)
   const [buildEstimateBlankMode, setBuildEstimateBlankMode] = useState(false)
@@ -502,8 +503,11 @@ export function ProjectsPage() {
 
   useEffect(() => {
     if (!heroMenuOpen) return
+    const isInsideHeroMenu = (target: Node) =>
+      (heroMenuDesktopRef.current?.contains(target) ?? false) ||
+      (heroMenuMobileRef.current?.contains(target) ?? false)
     const onDocClick = (e: MouseEvent) => {
-      if (heroMenuRef.current && !heroMenuRef.current.contains(e.target as Node)) setHeroMenuOpen(false)
+      if (!isInsideHeroMenu(e.target as Node)) setHeroMenuOpen(false)
     }
     document.addEventListener('click', onDocClick, true)
     return () => document.removeEventListener('click', onDocClick, true)
@@ -2538,7 +2542,7 @@ export function ProjectsPage() {
               {project?.name} <span className="project-overview-title-muted">– {addressDisplay}</span>
             </h1>
           </div>
-          <div className="project-overview-hero-actions relative" ref={heroMenuRef}>
+          <div className="project-overview-hero-actions relative" ref={heroMenuDesktopRef}>
             {project?.status === 'estimating' && (
               <>
                 <button
@@ -2886,7 +2890,7 @@ export function ProjectsPage() {
               </span>
             </div>
           </div>
-          <div className="project-overview-hero-actions relative shrink-0" ref={heroMenuRef}>
+          <div className="project-overview-hero-actions relative shrink-0" ref={heroMenuMobileRef}>
             <button
               type="button"
               className="project-overview-hero-menu-trigger"
