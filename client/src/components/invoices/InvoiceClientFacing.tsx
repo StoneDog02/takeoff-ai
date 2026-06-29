@@ -131,7 +131,7 @@ export function InvoiceClientFacing({
   }
   const st = String(data.status).toLowerCase()
   const invoicePaid = st === 'paid'
-  const showProgress = data.invoice_kind === 'progress_series' && (data.schedule_rows?.length ?? 0) > 0
+  const showProgress = (data.schedule_rows?.length ?? 0) > 0
   const company = data.company
   const openStatus = st === 'sent' || st === 'viewed' ? 'Open' : st
 

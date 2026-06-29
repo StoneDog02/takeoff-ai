@@ -16,6 +16,11 @@ const {
 const { sendInvoicePortalEmail } = require('../lib/sendPortalEmails')
 const { parseManualInvoiceSnapshot } = require('../lib/invoiceManualSnapshot')
 const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
+const { normalizeInvoiceScheduleSnapshot } = require('../lib/invoiceManualSnapshot')
+const {
+  applyMilestonePaymentsToSnapshot,
+  getScheduleRowIds,
+} = require('../lib/invoicePaymentSchedule')
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } })
 const invoiceAttachmentUploadSingle = upload.single('file')
@@ -254,7 +259,7 @@ router.patch('/:id', async (req, res) => {
     } = req.body
     const { data: before, error: loadErr } = await supabase
       .from('invoices')
-      .select('id, status, user_id, job_id')
+      .select('id, status, user_id, job_id, schedule_snapshot')
       .eq('id', id)
       .maybeSingle()
     if (loadErr) throw loadErr
@@ -267,6 +272,15 @@ router.patch('/:id', async (req, res) => {
     if (sent_at !== undefined) updates.sent_at = sent_at
     if (paid_at !== undefined) updates.paid_at = paid_at
     if (schedule_snapshot !== undefined) updates.schedule_snapshot = schedule_snapshot
+    if (status !== undefined && String(status).toLowerCase() === 'paid') {
+      const snap = normalizeInvoiceScheduleSnapshot(
+        schedule_snapshot !== undefined ? schedule_snapshot : before.schedule_snapshot
+      )
+      const rowIds = getScheduleRowIds(snap)
+      if (rowIds.length > 0) {
+        updates.schedule_snapshot = applyMilestonePaymentsToSnapshot(snap, rowIds)
+      }
+    }
     const { data, error } = await supabase
       .from('invoices')
       .update(updates)

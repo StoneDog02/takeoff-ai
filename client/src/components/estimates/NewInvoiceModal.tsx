@@ -12,6 +12,12 @@ import {
   applyMilestonesToEstimateMeta,
   type ProgressMilestone,
 } from '@/lib/progressMilestones'
+import {
+  buildManualDepositScheduleRows,
+  MANUAL_INVOICE_DUE_TERM_OPTIONS,
+  manualDepositTermLabel,
+  type ManualInvoiceDueTerm,
+} from '@/lib/manualInvoiceDeposit'
 
 type PathType = 'progress' | 'manual'
 type StepType = 'choose' | 'progress' | 'manual-info' | 'manual-lines' | 'review'
@@ -197,6 +203,10 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   const [saveBusyKind, setSaveBusyKind] = useState<'draft' | 'send' | null>(null)
   const saving = saveBusyKind !== null
   const [error, setError] = useState<string | null>(null)
+  const [manualDepositEnabled, setManualDepositEnabled] = useState(false)
+  const [manualDepositPct, setManualDepositPct] = useState('50')
+  const [manualDepositDue, setManualDepositDue] = useState<ManualInvoiceDueTerm>('net_30_from_sent')
+  const [manualBalanceDue, setManualBalanceDue] = useState<ManualInvoiceDueTerm>('net_60_from_sent')
 
   type AttachmentCandidates = {
     awarded_quotes: { sub_bid_id: string; label: string }[]
@@ -519,6 +529,32 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
       })
   }, [pathType, selectedMilestones, milestones, progressSplit.amounts, remainingBalance])
 
+  const manualDepositPctParsed = useMemo(() => {
+    const n = parseFloat(String(manualDepositPct).replace(/,/g, ''))
+    return Number.isFinite(n) ? n : NaN
+  }, [manualDepositPct])
+
+  const manualDepositSchedulePreview = useMemo(() => {
+    if (pathType !== 'manual' || !manualDepositEnabled || lineSubtotal <= 0) return []
+    if (!Number.isFinite(manualDepositPctParsed) || manualDepositPctParsed <= 0 || manualDepositPctParsed >= 100) {
+      return []
+    }
+    return buildManualDepositScheduleRows(
+      lineSubtotal,
+      manualDepositPctParsed,
+      manualDepositDue,
+      manualBalanceDue
+    )
+  }, [pathType, manualDepositEnabled, lineSubtotal, manualDepositPctParsed, manualDepositDue, manualBalanceDue])
+
+  const manualDepositScheduleValid = useMemo(() => {
+    if (pathType !== 'manual' || !manualDepositEnabled) return true
+    if (!Number.isFinite(manualDepositPctParsed) || manualDepositPctParsed <= 0 || manualDepositPctParsed >= 100) {
+      return false
+    }
+    return manualDepositSchedulePreview.length === 2
+  }, [pathType, manualDepositEnabled, manualDepositPctParsed, manualDepositSchedulePreview.length])
+
   /** Review step dark summary: title line (estimate/job + client) */
   const progressReviewSummaryTitle = useMemo(() => {
     const jobPart = (estimateForProgress?.title || activeJob?.name || '—').trim()
@@ -538,7 +574,8 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     })
   }, [pathType, selectedMilestones, progressPaymentSchedule])
 
-  const canSaveDraftOnReview = lineSubtotal > 0 && reviewProgressScheduleValid
+  const canSaveDraftOnReview =
+    lineSubtotal > 0 && reviewProgressScheduleValid && manualDepositScheduleValid
   const canSendOnReview = canSaveDraftOnReview && !!clientEmail.trim()
 
   const goProgress = () => {
@@ -556,6 +593,10 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     setAttachmentCandidates(null)
     setSelectedQuoteIds([])
     setSelectedBidDocIds([])
+    setManualDepositEnabled(false)
+    setManualDepositPct('50')
+    setManualDepositDue('net_30_from_sent')
+    setManualBalanceDue('net_60_from_sent')
   }
 
   const setManualField = (id: string, patch: Partial<InvoiceLine>) => {
@@ -742,6 +783,20 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
           notes: notes.trim() || null,
           terms: terms.trim() || null,
           line_items: manualLinePayload,
+        }
+        if (manualDepositEnabled && manualDepositSchedulePreview.length === 2) {
+          schedule_snapshot.deposit = {
+            pct: manualDepositPctParsed,
+            deposit_due: manualDepositDue,
+            balance_due: manualBalanceDue,
+          }
+          schedule_snapshot.rows = manualDepositSchedulePreview.map((row) => ({
+            milestone_id: row.milestone_id,
+            label: row.label,
+            amount: row.amount,
+            mode: row.mode,
+            completionTerms: row.completionTerms,
+          }))
         }
         if (client_attachments.length > 0) {
           schedule_snapshot.client_attachments = client_attachments
@@ -1480,12 +1535,120 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                 </>
               ) : (
                 <>
-                  <div className="estimate-wizard-step1-grid">
-                    <div className="estimate-wizard-field">
-                      <label className="estimate-wizard-label">Due date</label>
-                      <input className="estimate-wizard-input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                  <div className="estimate-wizard-field estimate-wizard-field--full">
+                    <label className="estimate-wizard-label new-invoice-deposit-toggle">
+                      <input
+                        type="checkbox"
+                        checked={manualDepositEnabled}
+                        onChange={(e) => {
+                          setManualDepositEnabled(e.target.checked)
+                          setError(null)
+                        }}
+                      />
+                      <span>Split into deposit + balance</span>
+                    </label>
+                    <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>
+                      Collect a deposit first; the client portal shows when each portion is due (based on the invoice date once sent).
+                    </p>
+                  </div>
+
+                  {manualDepositEnabled ? (
+                    <div className="new-invoice-step-grid new-invoice-manual-deposit-grid">
+                      <div className="estimate-wizard-field">
+                        <label className="estimate-wizard-label" htmlFor="manual-deposit-pct">
+                          Deposit (%)
+                        </label>
+                        <input
+                          id="manual-deposit-pct"
+                          className="estimate-wizard-input"
+                          type="number"
+                          min={1}
+                          max={99}
+                          step={1}
+                          value={manualDepositPct}
+                          onChange={(e) => {
+                            setManualDepositPct(e.target.value)
+                            setError(null)
+                          }}
+                        />
+                      </div>
+                      <div className="estimate-wizard-field">
+                        <label className="estimate-wizard-label" htmlFor="manual-deposit-due">
+                          Deposit due
+                        </label>
+                        <select
+                          id="manual-deposit-due"
+                          className="estimate-wizard-input"
+                          value={manualDepositDue}
+                          onChange={(e) => setManualDepositDue(e.target.value as ManualInvoiceDueTerm)}
+                        >
+                          {MANUAL_INVOICE_DUE_TERM_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="estimate-wizard-field estimate-wizard-field--full">
+                        <label className="estimate-wizard-label" htmlFor="manual-balance-due">
+                          Balance due
+                        </label>
+                        <select
+                          id="manual-balance-due"
+                          className="estimate-wizard-input"
+                          value={manualBalanceDue}
+                          onChange={(e) => setManualBalanceDue(e.target.value as ManualInvoiceDueTerm)}
+                        >
+                          {MANUAL_INVOICE_DUE_TERM_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {manualDepositSchedulePreview.length === 2 ? (
+                        <div className="new-invoice-review-card estimate-wizard-field--full">
+                          <div className="new-invoice-review-row">
+                            <span>{manualDepositSchedulePreview[0].label}</span>
+                            <span>{formatCurrency(manualDepositSchedulePreview[0].amount)}</span>
+                          </div>
+                          <div className="new-invoice-review-row new-invoice-review-row--muted">
+                            <span>{manualDepositTermLabel(manualDepositDue)}</span>
+                            <span />
+                          </div>
+                          <div className="new-invoice-review-row">
+                            <span>{manualDepositSchedulePreview[1].label}</span>
+                            <span>{formatCurrency(manualDepositSchedulePreview[1].amount)}</span>
+                          </div>
+                          <div className="new-invoice-review-row new-invoice-review-row--muted">
+                            <span>{manualDepositTermLabel(manualBalanceDue)}</span>
+                            <span />
+                          </div>
+                          <div className="new-invoice-review-row strong">
+                            <span>Invoice total</span>
+                            <span>{formatCurrency(lineSubtotal)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="estimate-wizard-helper estimate-wizard-field--full" style={{ color: 'var(--red-light)' }}>
+                          Enter a deposit between 1% and 99%.
+                        </p>
+                      )}
                     </div>
-                    <div className="estimate-wizard-field">
+                  ) : (
+                    <div className="estimate-wizard-field estimate-wizard-field--full">
+                      <label className="estimate-wizard-label">Due date (optional)</label>
+                      <input
+                        className="estimate-wizard-input"
+                        type="date"
+                        value={dueDate}
+                        onChange={(e) => setDueDate(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="estimate-wizard-step1-grid">
+                    <div className="estimate-wizard-field estimate-wizard-field--full">
                       <label className="estimate-wizard-label">Recipient email</label>
                       <input className="estimate-wizard-input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
                       <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>

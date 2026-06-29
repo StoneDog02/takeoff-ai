@@ -8,6 +8,10 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 const { fetchPublicCompanyProfile } = require('../lib/publicCompanyProfile')
 const { fetchInvoiceBranding } = require('../lib/invoiceBranding')
 const { parseManualInvoiceSnapshot, normalizeInvoiceScheduleSnapshot } = require('../lib/invoiceManualSnapshot')
+const {
+  mapScheduleRows,
+  amountDueNowFromRows,
+} = require('../lib/invoicePaymentSchedule')
 const { notifyInvoiceStatusChange } = require('../lib/eventNotificationEmails')
 const { getClientAttachmentsArray, resolveClientAttachmentUrl } = require('../lib/invoiceClientAttachments')
 const { normalizeInvoicePaymentConfig, paymentOptionsForPortalResponse } = require('../lib/invoicePaymentConfig')
@@ -56,56 +60,6 @@ function rateLimitPortal(req, res, next) {
 
 router.use(rateLimitPortal)
 
-const COMPLETION_LABELS = {
-  on_phase_completion: 'Due when phase completes',
-  net_15: '15 days after completion',
-  net_30: '30 days after completion',
-  net_45: '45 days after completion',
-  net_60: '60 days after completion',
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function formatDueDisplay(row) {
-  if (row.mode === 'specific_date' && row.specificDate) {
-    const d = String(row.specificDate).slice(0, 10)
-    return `Due ${d}`
-  }
-  const key = row.completionTerms || row.completion_terms
-  return COMPLETION_LABELS[key] || 'On completion'
-}
-
-/**
- * @param {object} row
- * @param {string} invoiceStatus
- * @param {{ milestone_ready_for_payment?: string[] }} meta
- */
-function computeRowStatus(row, invoiceStatus, meta) {
-  const st = String(invoiceStatus || '').toLowerCase()
-  if (st === 'paid') return 'paid'
-
-  const readyIds = Array.isArray(meta?.milestone_ready_for_payment)
-    ? meta.milestone_ready_for_payment.map(String)
-    : []
-  const mid = String(row.milestone_id || '')
-  const ready = readyIds.includes(mid)
-
-  if (row.mode === 'specific_date' && row.specificDate) {
-    const due = String(row.specificDate).slice(0, 10)
-    if (todayIsoDate() >= due) return 'due_now'
-    return 'upcoming'
-  }
-  if (row.mode === 'on_completion') {
-    const ct = row.completionTerms || row.completion_terms
-    if (ct === 'on_phase_completion' && ready) return 'due_now'
-    if (typeof ct === 'string' && ct.startsWith('net_') && ready) return 'due_now'
-    return 'upcoming'
-  }
-  return 'upcoming'
-}
-
 const CHECKOUT_WINDOW_MS = 60 * 60 * 1000
 const CHECKOUT_MAX_PER_HOUR = 8
 const checkoutRateMap = new Map()
@@ -144,7 +98,7 @@ router.post('/:token/create-checkout-session', rateLimitCheckoutSession, async (
     const { data: inv, error: invErr } = await supabase
       .from('invoices')
       .select(
-        'id, user_id, estimate_id, job_id, status, total_amount, recipient_emails, schedule_snapshot, client_token'
+        'id, user_id, estimate_id, job_id, status, total_amount, recipient_emails, schedule_snapshot, client_token, sent_at, created_at'
       )
       .eq('client_token', token)
       .maybeSingle()
@@ -180,12 +134,9 @@ router.post('/:token/create-checkout-session', rateLimitCheckoutSession, async (
         )) ||
       {}
 
-    const schedule_rows = rawRows.map((row) => {
-      const due_display = formatDueDisplay(row)
-      const rowStatus = computeRowStatus(row, inv.status, meta)
-      return { amount: Number(row.amount) || 0, status: rowStatus }
-    })
-    const amount_due_now = schedule_rows.filter((r) => r.status === 'due_now').reduce((sum, r) => sum + r.amount, 0)
+    const schedule_rows = mapScheduleRows(rawRows, inv.status, meta, inv, snap)
+    const amount_due_now = amountDueNowFromRows(schedule_rows)
+    const dueNowMilestoneIds = schedule_rows.filter((r) => r.status === 'due_now').map((r) => r.milestone_id)
 
     let amountDollars = Number(inv.total_amount) || 0
     if (schedule_rows.length > 0 && amount_due_now > 0) {
@@ -237,6 +188,7 @@ router.post('/:token/create-checkout-session', rateLimitCheckoutSession, async (
         buildos_client_invoice: '1',
         invoice_id: inv.id,
         gc_user_id: inv.user_id || '',
+        milestone_ids: dueNowMilestoneIds.join(','),
       },
     }
 
@@ -342,20 +294,7 @@ router.get('/:token', async (req, res, next) => {
 
     const rawRows = Array.isArray(snap.rows) ? snap.rows : []
 
-    const schedule_rows = rawRows.map((row) => {
-      const due_display = formatDueDisplay(row)
-      const status = computeRowStatus(row, inv.status, meta)
-      return {
-        milestone_id: String(row.milestone_id || ''),
-        label: String(row.label || 'Milestone'),
-        amount: Number(row.amount) || 0,
-        mode: row.mode === 'on_completion' ? 'on_completion' : 'specific_date',
-        specific_date: row.specificDate || row.specific_date || null,
-        completion_terms: row.completionTerms || row.completion_terms || null,
-        due_display,
-        status,
-      }
-    })
+    const schedule_rows = mapScheduleRows(rawRows, inv.status, meta, inv, snap)
 
     let line_items = []
     if (manualSnap?.line_items?.length) {
@@ -395,9 +334,7 @@ router.get('/:token', async (req, res, next) => {
       ]
     }
 
-    const amount_due_now = schedule_rows
-      .filter((r) => r.status === 'due_now')
-      .reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+    const amount_due_now = amountDueNowFromRows(schedule_rows)
 
     const branding = await fetchInvoiceBranding(supabase, inv.user_id)
 

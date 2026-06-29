@@ -8578,6 +8578,20 @@ html[data-theme='dark'] .new-invoice-review-summary-anchor {
 }
 .new-invoice-review-row:last-child { margin-bottom: 0; }
 .new-invoice-review-row.strong { font-weight: 700; }
+.new-invoice-review-row--muted {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: -4px;
+  margin-bottom: 10px;
+}
+.new-invoice-deposit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.new-invoice-deposit-toggle input { margin: 0; }
+.new-invoice-manual-deposit-grid { margin-bottom: 4px; }
 .new-invoice-error {
   border: 1px solid rgba(220, 38, 38, 0.35);
   color: var(--red);

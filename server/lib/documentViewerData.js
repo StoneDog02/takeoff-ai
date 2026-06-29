@@ -5,53 +5,12 @@ const { isChangeOrderEstimateTitle } = require('./estimatePortalKind')
 const { fetchPublicCompanyProfile, companyRowToPublic } = require('./publicCompanyProfile')
 const { fetchInvoiceBranding } = require('./invoiceBranding')
 const { parseManualInvoiceSnapshot, normalizeInvoiceScheduleSnapshot } = require('./invoiceManualSnapshot')
+const {
+  mapScheduleRows,
+  amountDueNowFromRows,
+} = require('./invoicePaymentSchedule')
 const { getClientAttachmentsArray } = require('./invoiceClientAttachments')
 const { paymentOptionsForPortalResponse } = require('./invoicePaymentConfig')
-
-const COMPLETION_LABELS = {
-  on_phase_completion: 'Due when phase completes',
-  net_15: '15 days after completion',
-  net_30: '30 days after completion',
-  net_45: '45 days after completion',
-  net_60: '60 days after completion',
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function formatDueDisplay(row) {
-  if (row.mode === 'specific_date' && row.specificDate) {
-    const d = String(row.specificDate).slice(0, 10)
-    return `Due ${d}`
-  }
-  const key = row.completionTerms || row.completion_terms
-  return COMPLETION_LABELS[key] || 'On completion'
-}
-
-function computeInvoiceRowStatus(row, invoiceStatus, meta) {
-  const st = String(invoiceStatus || '').toLowerCase()
-  if (st === 'paid') return 'paid'
-
-  const readyIds = Array.isArray(meta?.milestone_ready_for_payment)
-    ? meta.milestone_ready_for_payment.map(String)
-    : []
-  const mid = String(row.milestone_id || '')
-  const ready = readyIds.includes(mid)
-
-  if (row.mode === 'specific_date' && row.specificDate) {
-    const due = String(row.specificDate).slice(0, 10)
-    if (todayIsoDate() >= due) return 'due_now'
-    return 'upcoming'
-  }
-  if (row.mode === 'on_completion') {
-    const ct = row.completionTerms || row.completion_terms
-    if (ct === 'on_phase_completion' && ready) return 'due_now'
-    if (typeof ct === 'string' && ct.startsWith('net_') && ready) return 'due_now'
-    return 'upcoming'
-  }
-  return 'upcoming'
-}
 
 function normStatus(s) {
   return (s || '').toLowerCase().trim()
@@ -301,20 +260,7 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
 
   const rawRows = Array.isArray(snap.rows) ? snap.rows : []
 
-  const schedule_rows = rawRows.map((row) => {
-    const due_display = formatDueDisplay(row)
-    const status = computeInvoiceRowStatus(row, inv.status, meta)
-    return {
-      milestone_id: String(row.milestone_id || ''),
-      label: String(row.label || 'Milestone'),
-      amount: Number(row.amount) || 0,
-      mode: row.mode === 'on_completion' ? 'on_completion' : 'specific_date',
-      specific_date: row.specificDate || row.specific_date || null,
-      completion_terms: row.completionTerms || row.completion_terms || null,
-      due_display,
-      status,
-    }
-  })
+  const schedule_rows = mapScheduleRows(rawRows, inv.status, meta, inv, snap)
 
   let line_items = []
   if (manualSnap?.line_items?.length) {
@@ -354,7 +300,7 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
     ]
   }
 
-  const amount_due_now = schedule_rows.filter((r) => r.status === 'due_now').reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+  const amount_due_now = amountDueNowFromRows(schedule_rows)
 
   const company = await fetchPublicCompanyProfile(supabase, inv.user_id)
   const branding = await fetchInvoiceBranding(supabase, inv.user_id)

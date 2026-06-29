@@ -12,6 +12,11 @@ const {
   findUserForFcAccount,
 } = require('../lib/syncStripeBankTransactions')
 const { buildBillingSummary } = require('../lib/billingSummary')
+const { normalizeInvoiceScheduleSnapshot } = require('../lib/invoiceManualSnapshot')
+const {
+  applyMilestonePaymentsToSnapshot,
+  allScheduleRowsPaid,
+} = require('../lib/invoicePaymentSchedule')
 const {
   deriveSubscriptionPricingFromStripeSubscription,
   mapStripeSubscriptionStatus,
@@ -1355,12 +1360,46 @@ async function handleWebhook(req, res) {
         const meta = session?.metadata || {}
         if (meta.buildos_client_invoice === '1' && meta.invoice_id && supabase) {
           const now = new Date().toISOString()
-          const { error: invPayErr } = await supabase
-            .from('invoices')
-            .update({ status: 'paid', paid_at: now, updated_at: now })
-            .eq('id', meta.invoice_id)
-          if (invPayErr) {
-            console.error('[stripe] checkout.session.completed invoice update:', invPayErr.message)
+          const milestoneIds = String(meta.milestone_ids || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+          if (milestoneIds.length > 0) {
+            const { data: inv, error: loadErr } = await supabase
+              .from('invoices')
+              .select('id, status, schedule_snapshot')
+              .eq('id', meta.invoice_id)
+              .maybeSingle()
+            if (loadErr) {
+              console.error('[stripe] checkout.session.completed invoice load:', loadErr.message)
+            } else if (inv) {
+              const snap = normalizeInvoiceScheduleSnapshot(inv.schedule_snapshot)
+              const nextSnap = applyMilestonePaymentsToSnapshot(snap, milestoneIds)
+              const fullyPaid = allScheduleRowsPaid(nextSnap)
+              const patch = {
+                schedule_snapshot: nextSnap,
+                updated_at: now,
+              }
+              if (fullyPaid) {
+                patch.status = 'paid'
+                patch.paid_at = now
+              } else if (String(inv.status || '').toLowerCase() === 'draft') {
+                patch.status = 'sent'
+                patch.sent_at = now
+              }
+              const { error: invPayErr } = await supabase.from('invoices').update(patch).eq('id', meta.invoice_id)
+              if (invPayErr) {
+                console.error('[stripe] checkout.session.completed invoice milestone update:', invPayErr.message)
+              }
+            }
+          } else {
+            const { error: invPayErr } = await supabase
+              .from('invoices')
+              .update({ status: 'paid', paid_at: now, updated_at: now })
+              .eq('id', meta.invoice_id)
+            if (invPayErr) {
+              console.error('[stripe] checkout.session.completed invoice update:', invPayErr.message)
+            }
           }
         }
         break
