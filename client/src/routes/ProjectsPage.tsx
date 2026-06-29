@@ -407,6 +407,8 @@ export function ProjectsPage() {
     message: string | null
     requestedAt: string | null
   } | null>(null)
+  /** Awaiting approval: latest open estimate id (sent/viewed/changes_requested) for hero-menu edit. */
+  const [pendingApprovalEstimateId, setPendingApprovalEstimateId] = useState<string | null>(null)
   /** When opening Build Estimate, prefer this estimate id if it still exists (e.g. client change request). */
   const buildEstimatePreferredEstimateIdRef = useRef<string | null>(null)
   /** List view: estimates for awaiting_approval column (project id → estimate). */
@@ -686,6 +688,28 @@ export function ProjectsPage() {
     [acceptedEstimate?.id, id]
   )
 
+  const openEditPendingEstimate = useCallback(
+    (estimateIdOverride?: string) => {
+      const eid =
+        estimateIdOverride ?? pendingApprovalEstimateId ?? clientChangesRequested?.estimateId ?? null
+      if (!eid || !id) return
+      buildEstimatePreferredEstimateIdRef.current = eid
+      setBuildEstimateBlankMode(false)
+      setBuildEstimateOpen(true)
+    },
+    [pendingApprovalEstimateId, clientChangesRequested?.estimateId, id]
+  )
+
+  const handleHeroMenuEdit = useCallback(() => {
+    setHeroMenuOpen(false)
+    const sk = (project?.status ?? '').toLowerCase().replace(/[\s-]+/g, '_')
+    if (sk === 'awaiting_approval' && pendingApprovalEstimateId) {
+      openEditPendingEstimate()
+      return
+    }
+    setSetupWizardOpen(true)
+  }, [project?.status, pendingApprovalEstimateId, openEditPendingEstimate])
+
   /** Deep link: /projects/:id?editEstimate=<uuid> opens the estimate builder (e.g. from document viewer). */
   useEffect(() => {
     const eid = searchParams.get('editEstimate')
@@ -703,12 +727,14 @@ export function ProjectsPage() {
     if (!id || !project?.id) {
       setAwaitingApprovalEstimatePreview(null)
       setClientChangesRequested(null)
+      setPendingApprovalEstimateId(null)
       return
     }
     const sk = (project.status ?? 'active').toLowerCase().replace(/[\s-]+/g, '_')
     if (sk !== 'awaiting_approval') {
       setAwaitingApprovalEstimatePreview(null)
       setClientChangesRequested(null)
+      setPendingApprovalEstimateId(null)
       return
     }
     let cancelled = false
@@ -721,6 +747,7 @@ export function ProjectsPage() {
         if (candidates.length === 0) {
           setAwaitingApprovalEstimatePreview(null)
           setClientChangesRequested(null)
+          setPendingApprovalEstimateId(null)
           return
         }
         const changesRow = candidates.find((e) => (e.status ?? '').toLowerCase() === 'changes_requested')
@@ -738,6 +765,7 @@ export function ProjectsPage() {
           const tb = (b.sent_at ? new Date(b.sent_at) : new Date(b.updated_at)).getTime()
           return tb - ta
         })[0]
+        setPendingApprovalEstimateId(est.id)
         try {
           const full = await estimatesApi.getEstimate(est.id)
           if (cancelled) return
@@ -771,6 +799,7 @@ export function ProjectsPage() {
         if (!cancelled) {
           setAwaitingApprovalEstimatePreview(null)
           setClientChangesRequested(null)
+          setPendingApprovalEstimateId(null)
         }
       }
     })()
@@ -2375,6 +2404,9 @@ export function ProjectsPage() {
       'awaiting_approval',
     ].includes(statusKey)
   const budgetShowsAwaitingApproval = statusKey === 'awaiting_approval'
+  const heroMenuEditOpensEstimate =
+    budgetShowsAwaitingApproval && Boolean(pendingApprovalEstimateId)
+  const heroMenuEditLabel = heroMenuEditOpensEstimate ? 'Edit estimate' : 'Edit'
   const hasEstimateBudgetPreview =
     budgetShowsAwaitingApproval &&
     awaitingApprovalEstimatePreview != null &&
@@ -2558,7 +2590,7 @@ export function ProjectsPage() {
             </button>
             {heroMenuOpen && (
               <div className="project-overview-hero-menu" role="menu">
-                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
+                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={handleHeroMenuEdit}>{heroMenuEditLabel}</button>
                 {showAcceptedEstimateEditCta && (
                   <button
                     type="button"
@@ -2859,7 +2891,7 @@ export function ProjectsPage() {
             </button>
             {heroMenuOpen && (
               <div className="project-overview-hero-menu" role="menu">
-                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={() => { setHeroMenuOpen(false); setSetupWizardOpen(true) }}>Edit</button>
+                <button type="button" className="project-overview-hero-menu-item" role="menuitem" onClick={handleHeroMenuEdit}>{heroMenuEditLabel}</button>
                 {showAcceptedEstimateEditCta && (
                   <button
                     type="button"
@@ -3186,11 +3218,7 @@ export function ProjectsPage() {
             <button
               type="button"
               className="text-sm font-semibold px-3 py-2 rounded-lg bg-amber-900 text-amber-50 hover:opacity-90 whitespace-nowrap"
-              onClick={() => {
-                buildEstimatePreferredEstimateIdRef.current = clientChangesRequested.estimateId
-                setBuildEstimateBlankMode(false)
-                setBuildEstimateOpen(true)
-              }}
+              onClick={() => openEditPendingEstimate()}
             >
               Revise estimate →
             </button>
