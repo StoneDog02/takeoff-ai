@@ -8,6 +8,7 @@ const { parseManualInvoiceSnapshot, normalizeInvoiceScheduleSnapshot } = require
 const {
   mapScheduleRows,
   amountDueNowFromRows,
+  resolvePaymentScheduleMeta,
 } = require('./invoicePaymentSchedule')
 const { getClientAttachmentsArray } = require('./invoiceClientAttachments')
 const { paymentOptionsForPortalResponse } = require('./invoicePaymentConfig')
@@ -253,10 +254,7 @@ async function buildInvoiceViewer(supabase, userId, invoiceId) {
     ? String(project.assigned_to_name).trim()
     : manualSnap?.client_name || null
 
-  const meta =
-    estimate?.estimate_groups_meta && typeof estimate.estimate_groups_meta === 'object' && !Array.isArray(estimate.estimate_groups_meta)
-      ? estimate.estimate_groups_meta
-      : {}
+  const meta = resolvePaymentScheduleMeta(snap, estimate?.estimate_groups_meta)
 
   const rawRows = Array.isArray(snap.rows) ? snap.rows : []
 

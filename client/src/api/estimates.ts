@@ -443,6 +443,21 @@ export const estimatesApi = {
     return handleResponse<Invoice>(res)
   },
 
+  async requestInvoiceBalance(invoiceId: string, opts?: { send_email?: boolean }): Promise<Invoice> {
+    if (isPublicDemo()) {
+      const inv = getMockInvoice(invoiceId)
+      if (!inv) return Promise.reject(new Error('Not found'))
+      return Promise.resolve(inv)
+    }
+    const headers = await getAuthHeaders()
+    const res = await fetch(`${API_BASE}/invoices/${invoiceId}/request-balance`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ send_email: opts?.send_email !== false }),
+    })
+    return handleResponse<Invoice>(res)
+  },
+
   async uploadInvoiceAttachment(invoiceId: string, file: File): Promise<Invoice> {
     if (isPublicDemo()) {
       const inv = getMockInvoice(invoiceId)

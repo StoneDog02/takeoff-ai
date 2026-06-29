@@ -8584,6 +8584,88 @@ html[data-theme='dark'] .new-invoice-review-summary-anchor {
   margin-top: -4px;
   margin-bottom: 10px;
 }
+.estimate-doc__payment-schedule {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+}
+.estimate-doc__payment-schedule-lead {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+.estimate-doc__payment-schedule-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 10px 0 0;
+}
+.estimate-doc__table--payment-schedule th:last-child,
+.estimate-doc__table--payment-schedule td:last-child {
+  text-align: left;
+}
+
+.invoice-deposit-schedule--portal {
+  margin-bottom: 20px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+}
+.invoice-deposit-schedule__lead {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary, #6b6764);
+  margin: 0 0 14px;
+}
+.invoice-deposit-schedule__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.invoice-deposit-schedule__card {
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.invoice-deposit-schedule__card--deposit {
+  border-color: rgba(31, 74, 138, 0.25);
+  background: rgba(31, 74, 138, 0.04);
+}
+.invoice-deposit-schedule__card-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b6764);
+}
+.invoice-deposit-schedule__card-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.invoice-deposit-schedule__card-due {
+  font-size: 12px;
+  color: var(--text-secondary, #6b6764);
+}
+.invoice-deposit-schedule__status {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.invoice-deposit-schedule__status--due_now { color: #b45309; }
+.invoice-deposit-schedule__status--paid { color: #15803d; }
+.invoice-deposit-schedule__status--upcoming { color: var(--text-secondary, #6b6764); }
+.invoice-deposit-schedule__total-note {
+  font-size: 12px;
+  color: var(--text-secondary, #6b6764);
+  margin: 12px 0 0;
+}
+
 .new-invoice-deposit-toggle {
   display: flex;
   align-items: center;

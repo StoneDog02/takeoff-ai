@@ -1,8 +1,10 @@
-import { useState, useCallback, type CSSProperties } from 'react'
+import { useState, useCallback, useMemo, type CSSProperties } from 'react'
 import { api, type InvoicePortalResponse, type InvoicePortalScheduleRow, type InvoicePortalPaymentOptions } from '@/api/client'
 import { API_BASE } from '@/api/config'
 import { openOwnerInvoiceAttachment } from '@/lib/openOwnerInvoiceAttachment'
 import { formatPortalCurrency, formatPortalDate } from '@/components/estimates/EstimateClientFacingDocument'
+import { depositDisplayFromPortalRows } from '@/lib/invoiceDepositDisplay'
+import { InvoiceDepositScheduleSection } from '@/components/invoices/InvoiceDepositScheduleSection'
 
 export type InvoiceTemplateStyle = 'standard' | 'minimal' | 'detailed'
 
@@ -132,6 +134,11 @@ export function InvoiceClientFacing({
   const st = String(data.status).toLowerCase()
   const invoicePaid = st === 'paid'
   const showProgress = (data.schedule_rows?.length ?? 0) > 0
+  const depositDisplay = useMemo(
+    () => depositDisplayFromPortalRows(data.schedule_rows, data.total_amount),
+    [data.schedule_rows, data.total_amount]
+  )
+  const isManualDeposit = depositDisplay != null
   const company = data.company
   const openStatus = st === 'sent' || st === 'viewed' ? 'Open' : st
 
@@ -243,9 +250,19 @@ export function InvoiceClientFacing({
           </div>
           {showProgress ? (
             <>
+              {depositDisplay && !invoicePaid ? (
+                <div className="invoice-portal-summary__row invoice-portal-summary__row--emph">
+                  <span>Deposit required ({depositDisplay.depositPct}%)</span>
+                  <span className="invoice-portal-summary__value">
+                    {formatPortalCurrency(depositDisplay.depositAmount)}
+                  </span>
+                </div>
+              ) : null}
               <div className="invoice-portal-summary__row">
                 <span>Payment schedule</span>
-                <span className="invoice-portal-summary__value">{data.schedule_rows.length} milestones</span>
+                <span className="invoice-portal-summary__value">
+                  {isManualDeposit ? 'Deposit + balance' : `${data.schedule_rows.length} milestones`}
+                </span>
               </div>
               {!invoicePaid && (data.amount_due_now ?? 0) > 0 && (
                 <div className="invoice-portal-summary__row invoice-portal-summary__row--emph">
@@ -277,6 +294,14 @@ export function InvoiceClientFacing({
             </div>
           ) : null}
         </div>
+
+        {depositDisplay ? (
+          <InvoiceDepositScheduleSection
+            display={depositDisplay}
+            variant="portal"
+            scheduleRows={data.schedule_rows}
+          />
+        ) : null}
 
         {showPaymentSection ? (
           <section className="invoice-portal-pay" aria-labelledby="invoice-pay-heading">
@@ -341,11 +366,13 @@ export function InvoiceClientFacing({
         {showProgress && (
           <section className="invoice-portal-schedule" aria-labelledby="invoice-schedule-heading">
             <h2 id="invoice-schedule-heading" className="invoice-portal-schedule__title">
-              Payment schedule
+              {isManualDeposit ? 'Payment status' : 'Payment schedule'}
             </h2>
             {interactiveSchedule ? (
               <p className="invoice-portal-schedule__hint">
-                Pay only the milestones marked <strong>Due Now</strong>. Upcoming payments are shown for your reference.
+                {isManualDeposit
+                  ? 'Pay the portion marked Due Now. Your contractor will request the balance when it is due.'
+                  : <>Pay only the milestones marked <strong>Due Now</strong>. Upcoming payments are shown for your reference.</>}
               </p>
             ) : null}
             <div
@@ -356,7 +383,7 @@ export function InvoiceClientFacing({
                 className={`invoice-portal-schedule-table__head ${interactiveSchedule ? '' : 'document-viewer-invoice-schedule__head'}`}
                 role="row"
               >
-                <span role="columnheader">Phase</span>
+                <span role="columnheader">{isManualDeposit ? 'Payment' : 'Phase'}</span>
                 <span role="columnheader">Amount</span>
                 <span role="columnheader">Due</span>
                 <span role="columnheader">Status</span>

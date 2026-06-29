@@ -19,6 +19,10 @@ const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComp
 const { normalizeInvoiceScheduleSnapshot } = require('../lib/invoiceManualSnapshot')
 const {
   applyMilestonePaymentsToSnapshot,
+  applyMilestoneReadyToSnapshot,
+  allScheduleRowsPaid,
+  getPaidMilestoneIds,
+  getMilestoneReadyIds,
   getScheduleRowIds,
 } = require('../lib/invoicePaymentSchedule')
 
@@ -464,6 +468,140 @@ router.post('/:id/send', async (req, res) => {
     res.json({ ...data, recipient_emails: data.recipient_emails || [] })
   } catch (err) {
     console.error('Invoice send error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/** POST /api/invoices/:id/request-balance — release retainer balance for client payment */
+router.post('/:id/request-balance', async (req, res) => {
+  const supabase = getSupabase(req)
+  if (!supabase || !req.user) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const { id } = req.params
+    const sendEmail = req.body?.send_email !== false
+    const { data: inv, error: loadErr } = await supabase
+      .from('invoices')
+      .select('id, user_id, job_id, estimate_id, status, recipient_emails, client_token, schedule_snapshot')
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .maybeSingle()
+    if (loadErr) throw loadErr
+    if (!inv) return res.status(404).json({ error: 'Not found' })
+
+    const st = String(inv.status || '').toLowerCase()
+    if (st === 'draft') {
+      return res.status(400).json({ error: 'Send the invoice before requesting the remaining balance.' })
+    }
+    if (st === 'paid') {
+      return res.status(400).json({ error: 'This invoice is already fully paid.' })
+    }
+
+    const snap = normalizeInvoiceScheduleSnapshot(inv.schedule_snapshot)
+    const rows = Array.isArray(snap.rows) ? snap.rows : []
+    const balanceRow = rows.find((r) => String(r.milestone_id) === 'manual-balance')
+    if (!balanceRow) {
+      return res.status(400).json({ error: 'This invoice has no balance payment on file.' })
+    }
+    const balanceTerms = balanceRow.completionTerms || balanceRow.completion_terms
+    if (balanceTerms !== 'on_request') {
+      return res.status(400).json({ error: 'Balance is not on a retainer schedule for this invoice.' })
+    }
+
+    const paidIds = getPaidMilestoneIds(snap)
+    if (!paidIds.includes('manual-deposit')) {
+      return res.status(400).json({ error: 'Collect the deposit before requesting the remaining balance.' })
+    }
+    if (paidIds.includes('manual-balance')) {
+      return res.status(400).json({ error: 'Balance is already paid.' })
+    }
+    const readyIds = getMilestoneReadyIds(snap)
+    if (readyIds.includes('manual-balance')) {
+      return res.status(400).json({ error: 'Remaining balance was already requested.' })
+    }
+
+    const nextSnap = applyMilestoneReadyToSnapshot(snap, 'manual-balance')
+    const clientToken =
+      inv.client_token && String(inv.client_token).trim()
+        ? String(inv.client_token).trim()
+        : crypto.randomUUID()
+
+    const { data: updated, error: updErr } = await supabase
+      .from('invoices')
+      .update({
+        schedule_snapshot: nextSnap,
+        client_token: clientToken,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single()
+    if (updErr) throw updErr
+    if (!updated) return res.status(404).json({ error: 'Not found' })
+
+    const baseUrlRaw = (
+      process.env.PUBLIC_APP_URL ||
+      process.env.APP_URL ||
+      `${req.protocol}://${req.get('host') || 'localhost'}`
+    )
+      .trim()
+      .replace(/\/$/, '')
+    const portalBase = baseUrlRaw.startsWith('http') ? baseUrlRaw : `https://${baseUrlRaw}`
+    const portalUrl = `${portalBase}/invoice/${encodeURIComponent(clientToken)}`
+
+    const emailsAfter = Array.isArray(updated.recipient_emails) ? updated.recipient_emails : []
+    const clientEmail = emailsAfter[0] ? String(emailsAfter[0]).trim() : ''
+    const manualSnap = parseManualInvoiceSnapshot(updated.schedule_snapshot)
+
+    let projectDisplayName = null
+    let clientDisplayName = 'there'
+    if (updated.job_id) {
+      const { data: proj } = await supabase
+        .from('projects')
+        .select('name, assigned_to_name')
+        .eq('id', updated.job_id)
+        .eq('user_id', req.user.id)
+        .maybeSingle()
+      if (proj?.name && String(proj.name).trim()) projectDisplayName = String(proj.name).trim()
+      if (proj?.assigned_to_name && String(proj.assigned_to_name).trim()) {
+        clientDisplayName = String(proj.assigned_to_name).trim()
+      }
+    }
+    if (!projectDisplayName && updated.estimate_id) {
+      const { data: est } = await supabase
+        .from('estimates')
+        .select('title')
+        .eq('id', updated.estimate_id)
+        .eq('user_id', req.user.id)
+        .maybeSingle()
+      if (est?.title && String(est.title).trim()) projectDisplayName = String(est.title).trim()
+    }
+    if (!projectDisplayName) {
+      const { data: company } = await supabase
+        .from('company_settings')
+        .select('name')
+        .eq('user_id', req.user.id)
+        .maybeSingle()
+      projectDisplayName = company?.name && String(company.name).trim() ? String(company.name).trim() : 'Invoice'
+    }
+    if (manualSnap?.client_name) clientDisplayName = manualSnap.client_name
+
+    if (sendEmail && clientEmail) {
+      await sendInvoicePortalEmail({
+        to: clientEmail,
+        clientName: clientDisplayName,
+        projectName: projectDisplayName,
+        portalUrl,
+        isResend: true,
+        balancePaymentRequest: true,
+      })
+    } else if (sendEmail) {
+      console.log('[invoices/request-balance] No recipient email; portal link:', portalUrl)
+    }
+
+    res.json({ ...updated, recipient_emails: updated.recipient_emails || [] })
+  } catch (err) {
+    console.error('Invoice request-balance error:', err)
     res.status(500).json({ error: err.message })
   }
 })

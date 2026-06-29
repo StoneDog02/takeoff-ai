@@ -1,5 +1,5 @@
-/** Terms anchored to invoice sent date (manual deposit / balance schedules). */
-export type ManualInvoiceDueTerm =
+/** Terms anchored to invoice sent date (manual deposit schedules). */
+export type ManualInvoiceDepositDueTerm =
   | 'on_invoice_sent'
   | 'net_15_from_sent'
   | 'net_30_from_sent'
@@ -7,13 +7,21 @@ export type ManualInvoiceDueTerm =
   | 'net_60_from_sent'
   | 'net_90_from_sent'
 
-export const MANUAL_INVOICE_DUE_TERM_OPTIONS: { value: ManualInvoiceDueTerm; label: string }[] = [
+/** Balance can use date-based terms or stay on retainer until the contractor requests payment. */
+export type ManualInvoiceBalanceDueTerm = ManualInvoiceDepositDueTerm | 'on_request'
+
+export const MANUAL_INVOICE_DEPOSIT_DUE_TERM_OPTIONS: { value: ManualInvoiceDepositDueTerm; label: string }[] = [
   { value: 'on_invoice_sent', label: 'Upon receipt (when invoice is sent)' },
   { value: 'net_15_from_sent', label: '15 days from invoice date' },
   { value: 'net_30_from_sent', label: '30 days from invoice date' },
   { value: 'net_45_from_sent', label: '45 days from invoice date' },
   { value: 'net_60_from_sent', label: '60 days from invoice date' },
   { value: 'net_90_from_sent', label: '90 days from invoice date' },
+]
+
+export const MANUAL_INVOICE_BALANCE_DUE_TERM_OPTIONS: { value: ManualInvoiceBalanceDueTerm; label: string }[] = [
+  { value: 'on_request', label: 'When I request payment (retainer — recommended)' },
+  ...MANUAL_INVOICE_DEPOSIT_DUE_TERM_OPTIONS,
 ]
 
 function round2(n: number): number {
@@ -25,14 +33,14 @@ export type ManualDepositScheduleRow = {
   label: string
   amount: number
   mode: 'on_completion'
-  completionTerms: ManualInvoiceDueTerm
+  completionTerms: ManualInvoiceDepositDueTerm | ManualInvoiceBalanceDueTerm
 }
 
 export function buildManualDepositScheduleRows(
   total: number,
   depositPct: number,
-  depositTerms: ManualInvoiceDueTerm,
-  balanceTerms: ManualInvoiceDueTerm
+  depositTerms: ManualInvoiceDepositDueTerm,
+  balanceTerms: ManualInvoiceBalanceDueTerm
 ): ManualDepositScheduleRow[] {
   const pct = Math.min(100, Math.max(0, depositPct))
   if (pct <= 0 || pct >= 100) return []
@@ -58,6 +66,10 @@ export function buildManualDepositScheduleRows(
   ]
 }
 
-export function manualDepositTermLabel(term: ManualInvoiceDueTerm): string {
-  return MANUAL_INVOICE_DUE_TERM_OPTIONS.find((o) => o.value === term)?.label ?? term
+export function manualDepositTermLabel(term: ManualInvoiceDepositDueTerm): string {
+  return MANUAL_INVOICE_DEPOSIT_DUE_TERM_OPTIONS.find((o) => o.value === term)?.label ?? term
+}
+
+export function manualBalanceTermLabel(term: ManualInvoiceBalanceDueTerm): string {
+  return MANUAL_INVOICE_BALANCE_DUE_TERM_OPTIONS.find((o) => o.value === term)?.label ?? term
 }

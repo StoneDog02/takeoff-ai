@@ -14,6 +14,7 @@ const COMPLETION_LABELS = {
   net_45_from_sent: '45 days from invoice date',
   net_60_from_sent: '60 days from invoice date',
   net_90_from_sent: '90 days from invoice date',
+  on_request: 'When contractor requests payment',
 }
 
 const FROM_SENT_TERM_KEYS = [
@@ -55,6 +56,27 @@ function getPaidMilestoneIds(snap) {
   return Array.isArray(snap.paid_milestone_ids) ? snap.paid_milestone_ids.map(String) : []
 }
 
+function getMilestoneReadyIds(snap) {
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return []
+  return Array.isArray(snap.milestone_ready_for_payment)
+    ? snap.milestone_ready_for_payment.map(String)
+    : []
+}
+
+/** Merge ready-for-payment flags from invoice snapshot and linked estimate meta. */
+function resolvePaymentScheduleMeta(snap, estimateMeta) {
+  const est =
+    estimateMeta && typeof estimateMeta === 'object' && !Array.isArray(estimateMeta) ? estimateMeta : {}
+  const readyFromSnap = getMilestoneReadyIds(snap)
+  const readyFromEst = Array.isArray(est.milestone_ready_for_payment)
+    ? est.milestone_ready_for_payment.map(String)
+    : []
+  return {
+    ...est,
+    milestone_ready_for_payment: [...new Set([...readyFromEst, ...readyFromSnap])],
+  }
+}
+
 function getScheduleRowIds(snap) {
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return []
   const rows = Array.isArray(snap.rows) ? snap.rows : []
@@ -66,6 +88,9 @@ function formatDueDisplay(row, inv) {
     return `Due ${String(row.specificDate || row.specific_date).slice(0, 10)}`
   }
   const key = row.completionTerms || row.completion_terms
+  if (key === 'on_request') {
+    return COMPLETION_LABELS.on_request
+  }
   if (key === 'on_invoice_sent') {
     const anchor = invoiceAnchorDate(inv)
     if (anchor) return `Due ${anchor} (upon receipt)`
@@ -113,6 +138,17 @@ function computeRowStatus(row, invoiceStatus, meta, inv, snap) {
   }
 
   const ct = row.completionTerms || row.completion_terms
+
+  if (ct === 'on_request') {
+    if (!['sent', 'viewed', 'overdue'].includes(st)) return 'upcoming'
+    if (mid === 'manual-balance') {
+      if (!getPaidMilestoneIds(snap).includes('manual-deposit')) return 'upcoming'
+      if (ready) return 'due_now'
+      return 'upcoming'
+    }
+    if (ready) return 'due_now'
+    return 'upcoming'
+  }
 
   if (ct === 'on_invoice_sent') {
     if (['sent', 'viewed', 'overdue'].includes(st)) return 'due_now'
@@ -199,6 +235,14 @@ function buildManualDepositScheduleRows(total, depositPct, depositTerms, balance
   ]
 }
 
+function applyMilestoneReadyToSnapshot(snap, milestoneIds) {
+  const base = snap && typeof snap === 'object' && !Array.isArray(snap) ? { ...snap } : {}
+  const prev = getMilestoneReadyIds(base)
+  const add = (Array.isArray(milestoneIds) ? milestoneIds : [milestoneIds]).map(String).filter(Boolean)
+  base.milestone_ready_for_payment = [...new Set([...prev, ...add])]
+  return base
+}
+
 /**
  * Mark milestone(s) paid in snapshot; returns updated snapshot object.
  */
@@ -229,7 +273,10 @@ module.exports = {
   amountDueNowFromRows,
   buildManualDepositScheduleRows,
   applyMilestonePaymentsToSnapshot,
+  applyMilestoneReadyToSnapshot,
   allScheduleRowsPaid,
   getPaidMilestoneIds,
+  getMilestoneReadyIds,
   getScheduleRowIds,
+  resolvePaymentScheduleMeta,
 }

@@ -4,16 +4,22 @@
 const { escapeHtml } = require('../lib/emailUtils')
 
 /**
- * @param {{ clientName?: string, projectName: string, portalUrl: string, isResend?: boolean }} opts
+ * @param {{ clientName?: string, projectName: string, portalUrl: string, isResend?: boolean, balancePaymentRequest?: boolean }} opts
  * @returns {{ subject: string, html: string, text: string }}
  */
-function renderInvoicePortalEmail({ clientName, projectName, portalUrl, isResend }) {
+function renderInvoicePortalEmail({ clientName, projectName, portalUrl, isResend, balancePaymentRequest }) {
   const project = projectName || 'your project'
   const who = clientName && String(clientName).trim() ? String(clientName).trim() : 'there'
-  const subject = isResend ? `Reminder: Invoice for ${project}` : `Invoice for ${project}`
-  const intro = isResend
-    ? `This is a reminder that an invoice is ready for <strong>${escapeHtml(project)}</strong>. View details and your payment schedule using the link below.`
-    : `You have a new invoice for <strong>${escapeHtml(project)}</strong>. Open the link below to review amounts and due dates.`
+  const subject = balancePaymentRequest
+    ? `Remaining balance due: ${project}`
+    : isResend
+      ? `Reminder: Invoice for ${project}`
+      : `Invoice for ${project}`
+  const intro = balancePaymentRequest
+    ? `The remaining balance on your invoice for <strong>${escapeHtml(project)}</strong> is now due. Open the link below to review the amount and pay.`
+    : isResend
+      ? `This is a reminder that an invoice is ready for <strong>${escapeHtml(project)}</strong>. View details and your payment schedule using the link below.`
+      : `You have a new invoice for <strong>${escapeHtml(project)}</strong>. Open the link below to review amounts and due dates.`
 
   const html = `<!DOCTYPE html>
 <html>
@@ -35,7 +41,7 @@ function renderInvoicePortalEmail({ clientName, projectName, portalUrl, isResend
 
   const text = `Hi ${who},
 
-${isResend ? 'Reminder: ' : ''}You have an invoice for ${project}.
+${balancePaymentRequest ? 'The remaining balance on your invoice is now due.\n\n' : isResend ? 'Reminder: ' : ''}You have an invoice for ${project}.
 
 Open this link: ${portalUrl}
 

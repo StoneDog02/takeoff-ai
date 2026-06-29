@@ -11,6 +11,7 @@ const { parseManualInvoiceSnapshot, normalizeInvoiceScheduleSnapshot } = require
 const {
   mapScheduleRows,
   amountDueNowFromRows,
+  resolvePaymentScheduleMeta,
 } = require('../lib/invoicePaymentSchedule')
 const { notifyInvoiceStatusChange } = require('../lib/eventNotificationEmails')
 const { getClientAttachmentsArray, resolveClientAttachmentUrl } = require('../lib/invoiceClientAttachments')
@@ -120,19 +121,15 @@ router.post('/:token/create-checkout-session', rateLimitCheckoutSession, async (
 
     const snap = normalizeInvoiceScheduleSnapshot(inv.schedule_snapshot)
     const rawRows = Array.isArray(snap.rows) ? snap.rows : []
-    const meta =
+    const estimateMeta =
       inv.estimate_id &&
       (await supabase
         .from('estimates')
         .select('estimate_groups_meta')
         .eq('id', inv.estimate_id)
         .maybeSingle()
-        .then(({ data }) =>
-          data?.estimate_groups_meta && typeof data.estimate_groups_meta === 'object' && !Array.isArray(data.estimate_groups_meta)
-            ? data.estimate_groups_meta
-            : {}
-        )) ||
-      {}
+        .then(({ data }) => data?.estimate_groups_meta ?? null))
+    const meta = resolvePaymentScheduleMeta(snap, estimateMeta)
 
     const schedule_rows = mapScheduleRows(rawRows, inv.status, meta, inv, snap)
     const amount_due_now = amountDueNowFromRows(schedule_rows)
@@ -288,9 +285,7 @@ router.get('/:token', async (req, res, next) => {
       if (company?.name) gcName = company.name
     }
 
-    const meta = estimate?.estimate_groups_meta && typeof estimate.estimate_groups_meta === 'object' && !Array.isArray(estimate.estimate_groups_meta)
-      ? estimate.estimate_groups_meta
-      : {}
+    const meta = resolvePaymentScheduleMeta(snap, estimate?.estimate_groups_meta)
 
     const rawRows = Array.isArray(snap.rows) ? snap.rows : []
 

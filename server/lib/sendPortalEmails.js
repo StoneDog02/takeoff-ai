@@ -76,13 +76,14 @@ async function sendBidPortalEmail({ to, projectName, portalUrl, isResend }) {
  * Send invoice portal link to client.
  * @param {{ to: string, clientName?: string, projectName?: string, portalUrl: string, isResend?: boolean }} opts
  */
-async function sendInvoicePortalEmail({ to, clientName, projectName, portalUrl, isResend }) {
+async function sendInvoicePortalEmail({ to, clientName, projectName, portalUrl, isResend, balancePaymentRequest }) {
   const from = getPortalFrom()
   const { subject, html, text } = renderInvoicePortalEmail({
     clientName: clientName || 'there',
     projectName: projectName || 'your project',
     portalUrl,
     isResend: !!isResend,
+    balancePaymentRequest: !!balancePaymentRequest,
   })
   const result = await sendEmail({ from, to, subject, html, text })
   if (result.sent) {

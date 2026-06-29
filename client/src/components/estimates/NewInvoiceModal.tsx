@@ -14,10 +14,15 @@ import {
 } from '@/lib/progressMilestones'
 import {
   buildManualDepositScheduleRows,
-  MANUAL_INVOICE_DUE_TERM_OPTIONS,
+  MANUAL_INVOICE_DEPOSIT_DUE_TERM_OPTIONS,
+  MANUAL_INVOICE_BALANCE_DUE_TERM_OPTIONS,
   manualDepositTermLabel,
-  type ManualInvoiceDueTerm,
+  manualBalanceTermLabel,
+  type ManualInvoiceDepositDueTerm,
+  type ManualInvoiceBalanceDueTerm,
 } from '@/lib/manualInvoiceDeposit'
+import { buildDepositDisplayPreview } from '@/lib/invoiceDepositDisplay'
+import { InvoiceDepositScheduleSection } from '@/components/invoices/InvoiceDepositScheduleSection'
 
 type PathType = 'progress' | 'manual'
 type StepType = 'choose' | 'progress' | 'manual-info' | 'manual-lines' | 'review'
@@ -205,8 +210,8 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   const [error, setError] = useState<string | null>(null)
   const [manualDepositEnabled, setManualDepositEnabled] = useState(false)
   const [manualDepositPct, setManualDepositPct] = useState('50')
-  const [manualDepositDue, setManualDepositDue] = useState<ManualInvoiceDueTerm>('net_30_from_sent')
-  const [manualBalanceDue, setManualBalanceDue] = useState<ManualInvoiceDueTerm>('net_60_from_sent')
+  const [manualDepositDue, setManualDepositDue] = useState<ManualInvoiceDepositDueTerm>('net_30_from_sent')
+  const [manualBalanceDue, setManualBalanceDue] = useState<ManualInvoiceBalanceDueTerm>('on_request')
 
   type AttachmentCandidates = {
     awarded_quotes: { sub_bid_id: string; label: string }[]
@@ -547,6 +552,26 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     )
   }, [pathType, manualDepositEnabled, lineSubtotal, manualDepositPctParsed, manualDepositDue, manualBalanceDue])
 
+  const manualDepositDisplayPreview = useMemo(() => {
+    if (!manualDepositEnabled || manualDepositSchedulePreview.length !== 2) return null
+    if (!Number.isFinite(manualDepositPctParsed)) return null
+    return buildDepositDisplayPreview(
+      lineSubtotal,
+      manualDepositPctParsed,
+      manualDepositDue,
+      manualBalanceDue,
+      manualDepositSchedulePreview[0].amount,
+      manualDepositSchedulePreview[1].amount
+    )
+  }, [
+    manualDepositEnabled,
+    manualDepositSchedulePreview,
+    manualDepositPctParsed,
+    lineSubtotal,
+    manualDepositDue,
+    manualBalanceDue,
+  ])
+
   const manualDepositScheduleValid = useMemo(() => {
     if (pathType !== 'manual' || !manualDepositEnabled) return true
     if (!Number.isFinite(manualDepositPctParsed) || manualDepositPctParsed <= 0 || manualDepositPctParsed >= 100) {
@@ -596,7 +621,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
     setManualDepositEnabled(false)
     setManualDepositPct('50')
     setManualDepositDue('net_30_from_sent')
-    setManualBalanceDue('net_60_from_sent')
+    setManualBalanceDue('on_request')
   }
 
   const setManualField = (id: string, patch: Partial<InvoiceLine>) => {
@@ -1580,9 +1605,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                           id="manual-deposit-due"
                           className="estimate-wizard-input"
                           value={manualDepositDue}
-                          onChange={(e) => setManualDepositDue(e.target.value as ManualInvoiceDueTerm)}
+                          onChange={(e) => setManualDepositDue(e.target.value as ManualInvoiceDepositDueTerm)}
                         >
-                          {MANUAL_INVOICE_DUE_TERM_OPTIONS.map((opt) => (
+                          {MANUAL_INVOICE_DEPOSIT_DUE_TERM_OPTIONS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
@@ -1597,37 +1622,23 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                           id="manual-balance-due"
                           className="estimate-wizard-input"
                           value={manualBalanceDue}
-                          onChange={(e) => setManualBalanceDue(e.target.value as ManualInvoiceDueTerm)}
+                          onChange={(e) => setManualBalanceDue(e.target.value as ManualInvoiceBalanceDueTerm)}
                         >
-                          {MANUAL_INVOICE_DUE_TERM_OPTIONS.map((opt) => (
+                          {MANUAL_INVOICE_BALANCE_DUE_TERM_OPTIONS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
                           ))}
                         </select>
+                        {manualBalanceDue === 'on_request' ? (
+                          <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>
+                            The balance stays on retainer until you use <strong>Request remaining balance</strong> on this invoice after the deposit is paid.
+                          </p>
+                        ) : null}
                       </div>
-                      {manualDepositSchedulePreview.length === 2 ? (
-                        <div className="new-invoice-review-card estimate-wizard-field--full">
-                          <div className="new-invoice-review-row">
-                            <span>{manualDepositSchedulePreview[0].label}</span>
-                            <span>{formatCurrency(manualDepositSchedulePreview[0].amount)}</span>
-                          </div>
-                          <div className="new-invoice-review-row new-invoice-review-row--muted">
-                            <span>{manualDepositTermLabel(manualDepositDue)}</span>
-                            <span />
-                          </div>
-                          <div className="new-invoice-review-row">
-                            <span>{manualDepositSchedulePreview[1].label}</span>
-                            <span>{formatCurrency(manualDepositSchedulePreview[1].amount)}</span>
-                          </div>
-                          <div className="new-invoice-review-row new-invoice-review-row--muted">
-                            <span>{manualDepositTermLabel(manualBalanceDue)}</span>
-                            <span />
-                          </div>
-                          <div className="new-invoice-review-row strong">
-                            <span>Invoice total</span>
-                            <span>{formatCurrency(lineSubtotal)}</span>
-                          </div>
+                      {manualDepositDisplayPreview ? (
+                        <div className="estimate-wizard-field estimate-wizard-field--full">
+                          <InvoiceDepositScheduleSection display={manualDepositDisplayPreview} variant="elevated" />
                         </div>
                       ) : (
                         <p className="estimate-wizard-helper estimate-wizard-field--full" style={{ color: 'var(--red-light)' }}>

@@ -5,6 +5,9 @@ import { settingsApi } from '@/api/settings'
 import type { Invoice, Job, CompanyProfile, EstimateLineItem } from '@/types/global'
 import type { EstimateWithLines } from '@/api/estimates'
 import { lineItemsFromInvoice, attachmentSummariesFromInvoice } from '@/lib/invoiceLineItems'
+import { getInvoiceDepositDisplay } from '@/lib/invoiceDepositDisplay'
+import { retainerBalanceUiState } from '@/lib/invoiceManualBalance'
+import { formatCurrency } from '@/lib/pipeline'
 import { ConvertToInvoiceFlow } from './ConvertToInvoiceFlow'
 import { SendEstimateInvoice } from './SendEstimateInvoice'
 import { EstimateInvoiceFormView } from './EstimateInvoiceFormView'
@@ -37,6 +40,7 @@ export function DocumentDetailModal({
   const [showSend, setShowSend] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [markingPaid, setMarkingPaid] = useState(false)
+  const [requestingBalance, setRequestingBalance] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -117,6 +121,16 @@ export function DocumentDetailModal({
     (invoice && jobs.find((j) => j.id === invoice.job_id)) ||
     null
   const projectClientEmail = linkedJob?.client_email ?? null
+
+  const invoiceDepositSchedule = useMemo(
+    () => (type === 'invoice' && invoice ? getInvoiceDepositDisplay(invoice) : null),
+    [type, invoice]
+  )
+
+  const retainerBalance = useMemo(
+    () => (type === 'invoice' && invoice ? retainerBalanceUiState(invoice) : null),
+    [type, invoice]
+  )
 
   const doc = type === 'estimate' ? estimate : invoice
   const total =
@@ -265,6 +279,33 @@ export function DocumentDetailModal({
                       Convert to invoice
                     </button>
                   )}
+                  {type === 'invoice' && retainerBalance?.canRequestBalance && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="document-detail-modal__menu-item"
+                      disabled={requestingBalance}
+                      onClick={async () => {
+                        setMenuOpen(false)
+                        setRequestingBalance(true)
+                        try {
+                          if (shouldUseMockEstimates()) {
+                            onSent?.()
+                            return
+                          }
+                          await estimatesApi.requestInvoiceBalance(id)
+                          refreshInvoice()
+                          onSent?.()
+                        } catch (err) {
+                          window.alert(err instanceof Error ? err.message : 'Could not request balance.')
+                        } finally {
+                          setRequestingBalance(false)
+                        }
+                      }}
+                    >
+                      {requestingBalance ? 'Sending…' : 'Request remaining balance'}
+                    </button>
+                  )}
                   {type === 'invoice' && invoice && invoice.status !== 'paid' && (
                     <button
                       type="button"
@@ -349,6 +390,48 @@ export function DocumentDetailModal({
           </p>
         ) : (
           <>
+            {type === 'invoice' && retainerBalance && (
+              <div className="invoice-retainer-banner" style={{ marginBottom: 16 }}>
+                {retainerBalance.canRequestBalance ? (
+                  <div className="estimate-detail-suggestion">
+                    <span className="estimate-detail-suggestion__text">
+                      Deposit collected. Remaining balance ({formatCurrency(retainerBalance.balanceAmount)}) is on retainer — request payment when your client is ready to pay.
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-primary estimate-detail-suggestion__btn"
+                      disabled={requestingBalance}
+                      onClick={async () => {
+                        setRequestingBalance(true)
+                        try {
+                          if (shouldUseMockEstimates()) {
+                            onSent?.()
+                            return
+                          }
+                          await estimatesApi.requestInvoiceBalance(id)
+                          refreshInvoice()
+                          onSent?.()
+                        } catch (err) {
+                          window.alert(err instanceof Error ? err.message : 'Could not request balance.')
+                        } finally {
+                          setRequestingBalance(false)
+                        }
+                      }}
+                    >
+                      {requestingBalance ? 'Sending…' : 'Request remaining balance'}
+                    </button>
+                  </div>
+                ) : retainerBalance.balanceReleased && !retainerBalance.balancePaid ? (
+                  <p className="dashboard-app timeline-val" style={{ marginBottom: 0 }}>
+                    Remaining balance ({formatCurrency(retainerBalance.balanceAmount)}) requested — waiting for client payment.
+                  </p>
+                ) : !retainerBalance.depositPaid ? (
+                  <p className="dashboard-app text-secondary" style={{ marginBottom: 0 }}>
+                    Remaining balance ({formatCurrency(retainerBalance.balanceAmount)}) will stay on retainer until you request it after the deposit is paid.
+                  </p>
+                ) : null}
+              </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <EstimateInvoiceFormView
                 type={type}
@@ -364,7 +447,7 @@ export function DocumentDetailModal({
                 variant="elevated"
                 company={company}
                 attachments={invoiceAttachmentSummaries}
-                invoiceIdForAttachments={type === 'invoice' ? id : null}
+                depositSchedule={type === 'invoice' ? invoiceDepositSchedule : null}
               />
             </div>
             {type === 'estimate' && estimate && (
@@ -435,6 +518,7 @@ export function DocumentDetailModal({
           lineItems={previewLineItems}
           attachments={invoiceAttachmentSummaries}
           invoiceIdForAttachments={type === 'invoice' ? id : null}
+          depositSchedule={invoiceDepositSchedule}
           onClose={() => setShowSend(false)}
           onSent={() => {
             setShowSend(false)

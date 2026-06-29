@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import type { EstimateLineItem } from '@/types/global'
+import type { InvoiceDepositDisplay } from '@/lib/invoiceDepositDisplay'
 import { EstimateInvoiceFormView } from './EstimateInvoiceFormView'
 
 interface SendEstimateInvoiceProps {
@@ -19,6 +20,7 @@ interface SendEstimateInvoiceProps {
   lineItems: EstimateLineItem[]
   attachments?: { id: string; label: string }[]
   invoiceIdForAttachments?: string | null
+  depositSchedule?: InvoiceDepositDisplay | null
   onClose: () => void
   onSent: () => void
 }
@@ -33,6 +35,7 @@ export function SendEstimateInvoice({
   lineItems,
   attachments = [],
   invoiceIdForAttachments = null,
+  depositSchedule = null,
   onClose,
   onSent,
 }: SendEstimateInvoiceProps) {
@@ -136,6 +139,7 @@ export function SendEstimateInvoice({
                 embedded
                 attachments={attachments}
                 invoiceIdForAttachments={invoiceIdForAttachments}
+                depositSchedule={type === 'invoice' ? depositSchedule : null}
               />
             </div>
           )}

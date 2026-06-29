@@ -3,6 +3,8 @@ import type { EstimateLineItem } from '@/types/global'
 import type { CompanyProfile } from '@/types/global'
 import { formatDate } from '@/lib/date'
 import { openOwnerInvoiceAttachment } from '@/lib/openOwnerInvoiceAttachment'
+import type { InvoiceDepositDisplay } from '@/lib/invoiceDepositDisplay'
+import { InvoiceDepositScheduleSection } from '@/components/invoices/InvoiceDepositScheduleSection'
 
 function groupBySection(items: EstimateLineItem[]): { section: string; items: EstimateLineItem[] }[] {
   const map = new Map<string, EstimateLineItem[]>()
@@ -62,6 +64,8 @@ export interface EstimateInvoiceFormViewProps {
   attachments?: { id: string; label: string }[]
   /** When set with `attachments`, opens files using an authenticated API call (owner session). */
   invoiceIdForAttachments?: string | null
+  /** Manual invoice deposit + balance split (from schedule_snapshot). */
+  depositSchedule?: InvoiceDepositDisplay | null
 }
 
 export function EstimateInvoiceFormView({
@@ -80,6 +84,7 @@ export function EstimateInvoiceFormView({
   terms,
   attachments = [],
   invoiceIdForAttachments = null,
+  depositSchedule = null,
 }: EstimateInvoiceFormViewProps) {
   const displayTerms =
     terms !== undefined ? terms : type === 'invoice' ? DEFAULT_TERMS_INVOICE : DEFAULT_TERMS_ESTIMATE
@@ -220,6 +225,11 @@ export function EstimateInvoiceFormView({
             </span>
           </div>
         </div>
+
+        {type === 'invoice' && depositSchedule ? (
+          <InvoiceDepositScheduleSection display={depositSchedule} variant="elevated" />
+        ) : null}
+
         {/* Total bar: full-width container (no side padding) */}
         <div className="estimate-doc__total-bar-wrap">
           <div className="estimate-doc__total-bar">
