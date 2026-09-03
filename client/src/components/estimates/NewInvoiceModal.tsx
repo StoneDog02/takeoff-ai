@@ -16,8 +16,6 @@ import {
   buildManualDepositScheduleRows,
   MANUAL_INVOICE_DEPOSIT_DUE_TERM_OPTIONS,
   MANUAL_INVOICE_BALANCE_DUE_TERM_OPTIONS,
-  manualDepositTermLabel,
-  manualBalanceTermLabel,
   type ManualInvoiceDepositDueTerm,
   type ManualInvoiceBalanceDueTerm,
 } from '@/lib/manualInvoiceDeposit'
