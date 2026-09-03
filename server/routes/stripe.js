@@ -1143,22 +1143,65 @@ async function syncSubscriptionRowFromStripeWebhook(sub) {
       ? sub.items.data[0].price.id
       : null
 
-  const tier =
-    derived.tier != null ? derived.tier : meta.tier != null ? meta.tier : existing?.tier ?? null
-  const addons =
-    derived.addons.length > 0
-      ? derived.addons
-      : meta.addons && meta.addons.length > 0
-        ? meta.addons
-        : Array.isArray(existing?.addons) && existing.addons.length > 0
-          ? existing.addons
-          : []
-  const employees =
-    derived.employees != null
-      ? derived.employees
-      : meta.employees != null
-        ? meta.employees
-        : existing?.employees ?? 5
+  /**
+   * When the tier price is recognized on the Stripe subscription, line items are the
+   * source of truth — including empty addons (user cleared them). Only fall back to
+   * metadata / existing when derivation could not recognize the plan (missing env).
+   * Prefer existing DB over stale signup metadata when derivation failed.
+   */
+  const deriveTrusted = derived.tier != null
+  let tier
+  let addons
+  let employees
+  if (deriveTrusted) {
+    tier = derived.tier
+    addons = derived.addons
+    employees =
+      derived.employees != null
+        ? derived.employees
+        : existing?.employees != null
+          ? existing.employees
+          : meta.employees != null
+            ? meta.employees
+            : 5
+  } else {
+    const existingAddons =
+      Array.isArray(existing?.addons) && existing.addons.length > 0 ? existing.addons : null
+    const existingTier =
+      existing?.tier === 'core' || existing?.tier === 'plus' || existing?.tier === 'pro'
+        ? existing.tier
+        : null
+    // Prefer existing DB over signup metadata (metadata can be stale until Edge updates it).
+    tier = existingTier != null ? existingTier : meta.tier
+    addons =
+      existingAddons != null
+        ? existingAddons
+        : meta.addons && meta.addons.length > 0
+          ? meta.addons
+          : Array.isArray(existing?.addons)
+            ? existing.addons
+            : []
+    employees =
+      existing?.employees != null
+        ? existing.employees
+        : meta.employees != null
+          ? meta.employees
+          : 5
+  }
+
+  if (
+    existing &&
+    (existing.tier !== tier ||
+      JSON.stringify(existing.addons ?? []) !== JSON.stringify(addons) ||
+      existing.employees !== employees)
+  ) {
+    console.warn('[stripe] webhook pricing overwrite', {
+      subId: sub.id,
+      deriveTrusted,
+      from: { tier: existing.tier, addons: existing.addons, employees: existing.employees },
+      to: { tier, addons, employees },
+    })
+  }
 
   const row = {
     ...(userId ? { user_id: userId } : {}),

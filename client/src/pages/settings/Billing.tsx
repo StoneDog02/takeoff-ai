@@ -93,13 +93,15 @@ export default function Billing() {
 
   useEffect(() => {
     if (!subscription) {
-      setSelection(null);
+      if (!pending && !pendingAddon) setSelection(null);
       return;
     }
+    // Don't clobber optimistic selection while an edit is in flight.
+    if (pending || pendingAddon) return;
     setSelection(
       subscriptionToPricingSelection(subscription.tier, subscription.addons, employees),
     );
-  }, [subscription, employees]);
+  }, [subscription, employees, pending, pendingAddon]);
 
   const loadPaymentMethod = useCallback(async () => {
     if (!stripeCustomerId) {
@@ -142,13 +144,14 @@ export default function Billing() {
       addons: next.addons,
       employees: next.employees,
     });
-    setPending(null);
     if (errorMessage) {
       setError(errorMessage);
       await refreshSubscription();
+      setPending(null);
       return;
     }
     await refreshSubscription();
+    setPending(null);
   };
 
   const onSelectTier = async (tier: PricingTier) => {
@@ -176,13 +179,14 @@ export default function Billing() {
       addons: next.addons,
       employees: next.employees,
     });
-    setPendingAddon(null);
     if (errorMessage) {
       setError(errorMessage);
       await refreshSubscription();
+      setPendingAddon(null);
       return;
     }
     await refreshSubscription();
+    setPendingAddon(null);
   };
 
   const openBillingPortal = async () => {

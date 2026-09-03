@@ -46,6 +46,37 @@ function hasFieldPayrollAddon(addons: string[]): boolean {
   return addons.includes('fieldpayroll') || addons.includes('field-ops')
 }
 
+/**
+ * Required Stripe prices for this selection. Returns a human-readable label for the
+ * first missing env price so we never write DB addons that Stripe never received.
+ */
+function missingPriceConfig(pricingSelection: PricingSelection): string | null {
+  const { tier, addons, employees } = pricingSelection
+  const set = new Set(addons)
+
+  if (!tierPriceId(tier)) return `tier (${tier})`
+
+  if (set.has('estimating') && tier === 'core' && !PRICE_IDS.estimating()) {
+    return 'estimating'
+  }
+  if (set.has('portals') && (tier === 'core' || tier === 'plus') && !PRICE_IDS.portals()) {
+    return 'portals'
+  }
+  if (set.has('ai-takeoff') && !PRICE_IDS.aiTakeoff()) return 'ai-takeoff'
+  if (set.has('financial') && !PRICE_IDS.financials()) return 'financial'
+
+  if (hasFieldPayrollAddon(addons)) {
+    if (!PRICE_IDS.fieldPayrollBase()) return 'field-ops (base)'
+    const overQty = Math.max(0, employees - 5)
+    if (overQty > 0 && !PRICE_IDS.fieldPayrollPerEmp()) return 'field-ops (per employee)'
+  }
+
+  if ((set.has('vault') || set.has('docs')) && !PRICE_IDS.docs()) return 'vault'
+  if (set.has('directory') && !PRICE_IDS.directory()) return 'directory'
+
+  return null
+}
+
 /** Same rules as `create-subscription` / client `buildLineItems`. */
 function buildLineItems(pricingSelection: PricingSelection): LineItem[] {
   const { tier, addons, employees } = pricingSelection
@@ -109,6 +140,7 @@ function isUuid(s: string): boolean {
 function encodeSubscriptionUpdate(
   items: { id?: string; deleted?: boolean; price?: string; quantity?: number }[],
   prorationBehavior: 'none' | 'create_prorations',
+  metadata?: { tier: PricingTier; addons: string[]; employees: number },
 ) {
   const p = new URLSearchParams()
   items.forEach((item, i) => {
@@ -118,16 +150,37 @@ function encodeSubscriptionUpdate(
     if (item.quantity != null) p.set(`items[${i}][quantity]`, String(item.quantity))
   })
   p.set('proration_behavior', prorationBehavior)
+  if (metadata) {
+    p.set('metadata[takeoff_tier]', metadata.tier)
+    p.set('metadata[takeoff_addons]', JSON.stringify(metadata.addons))
+    p.set('metadata[takeoff_employees]', String(metadata.employees))
+  }
   return p.toString()
 }
 
 type StripeSubRetrieve = {
   id?: string
   status?: string
-  items?: { data?: { id: string }[] }
+  items?: {
+    data?: {
+      id: string
+      price?: string | { id?: string }
+      quantity?: number
+    }[]
+  }
   error?: { message?: string }
   current_period_end?: number
   cancel_at_period_end?: boolean
+}
+
+function priceIdsFromStripeSub(sub: StripeSubRetrieve): Set<string> {
+  const ids = new Set<string>()
+  for (const item of sub.items?.data ?? []) {
+    const priceObj = item.price
+    const pid = typeof priceObj === 'string' ? priceObj : priceObj?.id
+    if (pid) ids.add(pid)
+  }
+  return ids
 }
 
 serve(async (req) => {
@@ -248,8 +301,12 @@ serve(async (req) => {
 
   const sel: PricingSelection = { tier, addons, employees: Math.round(employees) }
 
-  if (!tierPriceId(sel.tier)) {
-    return jsonResponse({ error: 'Stripe price for the selected tier is not configured' }, 400)
+  const missing = missingPriceConfig(sel)
+  if (missing) {
+    return jsonResponse(
+      { error: `Stripe price for ${missing} is not configured` },
+      400,
+    )
   }
 
   const newItems = buildLineItems(sel)
@@ -279,7 +336,11 @@ serve(async (req) => {
   const trialing = (existing.status ?? '').toLowerCase() === 'trialing'
   /** During trial, avoid proration invoices; subscription items still update so the first paid invoice matches. */
   const prorationBehavior = trialing ? 'none' : 'create_prorations'
-  const formBody = encodeSubscriptionUpdate(updatePayload, prorationBehavior)
+  const formBody = encodeSubscriptionUpdate(updatePayload, prorationBehavior, {
+    tier: sel.tier,
+    addons: sel.addons,
+    employees: sel.employees,
+  })
 
   const updateRes = await fetch(
     `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`,
@@ -298,7 +359,27 @@ serve(async (req) => {
     return jsonResponse({ error: msg }, 400)
   }
 
+  const updatedPriceIds = priceIdsFromStripeSub(updated)
   const primaryPriceId = newItems[0]?.price ?? null
+  if (!primaryPriceId || !updatedPriceIds.has(primaryPriceId)) {
+    console.error(
+      '[update-subscription] Stripe response missing expected tier price:',
+      primaryPriceId,
+      [...updatedPriceIds],
+    )
+    return jsonResponse({ error: 'Stripe subscription update did not apply the selected plan' }, 502)
+  }
+  for (const li of newItems) {
+    if (!updatedPriceIds.has(li.price)) {
+      console.error(
+        '[update-subscription] Stripe response missing expected price:',
+        li.price,
+        [...updatedPriceIds],
+      )
+      return jsonResponse({ error: 'Stripe subscription update did not apply all selected items' }, 502)
+    }
+  }
+
   const periodEnd =
     updated.current_period_end != null
       ? new Date(updated.current_period_end * 1000).toISOString()

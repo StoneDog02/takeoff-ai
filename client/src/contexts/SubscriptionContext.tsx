@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -90,6 +91,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
   const [stripePriceId, setStripePriceId] = useState<string | null>(null);
   const [subLoading, setSubLoading] = useState(true);
+  /** True after the first load attempt for the current user finishes (success or empty). */
+  const hasLoadedOnceRef = useRef(false);
 
   const loadSubscription = useCallback(async () => {
     if (!supabase || !userId) {
@@ -102,10 +105,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setStripeCustomerId(null);
       setStripePriceId(null);
       setSubLoading(false);
+      hasLoadedOnceRef.current = false;
       return;
     }
 
-    setSubLoading(true);
+    // Only show full-page loading on the initial fetch — not realtime/refresh reloads.
+    if (!hasLoadedOnceRef.current) {
+      setSubLoading(true);
+    }
     try {
       const { data, error } = await supabase
         .from("subscriptions")
@@ -167,13 +174,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       );
     } finally {
       setSubLoading(false);
+      hasLoadedOnceRef.current = true;
     }
   }, [userId]);
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     if (authLoading) return;
     void loadSubscription();
-  }, [authLoading, loadSubscription]);
+  }, [authLoading, loadSubscription, userId]);
 
   useEffect(() => {
     if (!supabase || !userId) return;
