@@ -201,6 +201,9 @@ export const publicDemoApi = {
         name: body.name ?? 'New project',
         status: body.status ?? 'planning',
         scope: body.scope ?? '',
+        estimate_audience: body.estimate_audience === 'internal' ? 'internal' : 'customer',
+        expected_start_date: body.expected_start_date,
+        expected_end_date: body.expected_end_date,
         created_at: t,
         updated_at: t,
       })

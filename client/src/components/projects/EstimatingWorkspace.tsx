@@ -259,7 +259,14 @@ export function EstimatingWorkspace({
   const stage3Status: StageStatus = !stage3Unlocked ? 'locked' : 'active'
 
   const estimateActionLabel = hasSavedJobEstimate ? 'Edit Estimate' : 'Build Estimate'
-  const estimateCardTitle = hasSavedJobEstimate ? 'Edit & Send Estimate' : 'Build & Send Estimate'
+  const isInternalAudience = project?.estimate_audience === 'internal'
+  const estimateCardTitle = hasSavedJobEstimate
+    ? isInternalAudience
+      ? 'Edit Internal Estimate'
+      : 'Edit & Send Estimate'
+    : isInternalAudience
+      ? 'Build Internal Estimate'
+      : 'Build & Send Estimate'
 
   const stages = [
     { key: 'takeoff', label: '1 Takeoff', status: stage1Status },

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { estimatesApi } from '@/api/estimates'
 import type { EstimateLineItem } from '@/types/global'
 import type { InvoiceDepositDisplay } from '@/lib/invoiceDepositDisplay'
+import { parseRecipientEmails } from '@/lib/recipientEmails'
 import { EstimateInvoiceFormView } from './EstimateInvoiceFormView'
 
 interface SendEstimateInvoiceProps {
@@ -13,7 +14,7 @@ interface SendEstimateInvoiceProps {
     status?: string
     due_date?: string
   }
-  /** Current project client email — preferred over saved document recipients when set. */
+  /** Current project client email — used when the document has no saved recipients. */
   projectClientEmail?: string | null
   jobName: string
   total: number
@@ -40,19 +41,17 @@ export function SendEstimateInvoice({
   onSent,
 }: SendEstimateInvoiceProps) {
   const initialEmails = (() => {
+    const saved = parseRecipientEmails(document.recipient_emails)
+    if (saved.length > 0) return saved.join(', ')
     const projectEmail = projectClientEmail?.trim() ?? ''
-    if (projectEmail) return projectEmail
-    return (document.recipient_emails ?? []).join(', ')
+    return projectEmail
   })()
   const [emailsText, setEmailsText] = useState(initialEmails)
   const [showPreview, setShowPreview] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
 
-  const emails = emailsText
-    .split(/[,;\s]+/)
-    .map((e) => e.trim())
-    .filter(Boolean)
+  const emails = parseRecipientEmails(emailsText)
 
   const handleSend = async () => {
     if (emails.length === 0) return
@@ -88,11 +87,9 @@ export function SendEstimateInvoice({
         <h2 id="send-estimate-invoice-title" className="send-estimate-invoice-modal__title">
           Send {type}
         </h2>
-        {type === 'invoice' ? (
-          <p className="send-estimate-invoice-modal__hint" style={{ marginTop: 0, marginBottom: 12 }}>
-            The first address below gets an email with a secure link to your customer invoice portal (same idea as estimate and change-order links).
-          </p>
-        ) : null}
+        <p className="send-estimate-invoice-modal__hint" style={{ marginTop: 0, marginBottom: 12 }}>
+          Every address below gets an email with a secure link to the customer {type === 'invoice' ? 'invoice' : 'estimate'} portal.
+        </p>
 
         <div className="send-estimate-invoice-modal__scroll">
           <div className="send-estimate-invoice-modal__field">

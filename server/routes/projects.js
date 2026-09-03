@@ -16,7 +16,7 @@ const { resolveEffectiveHourlyPayRate } = require('../lib/effectivePayRate')
 const { budgetOverSummary, notifyBudgetThresholdCrossed } = require('../lib/eventNotificationEmails')
 const { isEmployeePortalRequest } = require('../middleware/auth')
 const { reconcileBillingCompletionForUser } = require('../lib/projectAutoComplete')
-const { syncJobRecipientEmailsFromProjectClientEmail } = require('../lib/jobClientEmail')
+const { syncJobRecipientEmailsFromProjectClientEmail, normalizeRecipientEmails } = require('../lib/jobClientEmail')
 
 const BUILD_PLANS_BUCKET = 'job-walk-media'
 
@@ -429,6 +429,7 @@ router.post('/', async (req, res, next) => {
       client_email,
       client_phone,
       plan_type,
+      estimate_audience,
     } = req.body || {}
     const statusVal = status || 'active'
     const insert = {
@@ -452,6 +453,9 @@ router.post('/', async (req, res, next) => {
     if (client_email !== undefined) insert.client_email = client_email ? String(client_email).trim() || null : null
     if (client_phone !== undefined) insert.client_phone = client_phone ? String(client_phone).trim() || null : null
     if (plan_type !== undefined) insert.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : 'residential'
+    if (estimate_audience !== undefined) {
+      insert.estimate_audience = estimate_audience === 'internal' ? 'internal' : 'customer'
+    }
     const { data, error } = await supabase
       .from('projects')
       .insert(insert)
@@ -506,6 +510,7 @@ router.put('/:id', loadProject, async (req, res, next) => {
       client_email,
       client_phone,
       plan_type,
+      estimate_audience,
     } = req.body || {}
     const updates = {}
     if (name !== undefined) updates.name = name
@@ -536,6 +541,9 @@ router.put('/:id', loadProject, async (req, res, next) => {
     }
     if (client_phone !== undefined) updates.client_phone = client_phone ? String(client_phone).trim() || null : null
     if (plan_type !== undefined) updates.plan_type = ['residential', 'commercial', 'civil', 'auto'].includes(plan_type) ? plan_type : req.project.plan_type
+    if (estimate_audience !== undefined) {
+      updates.estimate_audience = estimate_audience === 'internal' ? 'internal' : 'customer'
+    }
     updates.updated_at = new Date().toISOString()
     const { data, error } = await supabase
       .from('projects')
@@ -1784,9 +1792,9 @@ router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next)
     if (!co) return res.status(404).json({ error: 'Change order not found' })
 
     const fallbackEmails = req.project?.client_email ? [String(req.project.client_email).trim()] : []
-    const outEmails = Array.isArray(recipient_emails)
-      ? recipient_emails.map((e) => String(e || '').trim()).filter(Boolean)
-      : fallbackEmails
+    const outEmails = normalizeRecipientEmails(
+      Array.isArray(recipient_emails) ? recipient_emails : fallbackEmails
+    )
     if (!outEmails.length) {
       return res.status(400).json({ error: 'No recipient email found. Add a client email or provide recipient_emails.' })
     }
@@ -1848,7 +1856,7 @@ router.post('/:id/change-orders/:coId/send', loadProject, async (req, res, next)
     const projectName = req.project?.name || 'your project'
 
     await sendEstimatePortalEmail({
-      to: outEmails[0],
+      to: outEmails,
       clientName: clientDisplayName,
       gcName: gcDisplayName,
       projectName,

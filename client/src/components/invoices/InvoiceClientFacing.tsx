@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, type CSSProperties } from 'react'
-import { api, type InvoicePortalResponse, type InvoicePortalScheduleRow, type InvoicePortalPaymentOptions } from '@/api/client'
+import { api, type InvoicePortalResponse, type InvoicePortalPaymentOptions } from '@/api/client'
 import { API_BASE } from '@/api/config'
 import { openOwnerInvoiceAttachment } from '@/lib/openOwnerInvoiceAttachment'
 import { formatPortalCurrency, formatPortalDate } from '@/components/estimates/EstimateClientFacingDocument'
@@ -55,12 +55,13 @@ function invoiceStatusLabel(status: string): string {
   return 'Upcoming'
 }
 
-function handlePayMilestone(data: InvoicePortalResponse, row: InvoicePortalScheduleRow) {
-  const subject = encodeURIComponent(`Payment: ${data.projectName} — ${row.label}`)
-  const body = encodeURIComponent(
-    `Please apply this payment toward: ${row.label} (${formatPortalCurrency(row.amount)}).\n\n`
-  )
-  window.location.href = `mailto:?subject=${subject}&body=${body}`
+type PaymentMethodKey = 'cash' | 'check' | 'ach' | 'card'
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethodKey, string> = {
+  cash: 'Cash',
+  check: 'Check',
+  ach: 'ACH / wire transfer',
+  card: 'Card',
 }
 
 type InvoiceClientFacingProps = {
@@ -110,13 +111,60 @@ export function InvoiceClientFacing({
   invoiceIdForAttachments,
 }: InvoiceClientFacingProps) {
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodKey | null>(null)
+  const [payValidationError, setPayValidationError] = useState<string | null>(null)
+  const [offlinePayNotice, setOfflinePayNotice] = useState<string | null>(null)
   const pay = data.payment_options ?? defaultPaymentOptions
+  const company = data.company
+
+  const availableMethods = useMemo(() => {
+    const methods: PaymentMethodKey[] = []
+    if (pay.cash) methods.push('cash')
+    if (pay.check) methods.push('check')
+    if (pay.ach) methods.push('ach')
+    if (pay.card && portalToken) methods.push('card')
+    return methods
+  }, [pay.cash, pay.check, pay.ach, pay.card, portalToken])
+
+  const methodDetail = useCallback(
+    (method: PaymentMethodKey): string => {
+      if (method === 'cash') {
+        return (
+          pay.cash_note?.trim() ||
+          'Coordinate with your contractor for in-person cash payment if they accept it.'
+        )
+      }
+      if (method === 'check') {
+        return (
+          pay.check_instructions?.trim() ||
+          `Mail or deliver a check payable to ${company?.name?.trim() || 'the contractor'} using the address on this invoice, unless they gave you other instructions.`
+        )
+      }
+      if (method === 'ach') {
+        return (
+          pay.ach_instructions?.trim() ||
+          'Request bank routing and account details from your contractor if you prefer ACH or wire.'
+        )
+      }
+      return 'Secure checkout by Stripe. If your contractor connected a Stripe account, funds route to them; otherwise payment is processed through the platform for their payout.'
+    },
+    [pay.cash_note, pay.check_instructions, pay.ach_instructions, company?.name]
+  )
+
   const startCardCheckout = useCallback(async () => {
-    if (!portalToken) return
+    if (!portalToken) {
+      window.alert('Card payment is not available on this page.')
+      return
+    }
     setCheckoutLoading(true)
+    setOfflinePayNotice(null)
     try {
       const { url } = await api.invoicePortal.createCheckoutSession(portalToken)
-      if (url) window.location.href = url
+      if (url) {
+        window.location.href = url
+        return
+      }
+      window.alert('Could not start card payment.')
     } catch (e) {
       console.error(e)
       window.alert(e instanceof Error ? e.message : 'Could not start card payment.')
@@ -124,6 +172,59 @@ export function InvoiceClientFacing({
       setCheckoutLoading(false)
     }
   }, [portalToken])
+
+  const handlePay = useCallback(
+    (opts?: { label?: string; amount?: number }) => {
+      setOfflinePayNotice(null)
+      if (!selectedPaymentMethod) {
+        setPayValidationError('Choose how you’d like to pay')
+        document.getElementById('invoice-pay-heading')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return
+      }
+      setPayValidationError(null)
+
+      if (selectedPaymentMethod === 'card') {
+        void startCardCheckout()
+        return
+      }
+
+      const scheduleLen = data.schedule_rows?.length ?? 0
+      const dueNow = Number(data.amount_due_now) || 0
+      const amount =
+        opts?.amount != null
+          ? opts.amount
+          : scheduleLen > 0 && dueNow > 0
+            ? dueNow
+            : Number(data.total_amount) || 0
+      const portion =
+        opts?.label != null
+          ? `${opts.label} (${formatPortalCurrency(opts.amount ?? amount)})`
+          : `invoice balance (${formatPortalCurrency(amount)})`
+      const methodLabel = PAYMENT_METHOD_LABELS[selectedPaymentMethod]
+      const to = company?.email?.trim() || ''
+      const subject = `Payment (${methodLabel}): ${data.projectName} — ${shortInvoiceRef(data.invoice_id)}`
+      const body = [
+        `I will pay via ${methodLabel} for: ${portion}.`,
+        `Invoice reference: ${shortInvoiceRef(data.invoice_id)}`,
+        `Amount: ${formatPortalCurrency(amount)}`,
+        '',
+        'Please confirm when you receive payment.',
+      ].join('\n')
+
+      if (to) {
+        window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+        setOfflinePayNotice(
+          `Follow the ${methodLabel.toLowerCase()} instructions above, then send the email to your contractor if your mail app opens.`
+        )
+        return
+      }
+
+      setOfflinePayNotice(
+        `Use the ${methodLabel.toLowerCase()} instructions above to complete payment. Your contractor has not listed an email on this invoice for confirmation.`
+      )
+    },
+    [selectedPaymentMethod, startCardCheckout, data, company?.email]
+  )
 
   const { primaryColor, secondaryColor, invoiceTemplateStyle: tpl } = resolveInvoiceBranding(data)
   const lineItems = data.line_items ?? []
@@ -139,18 +240,18 @@ export function InvoiceClientFacing({
     [data.schedule_rows, data.total_amount]
   )
   const isManualDeposit = depositDisplay != null
-  const company = data.company
   const openStatus = st === 'sent' || st === 'viewed' ? 'Open' : st
 
   const showPaymentSection =
     !invoicePaid &&
-    (pay.cash ||
-      pay.check ||
-      pay.ach ||
-      pay.card ||
-      (pay.check_instructions && pay.check_instructions.trim()) ||
-      (pay.ach_instructions && pay.ach_instructions.trim()) ||
-      (pay.cash_note && pay.cash_note.trim()))
+    (availableMethods.length > 0 ||
+      !!(pay.check_instructions && pay.check_instructions.trim()) ||
+      !!(pay.ach_instructions && pay.ach_instructions.trim()) ||
+      !!(pay.cash_note && pay.cash_note.trim()))
+
+  const canSelectPayMethod = interactiveSchedule && !invoicePaid && availableMethods.length > 0
+  const showSingleInvoicePay =
+    canSelectPayMethod && !showProgress && (Number(data.total_amount) || 0) > 0
 
   const headerStandard = (
     <>
@@ -308,58 +409,107 @@ export function InvoiceClientFacing({
             <h2 id="invoice-pay-heading" className="invoice-portal-schedule__title">
               How to pay
             </h2>
-            <div className="invoice-portal-pay__grid">
-              {pay.cash ? (
-                <div className="invoice-portal-pay__method">
-                  <h3>Cash</h3>
-                  <p className="invoice-portal-pay__detail">
-                    {pay.cash_note?.trim()
-                      ? pay.cash_note
-                      : 'Coordinate with your contractor for in-person cash payment if they accept it.'}
+            {canSelectPayMethod ? (
+              <>
+                <p className="invoice-portal-schedule__hint">
+                  Choose a payment method, then use Pay on the amount due.
+                </p>
+                <div
+                  className="invoice-portal-pay__grid"
+                  role="radiogroup"
+                  aria-labelledby="invoice-pay-heading"
+                  aria-required="true"
+                >
+                  {availableMethods.map((method) => {
+                    const selected = selectedPaymentMethod === method
+                    const inputId = `invoice-pay-method-${method}`
+                    return (
+                      <label
+                        key={method}
+                        htmlFor={inputId}
+                        className={`invoice-portal-pay__method invoice-portal-pay__method--selectable${
+                          selected ? ' invoice-portal-pay__method--selected' : ''
+                        }`}
+                      >
+                        <span className="invoice-portal-pay__method-head">
+                          <input
+                            id={inputId}
+                            type="radio"
+                            name="invoice-payment-method"
+                            value={method}
+                            checked={selected}
+                            onChange={() => {
+                              setSelectedPaymentMethod(method)
+                              setPayValidationError(null)
+                              setOfflinePayNotice(null)
+                            }}
+                          />
+                          <span className="invoice-portal-pay__method-title">
+                            {PAYMENT_METHOD_LABELS[method]}
+                          </span>
+                        </span>
+                        {selected ? (
+                          <p className="invoice-portal-pay__detail">{methodDetail(method)}</p>
+                        ) : null}
+                      </label>
+                    )
+                  })}
+                </div>
+                {payValidationError ? (
+                  <p className="invoice-portal-pay__error" role="alert">
+                    {payValidationError}
                   </p>
-                </div>
-              ) : null}
-              {pay.check ? (
-                <div className="invoice-portal-pay__method">
-                  <h3>Check</h3>
-                  {pay.check_instructions?.trim() ? (
-                    <p className="invoice-portal-pay__detail">{pay.check_instructions}</p>
-                  ) : (
-                    <p className="invoice-portal-pay__detail">
-                      Mail or deliver a check payable to {company?.name?.trim() || 'the contractor'} using the address on this invoice, unless they gave you other instructions.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-              {pay.ach ? (
-                <div className="invoice-portal-pay__method">
-                  <h3>ACH / wire transfer</h3>
-                  {pay.ach_instructions?.trim() ? (
-                    <p className="invoice-portal-pay__detail">{pay.ach_instructions}</p>
-                  ) : (
-                    <p className="invoice-portal-pay__detail">
-                      Request bank routing and account details from your contractor if you prefer ACH or wire.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-              {pay.card && portalToken ? (
-                <div className="invoice-portal-pay__card-actions">
-                  <button
-                    type="button"
-                    className="invoice-portal-pay__card-btn"
-                    disabled={checkoutLoading}
-                    onClick={() => void startCardCheckout()}
-                  >
-                    {checkoutLoading ? 'Redirecting…' : 'Pay with card'}
-                  </button>
-                  <p className="invoice-portal-pay__card-hint">
-                    Secure checkout by Stripe. If your contractor connected a Stripe account, funds route to them; otherwise
-                    payment is processed through the platform for their payout.
+                ) : null}
+                {offlinePayNotice ? (
+                  <p className="invoice-portal-pay__notice" role="status">
+                    {offlinePayNotice}
                   </p>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+                {showSingleInvoicePay ? (
+                  <div className="invoice-portal-pay__actions">
+                    <button
+                      type="button"
+                      className="invoice-portal-pay__card-btn"
+                      disabled={checkoutLoading}
+                      onClick={() => handlePay({ amount: Number(data.total_amount) || 0 })}
+                    >
+                      {checkoutLoading
+                        ? 'Redirecting…'
+                        : selectedPaymentMethod === 'card'
+                          ? 'Pay with card'
+                          : `Pay ${formatPortalCurrency(Number(data.total_amount) || 0)}`}
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="invoice-portal-pay__grid">
+                {pay.cash ? (
+                  <div className="invoice-portal-pay__method">
+                    <h3>Cash</h3>
+                    <p className="invoice-portal-pay__detail">{methodDetail('cash')}</p>
+                  </div>
+                ) : null}
+                {pay.check ? (
+                  <div className="invoice-portal-pay__method">
+                    <h3>Check</h3>
+                    <p className="invoice-portal-pay__detail">{methodDetail('check')}</p>
+                  </div>
+                ) : null}
+                {pay.ach ? (
+                  <div className="invoice-portal-pay__method">
+                    <h3>ACH / wire transfer</h3>
+                    <p className="invoice-portal-pay__detail">{methodDetail('ach')}</p>
+                  </div>
+                ) : null}
+                {pay.card ? (
+                  <div className="invoice-portal-pay__method">
+                    <h3>Card</h3>
+                    <p className="invoice-portal-pay__detail">{methodDetail('card')}</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </section>
         ) : null}
 
@@ -420,9 +570,10 @@ export function InvoiceClientFacing({
                           <button
                             type="button"
                             className="estimate-portal-btn estimate-portal-btn--primary invoice-portal-pay-btn"
-                            onClick={() => handlePayMilestone(data, row)}
+                            disabled={checkoutLoading}
+                            onClick={() => handlePay({ label: row.label, amount: row.amount })}
                           >
-                            Pay now
+                            {checkoutLoading ? '…' : 'Pay now'}
                           </button>
                         ) : (
                           <button

@@ -16,6 +16,7 @@ const {
 const { notifyInvoiceStatusChange } = require('../lib/eventNotificationEmails')
 const { getClientAttachmentsArray, resolveClientAttachmentUrl } = require('../lib/invoiceClientAttachments')
 const { normalizeInvoicePaymentConfig, paymentOptionsForPortalResponse } = require('../lib/invoicePaymentConfig')
+const { createPortalRateLimit } = require('../lib/portalRateLimit')
 
 const router = express.Router()
 
@@ -29,37 +30,7 @@ if (stripeSecretKey) {
   }
 }
 
-const RATE_WINDOW_MS = 60 * 60 * 1000
-const RATE_MAX = 10
-const rateMap = new Map()
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, v] of rateMap.entries()) {
-    if (v.resetAt < now) rateMap.delete(key)
-  }
-}, 60 * 1000)
-
-function rateLimitPortal(req, res, next) {
-  const ip = req.ip || req.socket?.remoteAddress || 'unknown'
-  const now = Date.now()
-  const r = rateMap.get(ip)
-  if (!r) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS })
-    return next()
-  }
-  if (r.resetAt < now) {
-    r.count = 1
-    r.resetAt = now + RATE_WINDOW_MS
-    return next()
-  }
-  r.count += 1
-  if (r.count > RATE_MAX) {
-    return res.status(429).json({ error: 'Too many requests. Try again later.' })
-  }
-  next()
-}
-
-router.use(rateLimitPortal)
+const { rateLimitRead, rateLimitAction } = createPortalRateLimit({ label: 'invoice-portal' })
 
 const CHECKOUT_WINDOW_MS = 60 * 60 * 1000
 const CHECKOUT_MAX_PER_HOUR = 8
@@ -76,6 +47,7 @@ function rateLimitCheckoutSession(req, res, next) {
   }
   r.count += 1
   if (r.count > CHECKOUT_MAX_PER_HOUR) {
+    console.warn('[invoice-portal] rate limited', { ip, path: req.originalUrl || req.path, kind: 'checkout' })
     return res.status(429).json({ error: 'Too many payment attempts. Try again later.' })
   }
   checkoutRateMap.set(key, r)
@@ -86,7 +58,7 @@ function rateLimitCheckoutSession(req, res, next) {
  * POST /api/invoices/portal/:token/create-checkout-session
  * Stripe Checkout for client invoice card payment (optional Connect destination).
  */
-router.post('/:token/create-checkout-session', rateLimitCheckoutSession, async (req, res, next) => {
+router.post('/:token/create-checkout-session', rateLimitAction, rateLimitCheckoutSession, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -205,7 +177,7 @@ router.post('/:token/create-checkout-session', rateLimitCheckoutSession, async (
 })
 
 /** GET /api/invoices/portal/:token/attachment/:attachmentId — redirect to time-limited file URL */
-router.get('/:token/attachment/:attachmentId', async (req, res, next) => {
+router.get('/:token/attachment/:attachmentId', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -230,7 +202,7 @@ router.get('/:token/attachment/:attachmentId', async (req, res, next) => {
 })
 
 /** GET /api/invoices/portal/:token */
-router.get('/:token', async (req, res, next) => {
+router.get('/:token', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -388,7 +360,7 @@ router.get('/:token', async (req, res, next) => {
 })
 
 /** PATCH /api/invoices/portal/:token/viewed */
-router.patch('/:token/viewed', async (req, res, next) => {
+router.patch('/:token/viewed', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })

@@ -6,7 +6,7 @@ const { buildViewerEnvelope, attachProjectName } = require('../lib/documentViewe
 const { sendEstimatePortalEmail, sendBidPortalEmail, sendInvoicePortalEmail } = require('../lib/sendPortalEmails')
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 const {
-  resolveJobClientEmail,
+  resolveRecipientEmailsForSend,
   persistResolvedRecipientIfChanged,
 } = require('../lib/jobClientEmail')
 
@@ -224,11 +224,11 @@ router.post('/:id/resend', async (req, res) => {
         return res.status(400).json({ error: 'No portal link on file. Send this estimate from Estimates first.' })
       }
       const emails = est.recipient_emails
-      const clientEmail = await resolveJobClientEmail(supabase, userId, est)
-      if (!clientEmail) {
+      const toEmails = await resolveRecipientEmailsForSend(supabase, userId, est)
+      if (toEmails.length === 0) {
         return res.status(400).json({ error: 'No client email on file for this estimate.' })
       }
-      await persistResolvedRecipientIfChanged(supabase, 'estimates', est.id, emails, clientEmail)
+      await persistResolvedRecipientIfChanged(supabase, 'estimates', est.id, emails, toEmails)
 
       let projectDisplayName = 'your project'
       let clientDisplayName = 'there'
@@ -250,7 +250,7 @@ router.post('/:id/resend', async (req, res) => {
 
       const portalUrl = `${baseUrl}/estimate/${encodeURIComponent(token)}`
       await sendEstimatePortalEmail({
-        to: clientEmail,
+        to: toEmails,
         clientName: clientDisplayName,
         gcName: gcDisplayName,
         projectName: projectDisplayName,
@@ -277,11 +277,11 @@ router.post('/:id/resend', async (req, res) => {
       }
 
       const emails = inv.recipient_emails
-      const clientEmail = await resolveJobClientEmail(supabase, userId, inv)
-      if (!clientEmail) {
+      const toEmails = await resolveRecipientEmailsForSend(supabase, userId, inv)
+      if (toEmails.length === 0) {
         return res.status(400).json({ error: 'No recipient email on file for this invoice.' })
       }
-      await persistResolvedRecipientIfChanged(supabase, 'invoices', inv.id, emails, clientEmail)
+      await persistResolvedRecipientIfChanged(supabase, 'invoices', inv.id, emails, toEmails)
 
       let projectDisplayName = 'your project'
       let clientDisplayName = 'there'
@@ -300,7 +300,7 @@ router.post('/:id/resend', async (req, res) => {
 
       const portalUrl = `${baseUrl}/invoice/${encodeURIComponent(token)}`
       await sendInvoicePortalEmail({
-        to: clientEmail,
+        to: toEmails,
         clientName: clientDisplayName,
         projectName: projectDisplayName,
         portalUrl,

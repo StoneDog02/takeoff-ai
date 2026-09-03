@@ -391,7 +391,7 @@ router.get('/projects', async (req, res, next) => {
     const { data: projects, error: projErr } = await supabase
       .from('projects')
       .select(
-        'id, name, status, created_at, updated_at, completed_at, expected_start_date, expected_end_date, estimated_value, assigned_to_name, address_line_1, address_line_2, city, state, postal_code',
+        'id, name, status, created_at, updated_at, completed_at, expected_start_date, expected_end_date, estimated_value, assigned_to_name, address_line_1, address_line_2, city, state, postal_code, estimate_audience, client_email, client_phone, plan_type',
       )
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
@@ -582,6 +582,10 @@ router.get('/projects', async (req, res, next) => {
         created_at: p.created_at || null,
         updated_at: p.updated_at || null,
         completed_at: p.completed_at != null ? p.completed_at : null,
+        estimate_audience: p.estimate_audience === 'internal' ? 'internal' : 'customer',
+        client_email: p.client_email || null,
+        client_phone: p.client_phone || null,
+        plan_type: p.plan_type || null,
       }
     })
 

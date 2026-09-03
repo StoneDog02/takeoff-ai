@@ -13,7 +13,7 @@ const { renderInvoicePortalEmail } = require('../emails/invoicePortalEmail')
 
 /**
  * Send "estimate ready for review" email to client.
- * @param {{ to: string, clientName?: string, gcName?: string, projectName?: string, portalUrl: string, documentKind?: 'estimate' | 'change_order' }} opts
+ * @param {{ to: string | string[], clientName?: string, gcName?: string, projectName?: string, portalUrl: string, documentKind?: 'estimate' | 'change_order' }} opts
  * @returns {{ sent: boolean, error?: unknown }}
  */
 async function sendEstimatePortalEmail({ to, clientName, gcName, projectName, portalUrl, documentKind = 'estimate' }) {
@@ -34,7 +34,7 @@ async function sendEstimatePortalEmail({ to, clientName, gcName, projectName, po
 
 /**
  * Send follow-up / reminder for an already-sent estimate (same portal URL; does not rotate token).
- * @param {{ to: string, clientName?: string, gcName?: string, projectName?: string, portalUrl: string, documentKind?: 'estimate' | 'change_order' }} opts
+ * @param {{ to: string | string[], clientName?: string, gcName?: string, projectName?: string, portalUrl: string, documentKind?: 'estimate' | 'change_order' }} opts
  * @returns {{ sent: boolean, error?: unknown }}
  */
 async function sendEstimateReminderEmail({ to, clientName, gcName, projectName, portalUrl, documentKind = 'estimate' }) {
@@ -74,7 +74,7 @@ async function sendBidPortalEmail({ to, projectName, portalUrl, isResend }) {
 
 /**
  * Send invoice portal link to client.
- * @param {{ to: string, clientName?: string, projectName?: string, portalUrl: string, isResend?: boolean }} opts
+ * @param {{ to: string | string[], clientName?: string, projectName?: string, portalUrl: string, isResend?: boolean, balancePaymentRequest?: boolean }} opts
  */
 async function sendInvoicePortalEmail({ to, clientName, projectName, portalUrl, isResend, balancePaymentRequest }) {
   const from = getPortalFrom()

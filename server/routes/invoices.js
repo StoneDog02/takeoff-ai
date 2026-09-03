@@ -17,6 +17,7 @@ const { sendInvoicePortalEmail } = require('../lib/sendPortalEmails')
 const { parseManualInvoiceSnapshot } = require('../lib/invoiceManualSnapshot')
 const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
 const { normalizeInvoiceScheduleSnapshot } = require('../lib/invoiceManualSnapshot')
+const { normalizeRecipientEmails } = require('../lib/jobClientEmail')
 const {
   applyMilestonePaymentsToSnapshot,
   applyMilestoneReadyToSnapshot,
@@ -371,7 +372,8 @@ router.post('/:id/send', async (req, res) => {
       updated_at: new Date().toISOString(),
       client_token: clientToken,
     }
-    if (Array.isArray(recipient_emails)) updates.recipient_emails = recipient_emails
+    const recipientList = normalizeRecipientEmails(recipient_emails)
+    if (recipientList.length > 0) updates.recipient_emails = recipientList
     const { data, error } = await supabase
       .from('invoices')
       .update(updates)
@@ -392,8 +394,9 @@ router.post('/:id/send', async (req, res) => {
     const portalBase = baseUrlRaw.startsWith('http') ? baseUrlRaw : `https://${baseUrlRaw}`
     const portalUrl = `${portalBase}/invoice/${encodeURIComponent(clientToken)}`
 
-    const emailsAfter = Array.isArray(data.recipient_emails) ? data.recipient_emails : []
-    const clientEmail = emailsAfter[0] ? String(emailsAfter[0]).trim() : ''
+    const toEmails = normalizeRecipientEmails(
+      recipientList.length > 0 ? recipientList : data.recipient_emails
+    )
     const manualSnap = parseManualInvoiceSnapshot(data.schedule_snapshot)
 
     let projectDisplayName = null
@@ -432,9 +435,9 @@ router.post('/:id/send', async (req, res) => {
     const prevSt = String(existingSend.status || '').toLowerCase()
     const isResend = prevSt === 'sent' || prevSt === 'viewed'
 
-    if (clientEmail) {
+    if (toEmails.length > 0) {
       await sendInvoicePortalEmail({
-        to: clientEmail,
+        to: toEmails,
         clientName: clientDisplayName,
         projectName: projectDisplayName,
         portalUrl,
@@ -549,8 +552,7 @@ router.post('/:id/request-balance', async (req, res) => {
     const portalBase = baseUrlRaw.startsWith('http') ? baseUrlRaw : `https://${baseUrlRaw}`
     const portalUrl = `${portalBase}/invoice/${encodeURIComponent(clientToken)}`
 
-    const emailsAfter = Array.isArray(updated.recipient_emails) ? updated.recipient_emails : []
-    const clientEmail = emailsAfter[0] ? String(emailsAfter[0]).trim() : ''
+    const toEmails = normalizeRecipientEmails(updated.recipient_emails)
     const manualSnap = parseManualInvoiceSnapshot(updated.schedule_snapshot)
 
     let projectDisplayName = null
@@ -586,9 +588,9 @@ router.post('/:id/request-balance', async (req, res) => {
     }
     if (manualSnap?.client_name) clientDisplayName = manualSnap.client_name
 
-    if (sendEmail && clientEmail) {
+    if (sendEmail && toEmails.length > 0) {
       await sendInvoicePortalEmail({
-        to: clientEmail,
+        to: toEmails,
         clientName: clientDisplayName,
         projectName: projectDisplayName,
         portalUrl,

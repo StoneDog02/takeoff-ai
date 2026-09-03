@@ -455,7 +455,11 @@ export function BidPortal() {
         {error && !loading && (
           <div className="bid-portal-card">
             <div className="bid-portal-card__body">
-              <h2 className="bid-portal-title">Invalid or expired link</h2>
+              <h2 className="bid-portal-title">
+                {error.toLowerCase().includes('too many requests')
+                  ? 'Temporarily unavailable'
+                  : 'Invalid or expired link'}
+              </h2>
               <p className="bid-portal-message">{error}</p>
             </div>
           </div>

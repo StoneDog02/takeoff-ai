@@ -10,6 +10,7 @@ import type {
   Job,
   PipelineMilestone,
   Project,
+  ProjectEstimateAudience,
 } from '@/types/global'
 import type { EstimateLineItem } from '@/types/global'
 import { shouldUseMockEstimates, MOCK_CUSTOM_PRODUCTS } from '@/data/mockEstimatesData'
@@ -26,6 +27,11 @@ import {
   unitOptionsForCategory,
 } from '@/lib/categoryUnits'
 import { cappedPctValue, hardSubtotalExcludingPctLines, lineDollarAmount } from '@/lib/estimatePctLine'
+import {
+  formatRecipientEmailsLabel,
+  parseRecipientEmails,
+  primaryRecipientEmail,
+} from '@/lib/recipientEmails'
 
 const PLAN_TYPES = ['residential', 'commercial', 'civil'] as const
 type PlanType = (typeof PLAN_TYPES)[number]
@@ -38,7 +44,11 @@ export type PrefillClientInfo = {
   clientEmail?: string
   clientPhone?: string
   projectAddress?: string
+  /** From project.estimate_audience — drives Save & apply vs Save & Send in build mode. */
+  estimateAudience?: ProjectEstimateAudience
 }
+
+type InternalDestination = 'backlog' | 'active'
 
 /** Line item for pre-fill: bid-sheet rows (awarded sub bids, GC self-perform lines); takeoff is optional via picker. */
 export type LineItem = {
@@ -243,6 +253,12 @@ type WizardData = {
   /** Shown on client-facing estimate (preview & when sent). */
   estimateNotes: string
   estimateTerms: string
+  /** Create mode: customer-facing estimate vs internal/DIY budget. */
+  estimateAudience: ProjectEstimateAudience
+  /** Create mode when internal: land in backlog or activate immediately. */
+  internalDestination: InternalDestination
+  expectedStartDate: string
+  expectedEndDate: string
 }
 
 export type NewEstimatePayload = {
@@ -300,6 +316,10 @@ function defaultWizardData(prefill?: PrefillClientInfo | null): WizardData {
       projectAddress: prefill.projectAddress ?? '',
       estimateNotes: '',
       estimateTerms: '',
+      estimateAudience: prefill.estimateAudience === 'internal' ? 'internal' : 'customer',
+      internalDestination: 'backlog',
+      expectedStartDate: '',
+      expectedEndDate: '',
     }
   }
   return {
@@ -311,6 +331,10 @@ function defaultWizardData(prefill?: PrefillClientInfo | null): WizardData {
     projectAddress: '',
     estimateNotes: '',
     estimateTerms: '',
+    estimateAudience: 'customer',
+    internalDestination: 'backlog',
+    expectedStartDate: '',
+    expectedEndDate: '',
   }
 }
 
@@ -797,12 +821,18 @@ export function EstimateBuilderModal({
   const [step, setStep] = useState(() => (isReviseMode ? 2 : 1))
   const [saved, setSaved] = useState(false)
   const [savedAndSent, setSavedAndSent] = useState(false)
+  const [savedAsInternalBudget, setSavedAsInternalBudget] = useState(false)
   /** Which async action is running so only that button shows a loading label (not both Save + Send). */
-  const [saveBusyKind, setSaveBusyKind] = useState<'idle' | 'save' | 'send' | 'create'>('idle')
+  const [saveBusyKind, setSaveBusyKind] = useState<'idle' | 'save' | 'send' | 'create' | 'apply'>('idle')
   const saving = saveBusyKind !== 'idle'
   const [createdProjectName, setCreatedProjectName] = useState('')
+  const [createdDestinationLabel, setCreatedDestinationLabel] = useState('')
   const [savedEstimateId, setSavedEstimateId] = useState<string | null>(null)
   const [data, setData] = useState<WizardData>(() => defaultWizardData(prefillClientInfo))
+  const isInternalAudience =
+    (isBuildMode
+      ? (prefillClientInfo?.estimateAudience ?? data.estimateAudience)
+      : data.estimateAudience) === 'internal'
   const [defaultMarkupBaseline, setDefaultMarkupBaseline] = useState(() => resolveMarkupSeed(initialMarkupPctSeed))
   const [lineItemGroups, setLineItemGroups] = useState<LineItemGroup[]>(() => {
     if (isReviseMode) return []
@@ -824,7 +854,7 @@ export function EstimateBuilderModal({
   previewOpenRef.current = previewOpen
   const [gcCompanyName, setGcCompanyName] = useState('')
   const [sendToError, setSendToError] = useState<string | null>(null)
-  const sendToEmailInputRef = useRef<HTMLInputElement>(null)
+  const sendToEmailInputRef = useRef<HTMLTextAreaElement>(null)
 
   const closePreviewOnly = useCallback(() => {
     queueMicrotask(() => setPreviewOpen(false))
@@ -929,21 +959,64 @@ export function EstimateBuilderModal({
     return () => document.removeEventListener('keydown', handleEscape, true)
   }, [onClose])
 
-  const canNext = () => step === 1 && !!data.projectName.trim()
+  const canNext = () => {
+    if (step !== 1 || !data.projectName.trim()) return false
+    if (
+      !isBuildMode &&
+      data.estimateAudience === 'internal' &&
+      data.internalDestination === 'active' &&
+      !data.expectedStartDate.trim()
+    ) {
+      return false
+    }
+    return true
+  }
+
+  const canCreateProject = () => {
+    if (!data.projectName.trim()) return false
+    if (
+      data.estimateAudience === 'internal' &&
+      data.internalDestination === 'active' &&
+      !data.expectedStartDate.trim()
+    ) {
+      return false
+    }
+    return true
+  }
 
   const handleCreateProject = async () => {
+    if (
+      data.estimateAudience === 'internal' &&
+      data.internalDestination === 'active' &&
+      !data.expectedStartDate.trim()
+    ) {
+      return
+    }
     setSaveBusyKind('create')
     try {
+      const isInternal = data.estimateAudience === 'internal'
+      const activateNow = isInternal && data.internalDestination === 'active'
+      const status = isInternal ? (activateNow ? 'active' : 'backlog') : 'estimating'
       const createdProject = await api.projects.create({
         name: data.projectName.trim() || 'New Project',
-        status: 'estimating',
+        status,
         plan_type: data.planType,
+        estimate_audience: isInternal ? 'internal' : 'customer',
         address_line_1: data.projectAddress?.trim() || undefined,
-        assigned_to_name: data.clientName?.trim() || data.clientEmail?.trim() || undefined,
-        client_email: data.clientEmail?.trim() || undefined,
+        assigned_to_name: data.clientName?.trim() || primaryRecipientEmail(data.clientEmail) || undefined,
+        client_email: primaryRecipientEmail(data.clientEmail) || undefined,
         client_phone: data.clientPhone?.trim() || undefined,
+        ...(activateNow
+          ? {
+              expected_start_date: data.expectedStartDate.trim(),
+              expected_end_date: data.expectedEndDate.trim() || undefined,
+            }
+          : {}),
       })
       setCreatedProjectName(createdProject.name ?? data.projectName.trim())
+      setCreatedDestinationLabel(
+        status === 'estimating' ? 'Estimating' : status === 'backlog' ? 'Backlog' : 'Active'
+      )
       setSaved(true)
       onComplete?.(createdProject)
     } catch (err) {
@@ -1025,8 +1098,9 @@ export function EstimateBuilderModal({
 
   const handleSaveAndSendEstimate = async () => {
     if (!projectId || lineItemGroups.length === 0) return
-    if (!data.clientEmail?.trim()) {
-      setSendToError('Enter an email address to send the estimate.')
+    const recipientEmails = parseRecipientEmails(data.clientEmail)
+    if (recipientEmails.length === 0) {
+      setSendToError('Enter at least one email address to send the estimate.')
       queueMicrotask(() => sendToEmailInputRef.current?.focus())
       return
     }
@@ -1067,7 +1141,7 @@ export function EstimateBuilderModal({
         await estimatesApi.updateEstimate(eid, persistEstimatePayload())
       }
       await estimatesApi.sendEstimate(eid, {
-        recipient_emails: [data.clientEmail.trim()],
+        recipient_emails: recipientEmails,
         client_name: data.clientName?.trim() || undefined,
         project_name: data.projectName?.trim() || undefined,
       })
@@ -1093,6 +1167,65 @@ export function EstimateBuilderModal({
     }
   }
 
+  /** Internal/DIY: save estimate as accepted and seed project budget (no client send). */
+  const handleSaveAndApplyToBudget = async () => {
+    if (!projectId || lineItemGroups.length === 0) return
+    setSaveBusyKind('apply')
+    try {
+      await syncCustomLineGroupsToProductCatalog(lineItemGroups)
+      const eid =
+        estimateId ??
+        (
+          await estimatesApi.createEstimate({
+            job_id: projectId,
+            title: data.projectName?.trim() || 'Estimate',
+          })
+        ).id
+      if (estimateId) {
+        await estimatesApi.updateEstimate(estimateId, persistEstimatePayload())
+        for (const lineId of loadedLineItemIds) {
+          await estimatesApi.deleteLineItem(estimateId, lineId)
+        }
+        for (const line of costLinesForApi) {
+          await estimatesApi.addLineItem(estimateId, {
+            description: line.name,
+            quantity: line.qty,
+            unit: line.unit,
+            unit_price: line.price,
+            section: line.section,
+            ...(line.total !== undefined ? { total: line.total } : {}),
+          })
+        }
+      } else {
+        for (const line of costLinesForApi) {
+          await estimatesApi.addLineItem(eid, {
+            description: line.name,
+            quantity: line.qty,
+            unit: line.unit,
+            unit_price: line.price,
+            section: line.section,
+            ...(line.total !== undefined ? { total: line.total } : {}),
+          })
+        }
+        await estimatesApi.updateEstimate(eid, persistEstimatePayload())
+      }
+      await estimatesApi.updateEstimate(eid, { status: 'accepted' })
+      try {
+        await estimatesApi.syncProjectBudgetFromEstimate(eid)
+      } catch (syncErr) {
+        console.error('[EstimateBuilderModal] budget sync after internal apply', syncErr)
+      }
+      setSavedEstimateId(eid)
+      setSavedAsInternalBudget(true)
+      setSaved(true)
+      onSave?.(eid)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaveBusyKind('idle')
+    }
+  }
+
   const reset = () => {
     setData(defaultWizardData(prefillClientInfo))
     setLineItemGroups(
@@ -1105,7 +1238,9 @@ export function EstimateBuilderModal({
     setStep(isReviseMode ? 2 : 1)
     setSaved(false)
     setSavedAndSent(false)
+    setSavedAsInternalBudget(false)
     setCreatedProjectName('')
+    setCreatedDestinationLabel('')
     setSavedEstimateId(null)
     setPresetCatalogResetKey((k) => k + 1)
     setSendToError(null)
@@ -1133,6 +1268,22 @@ export function EstimateBuilderModal({
   // ─── Success state ─────────────────────────────────────────────────────────
   if (saved) {
     const isEstimateSaved = isBuildMode && savedEstimateId != null
+    const successTitle = savedAndSent
+      ? 'Estimate sent'
+      : savedAsInternalBudget
+        ? 'Budget applied'
+        : isEstimateSaved
+          ? 'Estimate saved'
+          : 'Project created'
+    const successBody = savedAndSent
+      ? `We've sent the estimate to ${formatRecipientEmailsLabel(parseRecipientEmails(data.clientEmail))} for review.`
+      : savedAsInternalBudget
+        ? `${data.projectName || 'Estimate'} saved as an internal budget.`
+        : isEstimateSaved
+          ? data.projectName
+          : `${createdProjectName || data.projectName}${
+              createdDestinationLabel ? ` — now in ${createdDestinationLabel}` : ''
+            }`
     return (
       <div
         className="estimate-builder-modal-overlay"
@@ -1147,20 +1298,14 @@ export function EstimateBuilderModal({
         >
           <div className="estimate-wizard-success-icon">✓</div>
           <h2 id="estimate-builder-success-title" className="estimate-wizard-success-title">
-            {savedAndSent ? 'Estimate sent' : isEstimateSaved ? 'Estimate saved' : 'Project created'}
+            {successTitle}
           </h2>
-          <p className="estimate-wizard-success-job">
-            {savedAndSent
-              ? `We've sent the estimate to ${data.clientEmail || 'the client'} for review.`
-              : isEstimateSaved
-                ? data.projectName
-                : (createdProjectName || data.projectName)}
-          </p>
+          <p className="estimate-wizard-success-job">{successBody}</p>
           <div className="estimate-wizard-success-actions">
             <button type="button" className="btn btn-primary" onClick={onClose}>
               Done
             </button>
-            {isEstimateSaved && savedEstimateId && projectId && (
+            {isEstimateSaved && savedEstimateId && projectId && !savedAsInternalBudget && (
               <button
                 type="button"
                 className="btn btn-ghost"
@@ -1362,19 +1507,18 @@ export function EstimateBuilderModal({
             {step === 2 && !isBuildMode && <Step2ReviewCreate data={data} />}
           </div>
 
-          {step === 2 && isBuildMode && !data.clientEmail?.trim() && (
+          {step === 2 && isBuildMode && (
             <div className="estimate-wizard-send-to-panel">
               <div className="estimate-wizard-send-to-panel-inner">
                 <label htmlFor="estimate-wizard-send-to-email" className="estimate-wizard-label">
-                  Send to
+                  {isInternalAudience ? 'Client email (optional)' : 'Send to'}
                 </label>
-                <input
+                <textarea
                   ref={sendToEmailInputRef}
                   id="estimate-wizard-send-to-email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="client@example.com"
+                  rows={2}
+                  autoComplete="off"
+                  placeholder="email1@example.com, email2@example.com"
                   className="estimate-wizard-input estimate-wizard-send-to-input"
                   value={data.clientEmail}
                   onChange={(e) => {
@@ -1383,7 +1527,17 @@ export function EstimateBuilderModal({
                   }}
                 />
                 <p className="estimate-wizard-helper estimate-wizard-send-to-hint">
-                  Required for <strong>Save &amp; Send</strong>. You can use <strong>Save Estimate</strong> without it.
+                  {isInternalAudience ? (
+                    <>
+                      Separate multiple addresses with commas or spaces. Only needed if you use{' '}
+                      <strong>Send to client</strong>. Primary action is <strong>Save &amp; apply to budget</strong>.
+                    </>
+                  ) : (
+                    <>
+                      Separate multiple addresses with commas or spaces. Required for <strong>Save &amp; Send</strong>.
+                      You can use <strong>Save Estimate</strong> without it.
+                    </>
+                  )}
                 </p>
                 {sendToError ? (
                   <p className="estimate-wizard-send-to-error" role="alert">
@@ -1423,29 +1577,61 @@ export function EstimateBuilderModal({
               </button>
             ) : isBuildMode ? (
               <div className="estimate-wizard-nav-final">
-                <button
-                  type="button"
-                  className="estimate-wizard-nav-next btn btn-ghost"
-                  onClick={handleSaveEstimate}
-                  disabled={saving || lineItemGroups.length === 0}
-                >
-                  {saveBusyKind === 'save' ? 'Saving…' : 'Save Estimate'}
-                </button>
-                <button
-                  type="button"
-                  className="estimate-wizard-nav-next btn btn-primary"
-                  onClick={handleSaveAndSendEstimate}
-                  disabled={saving || lineItemGroups.length === 0}
-                >
-                  {saveBusyKind === 'send' ? 'Sending…' : 'Save & Send →'}
-                </button>
+                {isInternalAudience ? (
+                  <>
+                    <button
+                      type="button"
+                      className="estimate-wizard-nav-next btn btn-ghost"
+                      onClick={handleSaveEstimate}
+                      disabled={saving || lineItemGroups.length === 0}
+                    >
+                      {saveBusyKind === 'save' ? 'Saving…' : 'Save Estimate'}
+                    </button>
+                    <button
+                      type="button"
+                      className="estimate-wizard-nav-next btn btn-primary"
+                      onClick={handleSaveAndApplyToBudget}
+                      disabled={saving || lineItemGroups.length === 0}
+                    >
+                      {saveBusyKind === 'apply' ? 'Applying…' : 'Save & apply to budget →'}
+                    </button>
+                    <button
+                      type="button"
+                      className="estimate-wizard-nav-next btn btn-ghost"
+                      onClick={handleSaveAndSendEstimate}
+                      disabled={saving || lineItemGroups.length === 0}
+                      title="Optional — send to a client if you change your mind"
+                    >
+                      {saveBusyKind === 'send' ? 'Sending…' : 'Send to client'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="estimate-wizard-nav-next btn btn-ghost"
+                      onClick={handleSaveEstimate}
+                      disabled={saving || lineItemGroups.length === 0}
+                    >
+                      {saveBusyKind === 'save' ? 'Saving…' : 'Save Estimate'}
+                    </button>
+                    <button
+                      type="button"
+                      className="estimate-wizard-nav-next btn btn-primary"
+                      onClick={handleSaveAndSendEstimate}
+                      disabled={saving || lineItemGroups.length === 0}
+                    >
+                      {saveBusyKind === 'send' ? 'Sending…' : 'Save & Send →'}
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <button
                 type="button"
                 className="estimate-wizard-nav-next btn btn-primary"
                 onClick={handleCreateProject}
-                disabled={saving}
+                disabled={saving || !canCreateProject()}
               >
                 {saveBusyKind === 'create' ? 'Creating…' : 'Create Project →'}
               </button>
@@ -1538,9 +1724,89 @@ function Step1ClientInfo({
         <p className="estimate-wizard-step-sub">
           {isBuildMode
             ? 'Review or edit client and project details before building your estimate.'
-            : "We'll set up the project so you can run takeoff and collect bids before building your estimate."}
+            : data.estimateAudience === 'internal'
+              ? 'Internal / DIY jobs skip client approval — you can still build an estimate later as a budget tracker.'
+              : "We'll set up the project so you can run takeoff and collect bids before building your estimate."}
         </p>
       </div>
+
+      {!isBuildMode && (
+        <div className="estimate-wizard-field estimate-wizard-field--full">
+          <label className="estimate-wizard-label">Estimate destination</label>
+          <div className="estimate-wizard-choice-row" role="group" aria-label="Estimate destination">
+            <button
+              type="button"
+              className={`estimate-wizard-choice ${data.estimateAudience === 'customer' ? 'active' : ''}`}
+              onClick={() => setData((d) => ({ ...d, estimateAudience: 'customer' }))}
+            >
+              Send estimate to customer
+            </button>
+            <button
+              type="button"
+              className={`estimate-wizard-choice ${data.estimateAudience === 'internal' ? 'active' : ''}`}
+              onClick={() => setData((d) => ({ ...d, estimateAudience: 'internal' }))}
+            >
+              Internal / DIY
+            </button>
+          </div>
+          <p className="estimate-wizard-helper">
+            {data.estimateAudience === 'internal'
+              ? 'No client portal send required. Choose where the job should land.'
+              : 'Job starts in Estimating — send the estimate when ready for client approval.'}
+          </p>
+        </div>
+      )}
+
+      {!isBuildMode && data.estimateAudience === 'internal' && (
+        <div className="estimate-wizard-field estimate-wizard-field--full">
+          <label className="estimate-wizard-label">Put job in</label>
+          <div className="estimate-wizard-choice-row" role="group" aria-label="Internal job destination">
+            <button
+              type="button"
+              className={`estimate-wizard-choice ${data.internalDestination === 'backlog' ? 'active' : ''}`}
+              onClick={() => setData((d) => ({ ...d, internalDestination: 'backlog' }))}
+            >
+              Backlog
+            </button>
+            <button
+              type="button"
+              className={`estimate-wizard-choice ${data.internalDestination === 'active' ? 'active' : ''}`}
+              onClick={() => setData((d) => ({ ...d, internalDestination: 'active' }))}
+            >
+              Activate now
+            </button>
+          </div>
+          {data.internalDestination === 'active' && (
+            <div className="estimate-wizard-step1-grid estimate-wizard-activate-dates">
+              <div className="estimate-wizard-field">
+                <label className="estimate-wizard-label" htmlFor="estimate-wizard-start-date">
+                  Start date <span className="estimate-wizard-required">*</span>
+                </label>
+                <input
+                  id="estimate-wizard-start-date"
+                  type="date"
+                  value={data.expectedStartDate}
+                  onChange={(e) => setData((d) => ({ ...d, expectedStartDate: e.target.value }))}
+                  className="estimate-wizard-input"
+                  required
+                />
+              </div>
+              <div className="estimate-wizard-field">
+                <label className="estimate-wizard-label" htmlFor="estimate-wizard-end-date">
+                  End date (optional)
+                </label>
+                <input
+                  id="estimate-wizard-end-date"
+                  type="date"
+                  value={data.expectedEndDate}
+                  onChange={(e) => setData((d) => ({ ...d, expectedEndDate: e.target.value }))}
+                  className="estimate-wizard-input"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="estimate-wizard-field estimate-wizard-field--full">
         <label className="estimate-wizard-label">Project Name</label>
@@ -1571,7 +1837,9 @@ function Step1ClientInfo({
 
       <div className="estimate-wizard-step1-grid">
         <div className="estimate-wizard-field">
-          <label className="estimate-wizard-label">Client Name</label>
+          <label className="estimate-wizard-label">
+            {data.estimateAudience === 'internal' && !isBuildMode ? 'Owner / contact (optional)' : 'Client Name'}
+          </label>
           <input
             type="text"
             value={data.clientName}
@@ -1582,13 +1850,17 @@ function Step1ClientInfo({
         </div>
         <div className="estimate-wizard-field">
           <label className="estimate-wizard-label">Client Email</label>
-          <input
-            type="email"
+          <textarea
             value={data.clientEmail}
             onChange={(e) => setData((d) => ({ ...d, clientEmail: e.target.value }))}
-            placeholder="client@example.com"
+            placeholder="email1@example.com, email2@example.com"
+            rows={2}
             className="estimate-wizard-input"
+            autoComplete="off"
           />
+          <p className="estimate-wizard-helper">
+            Separate multiple addresses with commas or spaces. The first is saved as the project contact.
+          </p>
         </div>
         <div className="estimate-wizard-field">
           <label className="estimate-wizard-label">Client Phone</label>
@@ -2756,12 +3028,20 @@ function Step2LineItems({
 // ─── Step 2: Review & Create ───────────────────────────────────────────────────
 function Step2ReviewCreate({ data }: { data: WizardData }) {
   const planTypeLabel = data.planType === 'residential' ? 'Residential' : data.planType === 'commercial' ? 'Commercial' : 'Civil'
+  const destinationLabel =
+    data.estimateAudience === 'customer'
+      ? 'Estimating (customer estimate)'
+      : data.internalDestination === 'active'
+        ? 'Active (internal / DIY)'
+        : 'Backlog (internal / DIY)'
   return (
     <div className="estimate-wizard-step estimate-wizard-step3">
       <div className="estimate-wizard-step-head">
         <h3 className="estimate-wizard-step-title">Review & create</h3>
         <p className="estimate-wizard-step-sub">
-          Confirm the details below, then create the project. You&apos;ll run takeoff and collect bids on the project page.
+          {data.estimateAudience === 'internal'
+            ? 'Confirm the details below, then create the job. You can still run takeoff and build an internal estimate later.'
+            : "Confirm the details below, then create the project. You'll run takeoff and collect bids on the project page."}
         </p>
       </div>
       <div className="estimate-wizard-summary">
@@ -2774,6 +3054,22 @@ function Step2ReviewCreate({ data }: { data: WizardData }) {
             <div className="estimate-wizard-label">Plan type</div>
             <div className="estimate-wizard-summary-val">{planTypeLabel}</div>
           </div>
+          <div>
+            <div className="estimate-wizard-label">Destination</div>
+            <div className="estimate-wizard-summary-val">{destinationLabel}</div>
+          </div>
+          {data.estimateAudience === 'internal' && data.internalDestination === 'active' && (
+            <>
+              <div>
+                <div className="estimate-wizard-label">Start date</div>
+                <div className="estimate-wizard-summary-val">{data.expectedStartDate || '—'}</div>
+              </div>
+              <div>
+                <div className="estimate-wizard-label">End date</div>
+                <div className="estimate-wizard-summary-val">{data.expectedEndDate?.trim() || '—'}</div>
+              </div>
+            </>
+          )}
           <div>
             <div className="estimate-wizard-label">Client name</div>
             <div className="estimate-wizard-summary-val">{data.clientName?.trim() || '—'}</div>

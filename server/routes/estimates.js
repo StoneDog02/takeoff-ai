@@ -8,7 +8,8 @@ const { recordEstimateSentPaperTrail, syncPaperTrailFromEstimate } = require('..
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 const { maybeAutoCompleteProjectAfterBilling } = require('../lib/projectAutoComplete')
 const {
-  resolveJobClientEmail,
+  normalizeRecipientEmails,
+  resolveRecipientEmailsForSend,
   persistResolvedRecipientIfChanged,
 } = require('../lib/jobClientEmail')
 
@@ -405,7 +406,8 @@ router.post('/:id/send', async (req, res) => {
       sent_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    if (Array.isArray(recipient_emails)) updates.recipient_emails = recipient_emails
+    const recipientList = normalizeRecipientEmails(recipient_emails)
+    if (recipientList.length > 0) updates.recipient_emails = recipientList
 
     const { data, error } = await supabase
       .from('estimates')
@@ -426,7 +428,9 @@ router.post('/:id/send', async (req, res) => {
 
     const baseUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || (req.protocol + '://' + (req.get('host') || 'localhost'))
     const portalUrl = `${baseUrl.replace(/\/$/, '')}/estimate/${clientToken}`
-    const clientEmail = Array.isArray(recipient_emails) && recipient_emails[0] ? recipient_emails[0] : null
+    const toEmails = normalizeRecipientEmails(
+      recipientList.length > 0 ? recipientList : data.recipient_emails
+    )
     let projectDisplayName = project_name
     if (!projectDisplayName && est.job_id) {
       const { data: proj } = await supabase.from('projects').select('name').eq('id', est.job_id).single()
@@ -436,10 +440,10 @@ router.post('/:id/send', async (req, res) => {
     const gcDisplayName = gc_name && String(gc_name).trim() ? String(gc_name).trim() : 'Your contractor'
     const clientDisplayName = client_name && String(client_name).trim() ? String(client_name).trim() : 'there'
 
-    if (clientEmail) {
+    if (toEmails.length > 0) {
       const documentKind = isChangeOrderEstimateTitle(data.title) ? 'change_order' : 'estimate'
       await sendEstimatePortalEmail({
-        to: clientEmail,
+        to: toEmails,
         clientName: clientDisplayName,
         gcName: gcDisplayName,
         projectName: projectDisplayName,
@@ -486,13 +490,13 @@ router.post('/:id/remind', async (req, res) => {
     }
 
     const emails = Array.isArray(est.recipient_emails) ? est.recipient_emails : []
-    const clientEmail = await resolveJobClientEmail(supabase, req.user.id, est)
-    if (!clientEmail) {
+    const toEmails = await resolveRecipientEmailsForSend(supabase, req.user.id, est)
+    if (toEmails.length === 0) {
       return res.status(400).json({
         error: 'No client email on file. Add a recipient on the estimate, then send it once from the estimate editor.',
       })
     }
-    await persistResolvedRecipientIfChanged(supabase, 'estimates', id, emails, clientEmail)
+    await persistResolvedRecipientIfChanged(supabase, 'estimates', id, emails, toEmails)
 
     let projectDisplayName = 'your project'
     let clientDisplayName = 'there'
@@ -518,7 +522,7 @@ router.post('/:id/remind', async (req, res) => {
     const documentKind = isChangeOrderEstimateTitle(est.title) ? 'change_order' : 'estimate'
 
     const result = await sendEstimateReminderEmail({
-      to: clientEmail,
+      to: toEmails,
       clientName: clientDisplayName,
       gcName: gcDisplayName,
       projectName: projectDisplayName,
@@ -535,7 +539,7 @@ router.post('/:id/remind', async (req, res) => {
 
     await supabase.from('estimates').update({ updated_at: new Date().toISOString() }).eq('id', id)
 
-    res.json({ ok: true, emailed_to: clientEmail })
+    res.json({ ok: true, emailed_to: toEmails })
   } catch (err) {
     console.error('Estimate remind error:', err)
     res.status(500).json({ error: err.message })

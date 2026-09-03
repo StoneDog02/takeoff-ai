@@ -7,6 +7,9 @@
 /** Plan type for takeoff: which reference doc set is used (plan-type-docs). */
 export type ProjectPlanType = 'residential' | 'commercial' | 'civil' | 'auto'
 
+/** Whether the job expects a customer-facing estimate or an internal/DIY budget tracker. */
+export type ProjectEstimateAudience = 'customer' | 'internal'
+
 export interface Project {
   id: string
   name: string
@@ -32,6 +35,8 @@ export interface Project {
   client_email?: string | null
   client_phone?: string | null
   plan_type?: ProjectPlanType
+  /** customer = client portal approval; internal = DIY / budget tracker (no client send required). */
+  estimate_audience?: ProjectEstimateAudience | null
 }
 
 export interface Phase {

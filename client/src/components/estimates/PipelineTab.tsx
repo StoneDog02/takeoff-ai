@@ -34,13 +34,18 @@ function formatInvoiceNumber(id: string): string {
 }
 
 function formatClientName(invoice: Invoice): string {
-  const raw = invoice.recipient_emails?.[0]
-  if (!raw) return 'No client'
-  const local = raw.split('@')[0] || raw
-  return local
-    .split(/[._-]+/)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join(' ')
+  const emails = (invoice.recipient_emails || []).map((e) => String(e || '').trim()).filter(Boolean)
+  if (emails.length === 0) return 'No client'
+  const formatOne = (raw: string) => {
+    const local = raw.split('@')[0] || raw
+    return local
+      .split(/[._-]+/)
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join(' ')
+  }
+  const first = formatOne(emails[0])
+  if (emails.length === 1) return first
+  return `${first} +${emails.length - 1}`
 }
 
 function formatDueDate(due?: string): string {

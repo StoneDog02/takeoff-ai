@@ -83,7 +83,9 @@ export function EstimatesInvoicesLedger({
         type: 'estimate',
         jobName: jobMap[e.job_id] || e.job_id.slice(0, 8),
         date: e.created_at,
-        recipient: (e.recipient_emails && e.recipient_emails[0]) || '—',
+        recipient: (e.recipient_emails && e.recipient_emails.length > 0)
+          ? e.recipient_emails.join(', ')
+          : '—',
         amount: Number(e.total_amount),
         status: e.status,
       })
@@ -94,7 +96,9 @@ export function EstimatesInvoicesLedger({
         type: 'invoice',
         jobName: i.job_id ? jobMap[i.job_id] || i.job_id.slice(0, 8) : 'No project',
         date: i.created_at,
-        recipient: (i.recipient_emails && i.recipient_emails[0]) || '—',
+        recipient: (i.recipient_emails && i.recipient_emails.length > 0)
+          ? i.recipient_emails.join(', ')
+          : '—',
         amount: Number(i.total_amount),
         status: i.status,
         estimateId: i.estimate_id,

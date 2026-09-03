@@ -67,7 +67,10 @@ export function buildPipelineItems(
     if (estimateIdsWithInvoices.has(e.id)) return
     const stage = estimateStatusToStage(e.status)
     const jobName = jobMap.get(e.job_id) ?? e.job_id
-    const client = e.recipient_emails?.[0] ?? null
+    const client =
+      e.recipient_emails && e.recipient_emails.length > 0
+        ? e.recipient_emails.join(', ')
+        : null
     const invoiced = Number(e.invoiced_amount ?? 0)
     const milestones = estimateMilestones?.[e.id] ?? buildMilestonesFromInvoiced(
       Number(e.total_amount),
@@ -94,7 +97,10 @@ export function buildPipelineItems(
   invoices.forEach((i) => {
     const stage = invoiceStatusToStage(i.status)
     const jobName = i.job_id ? (jobMap.get(i.job_id) ?? i.job_id) : 'No project'
-    const client = i.recipient_emails?.[0] ?? null
+    const client =
+      i.recipient_emails && i.recipient_emails.length > 0
+        ? i.recipient_emails.join(', ')
+        : null
     const paid = i.status === 'paid' ? Number(i.total_amount) : 0
     items.push({
       id: i.id,

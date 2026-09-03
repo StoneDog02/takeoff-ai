@@ -1209,6 +1209,7 @@ export function ProjectsPage() {
       clientEmail: project.client_email?.trim() ?? '',
       clientPhone: project.client_phone?.trim() ?? '',
       projectAddress: project.address_line_1 ?? '',
+      estimateAudience: project.estimate_audience === 'internal' ? 'internal' : 'customer',
     }
   }, [project])
 
@@ -1338,6 +1339,10 @@ export function ProjectsPage() {
       postal_code: d.postal_code ?? undefined,
       assigned_to_name: d.client || undefined,
       estimated_value: d.budget_total,
+      estimate_audience: d.estimate_audience === 'internal' ? 'internal' : 'customer',
+      client_email: d.client_email ?? undefined,
+      client_phone: d.client_phone ?? undefined,
+      plan_type: d.plan_type ?? undefined,
     }
   }
 
@@ -1702,6 +1707,9 @@ export function ProjectsPage() {
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${p.id}`) } }}
         >
           <div className="projects-board-card-name">{p.name}</div>
+          {p.estimate_audience === 'internal' ? (
+            <div className="projects-board-card-internal-badge">Internal / DIY</div>
+          ) : null}
           {address ? <div className="projects-board-card-address">{address}</div> : null}
           {budgetTotal > 0 ? <div className="projects-board-card-budget">${budgetTotal.toLocaleString()}</div> : null}
           {currentPhase ? <div className="projects-board-card-phase">{currentPhase}</div> : null}
@@ -2064,6 +2072,9 @@ export function ProjectsPage() {
                             <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
                             {displayProjectStatusLabel(p.status)}
                           </span>
+                          {p.estimate_audience === 'internal' ? (
+                            <div className="projects-board-card-internal-badge" style={{ marginTop: 4 }}>Internal / DIY</div>
+                          ) : null}
                           <div className="projects-list-simple-pm">{formatPmShortLabel(p.client)}</div>
                         </div>
                         <div className="projects-list-simple-budget" role="cell">
@@ -2115,10 +2126,15 @@ export function ProjectsPage() {
                             {p.address_line_1 || p.city || '—'}
                           </div>
                         </div>
-                        <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
-                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
-                          {displayProjectStatusLabel(p.status)}
-                        </span>
+                        <div>
+                          <span className="projects-card-status-pill" style={{ background: statusStyle.bg, color: statusStyle.text, width: 'fit-content' }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusStyle.dot }} />
+                            {displayProjectStatusLabel(p.status)}
+                          </span>
+                          {p.estimate_audience === 'internal' ? (
+                            <div className="projects-board-card-internal-badge" style={{ marginTop: 4 }}>Internal / DIY</div>
+                          ) : null}
+                        </div>
                         <span className="text-sm text-gray-600 dark:text-white-dim font-medium">{currentPhase ?? '—'}</span>
                         <div>
                           <div className="text-[13px] font-bold tabular-nums text-gray-900 dark:text-landing-white">${spentTotal.toLocaleString()}</div>
@@ -2273,6 +2289,7 @@ export function ProjectsPage() {
                   clientEmail: revProj.client_email?.trim() ?? '',
                   clientPhone: revProj.client_phone?.trim() ?? '',
                   projectAddress: [revProj.address_line_1, revProj.city, revProj.state, revProj.postal_code].filter(Boolean).join(', ') || undefined,
+                  estimateAudience: revProj.estimate_audience === 'internal' ? 'internal' : 'customer',
                 }
               : undefined
             return (
@@ -2537,20 +2554,31 @@ export function ProjectsPage() {
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusPillStyle.dot }} />
                 {displayProjectStatusLabel(project?.status)}
               </span>
+              {project?.estimate_audience === 'internal' ? (
+                <span className="project-overview-internal-badge">Internal / DIY</span>
+              ) : null}
             </div>
             <h1 className="project-overview-title">
               {project?.name} <span className="project-overview-title-muted">– {addressDisplay}</span>
             </h1>
           </div>
           <div className="project-overview-hero-actions relative" ref={heroMenuDesktopRef}>
-            {project?.status === 'estimating' && (
+            {(project?.status === 'estimating' ||
+              (project?.estimate_audience === 'internal' &&
+                (project?.status === 'backlog' || project?.status === 'active'))) && (
               <>
                 <button
                   type="button"
                   className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate"
                   onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
                 >
-                  {hasPersistedJobEstimate ? 'Edit Estimate →' : 'Build Estimate →'}
+                  {hasPersistedJobEstimate
+                    ? project?.estimate_audience === 'internal'
+                      ? 'Edit internal estimate →'
+                      : 'Edit Estimate →'
+                    : project?.estimate_audience === 'internal'
+                      ? 'Build internal estimate →'
+                      : 'Build Estimate →'}
                 </button>
                 <button
                   type="button"
@@ -2561,7 +2589,7 @@ export function ProjectsPage() {
                 </button>
               </>
             )}
-            {showAcceptedEstimateEditCta && project?.status !== 'backlog' && (
+            {showAcceptedEstimateEditCta && project?.status !== 'backlog' && project?.estimate_audience !== 'internal' && (
               <button
                 type="button"
                 className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
@@ -2572,7 +2600,7 @@ export function ProjectsPage() {
             )}
             {project?.status === 'backlog' && (
               <>
-                {showAcceptedEstimateEditCta && (
+                {showAcceptedEstimateEditCta && project?.estimate_audience !== 'internal' && (
                   <button
                     type="button"
                     className="project-overview-hero-btn project-overview-hero-build-estimate-secondary"
@@ -2888,6 +2916,9 @@ export function ProjectsPage() {
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusPillStyle.dot }} />
                 {displayProjectStatusLabel(project?.status)}
               </span>
+              {project?.estimate_audience === 'internal' ? (
+                <span className="project-overview-internal-badge">Internal / DIY</span>
+              ) : null}
             </div>
           </div>
           <div className="project-overview-hero-actions relative shrink-0" ref={heroMenuMobileRef}>
@@ -2929,9 +2960,14 @@ export function ProjectsPage() {
           </div>
         </div>
 
-        {(project?.status === 'estimating' || project?.status === 'backlog' || showAcceptedEstimateEditCta) && (
+        {(project?.status === 'estimating' ||
+          project?.status === 'backlog' ||
+          showAcceptedEstimateEditCta ||
+          (project?.estimate_audience === 'internal' && project?.status === 'active')) && (
           <div className="project-overview-hero-cta-strip">
-            {showAcceptedEstimateEditCta && project?.status !== 'estimating' && (
+            {showAcceptedEstimateEditCta &&
+              project?.status !== 'estimating' &&
+              project?.estimate_audience !== 'internal' && (
               <button
                 type="button"
                 className="project-overview-hero-btn project-overview-hero-build-estimate-secondary w-full sm:w-auto flex-1 min-w-0 justify-center"
@@ -2940,14 +2976,22 @@ export function ProjectsPage() {
                 Edit accepted estimate →
               </button>
             )}
-            {project?.status === 'estimating' && (
+            {(project?.status === 'estimating' ||
+              (project?.estimate_audience === 'internal' &&
+                (project?.status === 'backlog' || project?.status === 'active'))) && (
               <>
                 <button
                   type="button"
                   className="project-overview-hero-btn project-overview-hero-btn-primary project-overview-hero-build-estimate w-full sm:w-auto flex-1 min-w-0 justify-center"
                   onClick={() => { setBuildEstimateBlankMode(false); setBuildEstimateOpen(true) }}
                 >
-                  {hasPersistedJobEstimate ? 'Edit Estimate →' : 'Build Estimate →'}
+                  {hasPersistedJobEstimate
+                    ? project?.estimate_audience === 'internal'
+                      ? 'Edit internal estimate →'
+                      : 'Edit Estimate →'
+                    : project?.estimate_audience === 'internal'
+                      ? 'Build internal estimate →'
+                      : 'Build Estimate →'}
                 </button>
                 <button
                   type="button"
@@ -3341,7 +3385,9 @@ export function ProjectsPage() {
           {project.status === 'backlog' && (
             <div className="project-backlog-banner">
               <p className="project-backlog-banner-text">
-                This project is approved and ready to start. Set a start date and activate when you&apos;re ready to begin.
+                {project.estimate_audience === 'internal'
+                  ? 'Internal / DIY job is in Backlog. Build an estimate anytime as a budget tracker, then activate when you\'re ready to start.'
+                  : "This project is approved and ready to start. Set a start date and activate when you're ready to begin."}
               </p>
               <div className="project-backlog-banner-actions">
                 <button
@@ -3691,7 +3737,9 @@ export function ProjectsPage() {
           {project.status === 'backlog' && (
             <div className="project-backlog-banner project-backlog-banner--compact">
               <p className="project-backlog-banner-text m-0">
-                Approved and ready to start — set a start date, then use <strong>Activate Project</strong> above when you&apos;re ready.
+                {project.estimate_audience === 'internal'
+                  ? 'Internal / DIY job in Backlog — build a budget estimate anytime, then use Activate Project above when you\'re ready.'
+                  : 'Approved and ready to start — set a start date, then use Activate Project above when you\'re ready.'}
               </p>
             </div>
           )}

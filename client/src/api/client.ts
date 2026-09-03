@@ -1,6 +1,7 @@
 import type {
   Project,
   ProjectPlanType,
+  ProjectEstimateAudience,
   Phase,
   Milestone,
   ProjectTask,
@@ -163,6 +164,8 @@ export interface DashboardProject {
   client_email?: string | null
   client_phone?: string | null
   plan_type?: ProjectPlanType | null
+  /** customer = client portal approval; internal = DIY / budget tracker. */
+  estimate_audience?: ProjectEstimateAudience | null
   /** Paper-trail documents linked to this project (dashboard list). */
   document_count?: number
 }
@@ -286,6 +289,7 @@ export const api = {
       client_email?: string
       client_phone?: string
       plan_type?: ProjectPlanType
+      estimate_audience?: ProjectEstimateAudience
     }): Promise<Project> {
       if (isPublicDemo()) return publicDemoApi.projects.create(body)
       const headers = await getAuthHeaders()
@@ -316,6 +320,7 @@ export const api = {
           | 'client_email'
           | 'client_phone'
           | 'plan_type'
+          | 'estimate_audience'
         >
       >
     ): Promise<Project> {

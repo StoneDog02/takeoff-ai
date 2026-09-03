@@ -24,9 +24,13 @@ export function documentTypeLabel(t: PaperDocumentType): string {
 export function recipientLabel(doc: PaperTrailDocument): string {
   const n = (doc.client_name || '').trim()
   if (n) return n
+  const meta = doc.metadata || {}
+  const metaEmails = Array.isArray(meta.recipient_emails)
+    ? meta.recipient_emails.map((e) => String(e || '').trim()).filter(Boolean)
+    : []
+  if (metaEmails.length > 0) return metaEmails.join(', ')
   const e = (doc.client_email || '').trim()
   if (e) return e
-  const meta = doc.metadata || {}
   if (typeof meta.subcontractor_name === 'string' && meta.subcontractor_name.trim()) {
     return meta.subcontractor_name.trim()
   }

@@ -21,6 +21,7 @@ import {
 } from '@/lib/manualInvoiceDeposit'
 import { buildDepositDisplayPreview } from '@/lib/invoiceDepositDisplay'
 import { InvoiceDepositScheduleSection } from '@/components/invoices/InvoiceDepositScheduleSection'
+import { parseRecipientEmails } from '@/lib/recipientEmails'
 
 type PathType = 'progress' | 'manual'
 type StepType = 'choose' | 'progress' | 'manual-info' | 'manual-lines' | 'review'
@@ -599,7 +600,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
 
   const canSaveDraftOnReview =
     lineSubtotal > 0 && reviewProgressScheduleValid && manualDepositScheduleValid
-  const canSendOnReview = canSaveDraftOnReview && !!clientEmail.trim()
+  const canSendOnReview = canSaveDraftOnReview && parseRecipientEmails(clientEmail).length > 0
 
   const goProgress = () => {
     setPathType('progress')
@@ -696,8 +697,9 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
   }
 
   const finalizeInvoice = async (sendToClient: boolean) => {
-    if (sendToClient && !clientEmail.trim()) {
-      setError('Enter a recipient email to send the invoice.')
+    const toList = parseRecipientEmails(clientEmail)
+    if (sendToClient && toList.length === 0) {
+      setError('Enter at least one recipient email to send the invoice.')
       return
     }
     setSaveBusyKind(sendToClient ? 'send' : 'draft')
@@ -736,7 +738,6 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
           amount,
           schedule_snapshot,
         })
-        const toList = clientEmail.trim() ? [clientEmail.trim()] : []
         await estimatesApi.updateInvoice(result.invoice.id, {
           recipient_emails: toList,
           due_date: progressDue,
@@ -762,7 +763,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
           estimate_groups_meta: nextMeta,
         })
         if (sendToClient) {
-          await estimatesApi.sendInvoice(result.invoice.id, [clientEmail.trim()])
+          await estimatesApi.sendInvoice(result.invoice.id, toList)
         }
       } else {
         const manualLinePayload = manualLines
@@ -827,7 +828,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
         const created = await estimatesApi.createInvoice({
           ...(activeJobId ? { job_id: activeJobId } : {}),
           total_amount: lineSubtotal,
-          recipient_emails: clientEmail.trim() ? [clientEmail.trim()] : [],
+          recipient_emails: toList,
           due_date: dueDate || undefined,
           status: 'draft',
           schedule_snapshot: schedule_snapshot as Record<string, unknown>,
@@ -836,7 +837,7 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
           await estimatesApi.uploadInvoiceAttachment(created.id, file)
         }
         if (sendToClient) {
-          await estimatesApi.sendInvoice(created.id, [clientEmail.trim()])
+          await estimatesApi.sendInvoice(created.id, toList)
         }
       }
       onSaved?.()
@@ -1101,9 +1102,16 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                 </div>
                 <div className="estimate-wizard-field">
                   <label className="estimate-wizard-label">Client Email</label>
-                  <input className="estimate-wizard-input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
+                  <textarea
+                    className="estimate-wizard-input"
+                    rows={2}
+                    value={clientEmail}
+                    onChange={(e) => setClientEmail(e.target.value)}
+                    placeholder="email1@example.com, email2@example.com"
+                    autoComplete="off"
+                  />
                   <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>
-                    Optional if you only save a draft; required to send from the final step.
+                    Separate multiple addresses with commas or spaces. Optional if you only save a draft; required to send from the final step.
                   </p>
                 </div>
                 <div className="estimate-wizard-field">
@@ -1422,11 +1430,12 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                   <div className="new-invoice-invoice-details">
                     <div className="estimate-wizard-field estimate-wizard-field--full new-invoice-series-global">
                       <label className="estimate-wizard-label" htmlFor="new-invoice-recipient-email">
-                        Recipient email
+                        Recipient emails
                       </label>
                       <p className="estimate-wizard-helper" style={{ marginTop: 0 }}>
-                        Applies to this invoice and the whole progress series for this estimate. Required to email the
-                        client; optional if you only save a draft.
+                        Separate multiple addresses with commas or spaces. Applies to this invoice and the whole
+                        progress series for this estimate. Required to email the client; optional if you only save a
+                        draft.
                       </p>
                       {recipientEmailPrefilled ? (
                         <div className="new-invoice-recipient-email-inner new-invoice-recipient-email-inner--prefilled">
@@ -1444,8 +1453,8 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                             data-1p-ignore="true"
                             data-bwignore="true"
                             data-form-type="other"
-                            aria-label="Recipient email, pre-filled from project"
-                            title="Pre-filled from project."
+                            aria-label="Recipient emails, pre-filled from project"
+                            title="Pre-filled from project. Click Change to add more addresses."
                           />
                           <div className="new-invoice-recipient-email-suffix">
                             <svg
@@ -1474,15 +1483,15 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
                           </div>
                         </div>
                       ) : (
-                        <input
+                        <textarea
                           id="new-invoice-recipient-email"
                           className="estimate-wizard-input"
-                          type="email"
                           name="invoice-recipient-email"
+                          rows={2}
                           value={clientEmail}
                           onChange={(e) => setClientEmail(e.target.value)}
-                          autoComplete="email"
-                          placeholder="client@example.com"
+                          autoComplete="off"
+                          placeholder="email1@example.com, email2@example.com"
                         />
                       )}
                     </div>
@@ -1658,10 +1667,18 @@ export function NewInvoiceModal({ jobs, onClose, onSaved }: NewInvoiceModalProps
 
                   <div className="estimate-wizard-step1-grid">
                     <div className="estimate-wizard-field estimate-wizard-field--full">
-                      <label className="estimate-wizard-label">Recipient email</label>
-                      <input className="estimate-wizard-input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
+                      <label className="estimate-wizard-label">Recipient emails</label>
+                      <textarea
+                        className="estimate-wizard-input"
+                        rows={2}
+                        value={clientEmail}
+                        onChange={(e) => setClientEmail(e.target.value)}
+                        placeholder="email1@example.com, email2@example.com"
+                        autoComplete="off"
+                      />
                       <p className="estimate-wizard-helper" style={{ marginTop: 6 }}>
-                        Optional for a draft; add before using Create &amp; send.
+                        Separate multiple addresses with commas or spaces. Optional for a draft; add before using
+                        Create &amp; send.
                       </p>
                     </div>
                   </div>

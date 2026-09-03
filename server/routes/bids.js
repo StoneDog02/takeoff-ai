@@ -4,7 +4,7 @@
  * PATCH /api/bids/portal/:token/viewed — viewed_at = now(), status = 'viewed' if pending. Idempotent.
  * POST /api/bids/portal/:token/respond — multipart (amount, notes, availability, quoteFile optional, w9File, licenseFile, workersCompFile, liabilityInsuranceFile, contingencyFile required) or JSON with bid_amount + compliance_documents { w9, license, workers_comp, liability_insurance, contingency } URLs. Sets bid_received, responded_at.
  * POST /api/bids/portal/:token/decline — status = declined, responded_at. Returns confirmation.
- * Rate limited: 10 requests per IP per hour.
+ * Rate limited: reads 120/IP+token/hour; actions 30/IP+token/hour.
  */
 const express = require('express')
 const multer = require('multer')
@@ -12,41 +12,11 @@ const { supabase: defaultSupabase } = require('../db/supabase')
 const { syncPaperTrailFromSubBid } = require('../lib/paperTrailDocuments')
 const { companyRowToPublic } = require('../lib/publicCompanyProfile')
 const { notifyNewBidReceived } = require('../lib/eventNotificationEmails')
+const { createPortalRateLimit } = require('../lib/portalRateLimit')
 
 const router = express.Router()
 
-// --- Rate limit: 10 requests per IP per hour ---
-const RATE_WINDOW_MS = 60 * 60 * 1000
-const RATE_MAX = 10
-const rateMap = new Map()
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, v] of rateMap.entries()) {
-    if (v.resetAt < now) rateMap.delete(key)
-  }
-}, 60 * 1000)
-
-function rateLimitBids(req, res, next) {
-  const ip = req.ip || req.socket?.remoteAddress || 'unknown'
-  const now = Date.now()
-  const r = rateMap.get(ip)
-  if (!r) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS })
-    return next()
-  }
-  if (r.resetAt < now) {
-    r.count = 1
-    r.resetAt = now + RATE_WINDOW_MS
-    return next()
-  }
-  r.count += 1
-  if (r.count > RATE_MAX) {
-    return res.status(429).json({ error: 'Too many requests. Try again later.' })
-  }
-  next()
-}
-
-router.use(rateLimitBids)
+const { rateLimitRead, rateLimitAction } = createPortalRateLimit({ label: 'bid-portal' })
 
 function bidPortalMimeOk(mimetype) {
   if (!mimetype) return true
@@ -146,7 +116,7 @@ function scopeItemsFromTakeoff(materialList, tradeName) {
 }
 
 /** GET /api/bids/portal/:token — public, token-gated. Returns project info, trade, scope, status. 404 if token not found, 410 if project cancelled. */
-router.get('/portal/:token', async (req, res, next) => {
+router.get('/portal/:token', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -254,7 +224,7 @@ router.get('/portal/:token', async (req, res, next) => {
 })
 
 /** PATCH /api/bids/portal/:token/viewed — sets viewed_at = now(), status = 'viewed' if status was pending. Idempotent. */
-router.patch('/portal/:token/viewed', async (req, res, next) => {
+router.patch('/portal/:token/viewed', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -425,8 +395,8 @@ async function handleRespond(req, res, next) {
     next(err)
   }
 }
-router.post('/portal/:token/respond', parseRespondBody, handleRespond)
-router.post('/portal/:token/submit', (req, res, next) => uploadBidPortal(req, res, next), handleRespond)
+router.post('/portal/:token/respond', rateLimitAction, parseRespondBody, handleRespond)
+router.post('/portal/:token/submit', rateLimitAction, (req, res, next) => uploadBidPortal(req, res, next), handleRespond)
 
 /** POST /api/bids/portal/:token/decline — sets status = declined, responded_at. Returns confirmation. */
 async function handleDecline(req, res, next) {
@@ -453,7 +423,7 @@ async function handleDecline(req, res, next) {
     next(err)
   }
 }
-router.post('/portal/:token/decline', handleDecline)
-router.patch('/portal/:token/decline', handleDecline)
+router.post('/portal/:token/decline', rateLimitAction, handleDecline)
+router.patch('/portal/:token/decline', rateLimitAction, handleDecline)
 
 module.exports = router

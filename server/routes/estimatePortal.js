@@ -5,7 +5,7 @@
  * POST /api/estimates/portal/:token/approve — status = accepted, actioned_at. Move project to backlog (ready to schedule / start work).
  * POST /api/estimates/portal/:token/request-changes — { message }, status = changes_requested, store message. Notify GC.
  * POST /api/estimates/portal/:token/decline — status = declined, actioned_at.
- * Rate limited. None require session auth.
+ * Rate limited (see portalRateLimit: reads 120/IP+token/hour; actions 30/IP+token/hour).
  */
 const express = require('express')
 const { supabase: defaultSupabase } = require('../db/supabase')
@@ -13,6 +13,7 @@ const { applyApprovedEstimateGroupsToBudget } = require('../lib/budgetFromEstima
 const { isChangeOrderEstimateTitle } = require('../lib/estimatePortalKind')
 const { syncPaperTrailFromEstimate } = require('../lib/paperTrailDocuments')
 const { fetchPublicCompanyProfile } = require('../lib/publicCompanyProfile')
+const { createPortalRateLimit } = require('../lib/portalRateLimit')
 
 /** When an estimate was created from “send change order”, mark that CO Approved (matches project). */
 async function markLinkedChangeOrderApproved(supabase, { estimateId, jobId, sourceChangeOrderId }) {
@@ -43,41 +44,10 @@ async function markLinkedChangeOrderApproved(supabase, { estimateId, jobId, sour
 
 const router = express.Router()
 
-// --- Rate limit: 10 requests per IP per hour (same as bid portal) ---
-const RATE_WINDOW_MS = 60 * 60 * 1000
-const RATE_MAX = 10
-const rateMap = new Map()
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, v] of rateMap.entries()) {
-    if (v.resetAt < now) rateMap.delete(key)
-  }
-}, 60 * 1000)
-
-function rateLimitPortal(req, res, next) {
-  const ip = req.ip || req.socket?.remoteAddress || 'unknown'
-  const now = Date.now()
-  const r = rateMap.get(ip)
-  if (!r) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS })
-    return next()
-  }
-  if (r.resetAt < now) {
-    r.count = 1
-    r.resetAt = now + RATE_WINDOW_MS
-    return next()
-  }
-  r.count += 1
-  if (r.count > RATE_MAX) {
-    return res.status(429).json({ error: 'Too many requests. Try again later.' })
-  }
-  next()
-}
-
-router.use(rateLimitPortal)
+const { rateLimitRead, rateLimitAction } = createPortalRateLimit({ label: 'estimate-portal' })
 
 /** GET /api/estimates/portal/:token — public. Returns estimate with project info, line items, GC info, status. 404 if not found. */
-router.get('/:token', async (req, res, next) => {
+router.get('/:token', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -208,7 +178,7 @@ router.get('/:token', async (req, res, next) => {
 })
 
 /** PATCH /api/estimates/portal/:token/viewed — set viewed_at, status = 'viewed' if currently sent. Idempotent. */
-router.patch('/:token/viewed', async (req, res, next) => {
+router.patch('/:token/viewed', rateLimitRead, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -236,7 +206,7 @@ router.patch('/:token/viewed', async (req, res, next) => {
 })
 
 /** POST /api/estimates/portal/:token/approve — body: { acceptance_acknowledged: true } required for first-time accept. */
-router.post('/:token/approve', async (req, res, next) => {
+router.post('/:token/approve', rateLimitAction, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -326,7 +296,7 @@ router.post('/:token/approve', async (req, res, next) => {
 })
 
 /** POST /api/estimates/portal/:token/request-changes — accept { message }, set status = changes_requested, store message. Notify GC. Returns confirmation. */
-router.post('/:token/request-changes', async (req, res, next) => {
+router.post('/:token/request-changes', rateLimitAction, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })
@@ -370,7 +340,7 @@ router.post('/:token/request-changes', async (req, res, next) => {
 })
 
 /** POST /api/estimates/portal/:token/decline — set status = declined, actioned_at. Returns confirmation. */
-router.post('/:token/decline', async (req, res, next) => {
+router.post('/:token/decline', rateLimitAction, async (req, res, next) => {
   try {
     const supabase = defaultSupabase
     if (!supabase) return res.status(503).json({ error: 'Service unavailable' })

@@ -91,7 +91,11 @@ export function InvoicePortal() {
         {error && !loading && (
           <div className="estimate-portal-card">
             <div className="estimate-portal-card__body">
-              <h2 className="estimate-portal-title">Invalid or expired link</h2>
+              <h2 className="estimate-portal-title">
+                {error.toLowerCase().includes('too many requests')
+                  ? 'Temporarily unavailable'
+                  : 'Invalid or expired link'}
+              </h2>
               <p className="estimate-portal-message">{error}</p>
             </div>
           </div>
