@@ -583,11 +583,18 @@ router.post('/connect/onboard', requireAuth, async (req, res) => {
         email,
         capabilities: {
           card_payments: { requested: true },
+          // Lets the platform send an already-captured balance to this account once.
+          // Ongoing invoice charges stay direct charges and do not use this.
+          transfers: { requested: true },
         },
       })
       accountId = account.id
       payoutsEnabled = account.charges_enabled === true && account.payouts_enabled === true
       await saveConnectPayoutState(supabase, userId, { accountId, payoutsEnabled })
+    } else {
+      await stripe.accounts.update(accountId, {
+        capabilities: { transfers: { requested: true } },
+      })
     }
     const origin = appOrigin()
     const link = await stripe.accountLinks.create({
