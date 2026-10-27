@@ -511,6 +511,70 @@ function connectPayoutPayload(config) {
   }
 }
 
+// Express + Stripe-managed losses requires Accounts v2 and this preview version.
+const CONNECT_ACCOUNT_API_VERSION = '2026-09-30.preview'
+
+function connectPayoutsEnabled(account) {
+  if (!account || typeof account !== 'object') return false
+  if (account.charges_enabled === true && account.payouts_enabled === true) return true
+  const capabilities = account.configuration?.merchant?.capabilities
+  return (
+    capabilities?.card_payments?.status === 'active' &&
+    capabilities?.stripe_balance?.payouts?.status === 'active'
+  )
+}
+
+async function stripeV2Account(path, { method = 'GET', body } = {}) {
+  const response = await fetch(`https://api.stripe.com/v2/core/accounts${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${stripeSecretKey}`,
+      'Stripe-Version': CONNECT_ACCOUNT_API_VERSION,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Stripe account request failed.')
+  }
+  return payload
+}
+
+async function createManagedRiskExpressAccount(email) {
+  return stripeV2Account('', {
+    method: 'POST',
+    body: {
+      contact_email: email,
+      dashboard: 'express',
+      identity: { country: 'us' },
+      defaults: {
+        responsibilities: {
+          fees_collector: 'stripe',
+          losses_collector: 'stripe',
+        },
+      },
+      configuration: {
+        merchant: {
+          capabilities: {
+            card_payments: { requested: true },
+          },
+        },
+      },
+      include: ['configuration.merchant'],
+    },
+  })
+}
+
+async function retrieveConnectAccount(accountId) {
+  try {
+    return await stripeV2Account(`/${encodeURIComponent(accountId)}?include=configuration.merchant`)
+  } catch (err) {
+    if (!stripe) throw err
+    return stripe.accounts.retrieve(accountId)
+  }
+}
+
 /**
  * GET /api/stripe/connect/status
  * Saved Connect payout account for invoice card payments.
@@ -545,10 +609,10 @@ router.post('/connect/sync', requireAuth, async (req, res) => {
     const current = await readPaymentConfig(supabase, userId)
     const accountId = current.config.stripe_connect_account_id
     if (!accountId) return res.json(connectPayoutPayload(current.config))
-    const account = await stripe.accounts.retrieve(accountId)
+    const account = await retrieveConnectAccount(accountId)
     const saved = await saveConnectPayoutState(supabase, userId, {
       accountId,
-      payoutsEnabled: account.charges_enabled === true && account.payouts_enabled === true,
+      payoutsEnabled: connectPayoutsEnabled(account),
     })
     return res.json(connectPayoutPayload(saved))
   } catch (err) {
@@ -577,24 +641,10 @@ router.post('/connect/onboard', requireAuth, async (req, res) => {
     let accountId = current.config.stripe_connect_account_id
     let payoutsEnabled = current.config.payouts_enabled === true
     if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: 'express',
-        country: 'US',
-        email,
-        capabilities: {
-          card_payments: { requested: true },
-          // Lets the platform send an already-captured balance to this account once.
-          // Ongoing invoice charges stay direct charges and do not use this.
-          transfers: { requested: true },
-        },
-      })
+      const account = await createManagedRiskExpressAccount(email)
       accountId = account.id
-      payoutsEnabled = account.charges_enabled === true && account.payouts_enabled === true
+      payoutsEnabled = connectPayoutsEnabled(account)
       await saveConnectPayoutState(supabase, userId, { accountId, payoutsEnabled })
-    } else {
-      await stripe.accounts.update(accountId, {
-        capabilities: { transfers: { requested: true } },
-      })
     }
     const origin = appOrigin()
     const link = await stripe.accountLinks.create({
@@ -1669,7 +1719,7 @@ async function handleWebhook(req, res) {
             if (userId) {
               await saveConnectPayoutState(supabase, userId, {
                 accountId: account.id,
-                payoutsEnabled: account.charges_enabled === true && account.payouts_enabled === true,
+                payoutsEnabled: connectPayoutsEnabled(account),
               })
             }
           } catch (e) {
