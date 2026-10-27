@@ -7,6 +7,7 @@ const { sendEmail, getPortalFrom, escapeHtml } = require('./emailUtils')
 const NOTIF_DEFAULTS = {
   newBids: { email: true },
   invoiceStatus: { email: true },
+  invoicePayments: { email: true },
   clockInOut: { email: false },
   gpsClockOut: { email: true },
   budgetThreshold: { email: true },
@@ -113,6 +114,91 @@ async function notifyInvoiceStatusChange(supabase, { userId, projectName, oldSta
     await sendGcEventEmail(supabase, userId, 'invoiceStatus', subject, html, text)
   } catch (e) {
     console.warn('[notifyInvoiceStatusChange]', e?.message || e)
+  }
+}
+
+function usd(amount) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount) || 0)
+}
+
+function shortInvoiceRef(invoiceId) {
+  return String(invoiceId || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'Invoice'
+}
+
+async function notifyClientInvoicePaid(supabase, { userId, projectName, clientName, amount, invoiceId }) {
+  if (!userId) return
+  const amt = usd(amount)
+  const proj = escapeHtml(projectName || 'your project')
+  const client = escapeHtml(clientName || 'Your client')
+  const ref = escapeHtml(shortInvoiceRef(invoiceId))
+  const subject = `Client paid — ${projectName || 'Invoice'}`
+  const html = wrapEmail('Client paid', [
+    `<strong>${client}</strong> paid <strong>${escapeHtml(amt)}</strong> on invoice <strong>${ref}</strong> for <strong>${proj}</strong>.`,
+    'The payment is on its way to your bank. Stripe’s card fee is taken from this payment before the deposit.',
+  ])
+  const text = `${clientName || 'Your client'} paid ${amt} on invoice ${shortInvoiceRef(invoiceId)} for ${projectName || 'your project'}. The payment is on its way to your bank. Stripe’s card fee is taken from this payment before the deposit.`
+  try {
+    await sendGcEventEmail(supabase, userId, 'invoicePayments', subject, html, text)
+  } catch (e) {
+    console.warn('[notifyClientInvoicePaid]', e?.message || e)
+  }
+}
+
+async function notifyClientInvoicePaymentFailed(supabase, { userId, projectName, clientName, amount, invoiceId, reason }) {
+  if (!userId) return
+  const amt = amount != null ? usd(amount) : ''
+  const proj = escapeHtml(projectName || 'your project')
+  const client = escapeHtml(clientName || 'Your client')
+  const ref = escapeHtml(shortInvoiceRef(invoiceId))
+  const why = reason ? escapeHtml(String(reason)) : 'The card payment did not go through.'
+  const subject = `Card payment failed — ${projectName || 'Invoice'}`
+  const html = wrapEmail('Card payment failed', [
+    `<strong>${client}</strong> tried to pay ${amt ? `<strong>${escapeHtml(amt)}</strong> on ` : ''}invoice <strong>${ref}</strong> for <strong>${proj}</strong>.`,
+    why,
+  ])
+  const text = `${clientName || 'Your client'} tried to pay ${amt || 'an invoice'} (${shortInvoiceRef(invoiceId)}) for ${projectName || 'your project'}. ${reason || 'The card payment did not go through.'}`
+  try {
+    await sendGcEventEmail(supabase, userId, 'invoicePayments', subject, html, text)
+  } catch (e) {
+    console.warn('[notifyClientInvoicePaymentFailed]', e?.message || e)
+  }
+}
+
+async function notifyPayoutDeposited(supabase, { userId, amount, last4 }) {
+  if (!userId) return
+  const amt = usd(amount)
+  const bank = last4 ? `the bank account ending ${escapeHtml(String(last4))}` : 'your bank'
+  const subject = 'Payment deposited'
+  const html = wrapEmail('Payment deposited', [
+    `Stripe deposited <strong>${escapeHtml(amt)}</strong> to ${bank}.`,
+  ])
+  const text = last4
+    ? `Stripe deposited ${amt} to the bank account ending ${last4}.`
+    : `Stripe deposited ${amt} to your bank.`
+  try {
+    await sendGcEventEmail(supabase, userId, 'invoicePayments', subject, html, text)
+  } catch (e) {
+    console.warn('[notifyPayoutDeposited]', e?.message || e)
+  }
+}
+
+async function notifyPayoutFailed(supabase, { userId, amount, last4, reason }) {
+  if (!userId) return
+  const amt = usd(amount)
+  const bank = last4 ? `the bank account ending ${escapeHtml(String(last4))}` : 'your bank'
+  const why = reason ? escapeHtml(String(reason)) : 'Stripe could not deposit the payment.'
+  const subject = 'Deposit to your bank failed'
+  const html = wrapEmail('Deposit to your bank failed', [
+    `A deposit of <strong>${escapeHtml(amt)}</strong> to ${bank} did not go through.`,
+    why,
+  ])
+  const text = last4
+    ? `A deposit of ${amt} to the bank account ending ${last4} did not go through. ${reason || 'Stripe could not deposit the payment.'}`
+    : `A deposit of ${amt} to your bank did not go through. ${reason || 'Stripe could not deposit the payment.'}`
+  try {
+    await sendGcEventEmail(supabase, userId, 'invoicePayments', subject, html, text)
+  } catch (e) {
+    console.warn('[notifyPayoutFailed]', e?.message || e)
   }
 }
 
@@ -229,6 +315,10 @@ async function notifyBudgetThresholdCrossed(supabase, { projectUserId, projectNa
 module.exports = {
   notifyNewBidReceived,
   notifyInvoiceStatusChange,
+  notifyClientInvoicePaid,
+  notifyClientInvoicePaymentFailed,
+  notifyPayoutDeposited,
+  notifyPayoutFailed,
   notifyClockInOut,
   notifyGpsClockOut,
   budgetOverSummary,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Landmark } from "lucide-react";
 import { FeatureGate } from "@/components/gates/FeatureGate";
 import { Card, CardBody, CardHeader } from "@/components/settings/SettingsPrimitives";
@@ -13,8 +14,11 @@ import {
 import { isStripeConfigured, stripePromise } from "@/lib/stripe";
 import { runFinancialConnectionsLinkForSignedInUser } from "@/lib/runFinancialConnectionsCollect";
 import {
+  getConnectPayoutStatus,
   getFinancialConnectionsStatus,
+  startConnectOnboarding,
   syncBankTransactionsFromStripe,
+  syncConnectPayout,
   syncFinancialConnections,
 } from "@/api/financialConnections";
 
@@ -30,17 +34,33 @@ function maskLast4(last4: string | null): string {
 
 export function ConnectedAccountsSection() {
   const { stripeCustomerId } = useSubscription();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [effectiveStripeCustomerId, setEffectiveStripeCustomerId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ConnectedAccountRow[]>([]);
+  const [payoutsEnabled, setPayoutsEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectId, setDisconnectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const accessToken = useCallback(async () => {
+    if (!supabase) return null;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const token = await accessToken();
+      if (token) {
+        const payout = await getConnectPayoutStatus(token).catch(() => null);
+        if (payout) setPayoutsEnabled(payout.payoutsEnabled);
+      }
+
       // Prefer subscription customer id (fastest, supports disconnect edge fn).
       if (stripeCustomerId) {
         setEffectiveStripeCustomerId(stripeCustomerId);
@@ -55,16 +75,7 @@ export function ConnectedAccountsSection() {
       }
 
       // Fallback: for users without a loaded subscription customer id, use signed-in status endpoint.
-      if (!supabase) {
-        setAccounts([]);
-        setEffectiveStripeCustomerId(null);
-        return;
-      }
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token ?? null;
-      if (!token) {
+      if (!supabase || !token) {
         setAccounts([]);
         setEffectiveStripeCustomerId(null);
         return;
@@ -87,7 +98,7 @@ export function ConnectedAccountsSection() {
     } finally {
       setLoading(false);
     }
-  }, [stripeCustomerId]);
+  }, [accessToken, stripeCustomerId]);
 
   useEffect(() => {
     void refresh();
@@ -104,66 +115,116 @@ export function ConnectedAccountsSection() {
     await refresh();
   }, [refresh]);
 
-  const connect = async () => {
-    setError(null);
+  const linkTransactions = useCallback(async () => {
     if (!isStripeConfigured || !stripePromise) {
       setError("Stripe is not configured.");
       return;
     }
 
+    if (stripeCustomerId) {
+      const stripe = await stripePromise;
+      if (!stripe) {
+        setError("Stripe failed to load.");
+        return;
+      }
+      const collect = stripe.collectFinancialConnectionsAccounts as unknown as CollectFcFn | undefined;
+      if (typeof collect !== "function") {
+        setError("Update @stripe/stripe-js to use bank linking.");
+        return;
+      }
+      const { data, errorMessage } = await createFinancialConnectionSessionEdge(stripeCustomerId);
+      if (errorMessage || !data?.clientSecret) {
+        setError(errorMessage ?? "Could not start bank linking.");
+        return;
+      }
+      const result = await collect.call(stripe, { clientSecret: data.clientSecret });
+      if (result.error) {
+        setError(result.error.message || "Bank linking was cancelled or failed.");
+        return;
+      }
+      const linked = (result.financialConnectionsSession?.accounts?.length ?? 0) > 0;
+      if (linked) await afterLinkSuccess();
+      else await refresh();
+      return;
+    }
+
+    if (!supabase) {
+      setError("Sign in to link a bank account.");
+      return;
+    }
+    const token = await accessToken();
+    if (!token) {
+      setError("You need to be signed in.");
+      return;
+    }
+    const out = await runFinancialConnectionsLinkForSignedInUser(token);
+    if (out.errorMessage) {
+      setError(out.errorMessage);
+      return;
+    }
+    await afterLinkSuccess();
+  }, [accessToken, afterLinkSuccess, refresh, stripeCustomerId]);
+
+  const connect = async () => {
+    setError(null);
     setConnectBusy(true);
     try {
-      if (stripeCustomerId) {
-        const stripe = await stripePromise;
-        if (!stripe) {
-          setError("Stripe failed to load.");
-          return;
-        }
-        const collect = stripe.collectFinancialConnectionsAccounts as unknown as CollectFcFn | undefined;
-        if (typeof collect !== "function") {
-          setError("Update @stripe/stripe-js to use bank linking.");
-          return;
-        }
-        const { data, errorMessage } = await createFinancialConnectionSessionEdge(stripeCustomerId);
-        if (errorMessage || !data?.clientSecret) {
-          setError(errorMessage ?? "Could not start bank linking.");
-          return;
-        }
-        const result = await collect.call(stripe, { clientSecret: data.clientSecret });
-        if (result.error) {
-          setError(result.error.message || "Bank linking was cancelled or failed.");
-          return;
-        }
-        const linked = (result.financialConnectionsSession?.accounts?.length ?? 0) > 0;
-        if (linked) await afterLinkSuccess();
-        else await refresh();
-        return;
-      }
-
-      if (!supabase) {
-        setError("Sign in to link a bank account.");
-        return;
-      }
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      const token = await accessToken();
       if (!token) {
         setError("You need to be signed in.");
         return;
       }
-      const out = await runFinancialConnectionsLinkForSignedInUser(token);
-      if (out.errorMessage) {
-        setError(out.errorMessage);
+      if (!payoutsEnabled) {
+        const { url } = await startConnectOnboarding(token);
+        window.location.assign(url);
         return;
       }
-      await afterLinkSuccess();
+      await linkTransactions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setConnectBusy(false);
     }
   };
+
+  useEffect(() => {
+    const flag = searchParams.get("connect");
+    if (flag !== "return" && flag !== "refresh") return;
+    let cancelled = false;
+    void (async () => {
+      setConnectBusy(true);
+      setError(null);
+      try {
+        const token = await accessToken();
+        if (cancelled || !token) {
+          if (!cancelled && !token) setError("You need to be signed in.");
+          return;
+        }
+        if (flag === "refresh") {
+          const { url } = await startConnectOnboarding(token);
+          if (cancelled) return;
+          window.location.assign(url);
+          return;
+        }
+        const status = await syncConnectPayout(token);
+        if (cancelled) return;
+        setPayoutsEnabled(status.payoutsEnabled);
+        await linkTransactions();
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Something went wrong.");
+      } finally {
+        if (!cancelled) {
+          setConnectBusy(false);
+          const next = new URLSearchParams(searchParams);
+          next.delete("connect");
+          setSearchParams(next, { replace: true });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, linkTransactions, searchParams, setSearchParams]);
 
   const disconnect = async (accountId: string) => {
     const customerId = stripeCustomerId ?? effectiveStripeCustomerId;
@@ -196,7 +257,7 @@ export function ConnectedAccountsSection() {
       <Card style={{ marginBottom: 24 }}>
         <CardHeader
           title="Connected accounts"
-          desc="Bank accounts linked via Stripe Financial Connections for balances and transaction import."
+          desc="Link a bank for invoice card payouts and to import transactions into Financials."
         />
         <CardBody>
           <div className="mb-4 flex items-start gap-3">
@@ -208,7 +269,11 @@ export function ConnectedAccountsSection() {
             </div>
             <div className="min-w-0 flex-1">
               <p className="m-0 text-[13px] leading-relaxed text-[#6b7280] dark:text-[var(--text-muted)]">
-                Subscription billing uses a separate payment method. These connections are read-only for Financials.
+                Clients pay your Stripe account directly. Stripe deposits that payment in the bank you add here, after its card fee. This app does not hold those funds.
+                {payoutsEnabled
+                  ? " Card payments are enabled."
+                  : " Card checkout stays off until Stripe can pay that bank."}{" "}
+                The same link imports transactions into Financials. Subscription billing uses a separate payment method.
               </p>
             </div>
           </div>
@@ -226,7 +291,7 @@ export function ConnectedAccountsSection() {
             <p className="text-[13px] text-[#9ca3af]">Loading linked accounts…</p>
           ) : accounts.length === 0 ? (
             <p className="mb-4 text-[13px] leading-snug text-[#9ca3af]">
-              No bank accounts linked yet. Connect a US account to import transactions into Financials.
+              No bank accounts linked yet. Link a US account to receive invoice card payments and import transactions into Financials.
             </p>
           ) : (
             <ul className="mb-4 grid list-none gap-3 p-0 sm:grid-cols-2">
@@ -263,7 +328,7 @@ export function ConnectedAccountsSection() {
             disabled={connectBusy}
             onClick={() => void connect()}
           >
-            {connectBusy ? "Opening Stripe…" : accounts.length > 0 ? "Link another bank" : "Link Bank"}
+            {connectBusy ? "Opening Stripe…" : !payoutsEnabled || accounts.length === 0 ? "Link Bank" : "Link another bank"}
           </button>
         </CardBody>
       </Card>

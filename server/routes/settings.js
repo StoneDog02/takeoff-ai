@@ -7,6 +7,7 @@ const { cancelStripeSubscriptionsForUser } = require('../lib/cancelStripeSubscri
 const {
   companySettingsInvoicePaymentFromRow,
   companySettingsInvoicePaymentToRow,
+  normalizeInvoicePaymentConfig,
 } = require('../lib/invoicePaymentConfig')
 
 const SETTINGS_ASSETS_BUCKET = 'settings-assets'
@@ -186,6 +187,21 @@ router.put('/company', async (req, res, next) => {
         .maybeSingle()
       if (prevPay?.invoice_payment_config != null) {
         row = { ...row, invoice_payment_config: prevPay.invoice_payment_config }
+      }
+    } else if (row.invoice_payment_config) {
+      const { data: prevPay } = await db
+        .from('company_settings')
+        .select('invoice_payment_config')
+        .eq('user_id', userId)
+        .maybeSingle()
+      const prev = normalizeInvoicePaymentConfig(prevPay?.invoice_payment_config)
+      row = {
+        ...row,
+        invoice_payment_config: {
+          ...row.invoice_payment_config,
+          stripe_connect_account_id: prev.stripe_connect_account_id,
+          payouts_enabled: prev.payouts_enabled,
+        },
       }
     }
     const { data, error } = await db

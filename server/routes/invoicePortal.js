@@ -15,7 +15,7 @@ const {
 } = require('../lib/invoicePaymentSchedule')
 const { notifyInvoiceStatusChange } = require('../lib/eventNotificationEmails')
 const { getClientAttachmentsArray, resolveClientAttachmentUrl } = require('../lib/invoiceClientAttachments')
-const { normalizeInvoicePaymentConfig, paymentOptionsForPortalResponse } = require('../lib/invoicePaymentConfig')
+const { normalizeInvoicePaymentConfig, cardPayoutsReady, paymentOptionsForPortalResponse } = require('../lib/invoicePaymentConfig')
 const { createPortalRateLimit } = require('../lib/portalRateLimit')
 
 const router = express.Router()
@@ -56,7 +56,7 @@ function rateLimitCheckoutSession(req, res, next) {
 
 /**
  * POST /api/invoices/portal/:token/create-checkout-session
- * Stripe Checkout for client invoice card payment (optional Connect destination).
+ * Stripe Checkout for client invoice card payment, created on the contractor's Connect account.
  */
 router.post('/:token/create-checkout-session', rateLimitAction, rateLimitCheckoutSession, async (req, res, next) => {
   try {
@@ -87,7 +87,7 @@ router.post('/:token/create-checkout-session', rateLimitAction, rateLimitCheckou
       .eq('user_id', inv.user_id)
       .maybeSingle()
     const payCfg = normalizeInvoicePaymentConfig(csRow?.invoice_payment_config)
-    if (!payCfg.card) {
+    if (!cardPayoutsReady(payCfg)) {
       return res.status(400).json({ error: 'Card payment is not offered for this invoice.' })
     }
 
@@ -159,15 +159,19 @@ router.post('/:token/create-checkout-session', rateLimitAction, rateLimitCheckou
         gc_user_id: inv.user_id || '',
         milestone_ids: dueNowMilestoneIds.join(','),
       },
+      payment_intent_data: {
+        metadata: {
+          buildos_client_invoice: '1',
+          invoice_id: inv.id,
+          gc_user_id: inv.user_id || '',
+          milestone_ids: dueNowMilestoneIds.join(','),
+        },
+      },
     }
 
-    if (payCfg.stripe_connect_account_id) {
-      sessionParams.payment_intent_data = {
-        transfer_data: { destination: payCfg.stripe_connect_account_id },
-      }
-    }
-
-    const session = await stripeForInvoiceCheckout.checkout.sessions.create(sessionParams)
+    const session = await stripeForInvoiceCheckout.checkout.sessions.create(sessionParams, {
+      stripeAccount: payCfg.stripe_connect_account_id,
+    })
     if (!session.url) return res.status(500).json({ error: 'Could not start checkout.' })
     return res.json({ url: session.url })
   } catch (err) {

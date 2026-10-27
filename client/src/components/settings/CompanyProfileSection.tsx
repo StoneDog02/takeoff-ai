@@ -281,9 +281,9 @@ export function CompanyProfileSection() {
         <CardHeader title="Customer invoice payments" />
         <CardBody>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
-            These options appear on the public invoice link your clients open from email. Enable card only if{' '}
-            <code style={{ fontSize: 12 }}>STRIPE_SECRET_KEY</code> is set on the server. For payouts directly to your bank,
-            add your Stripe Connect account id after onboarding at Stripe.
+            These options appear on the public invoice link your clients open from email. Card payments are charged
+            on your own Stripe account and deposited to your bank. They are not held here. Card checkout stays off
+            until you finish bank linking in Financials and Stripe can pay that bank.
           </p>
           <FieldRow cols="1fr 1fr">
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
@@ -358,19 +358,13 @@ export function CompanyProfileSection() {
               }}
             />
           </Field>
-          <Field
-            label="Stripe Connect account id"
-            hint="Optional — acct_… from Stripe Dashboard after Connect onboarding; sends card payments to that account."
-          >
-            <Input
-              value={profile.invoicePayment?.stripeConnectAccountId ?? ''}
-              onChange={(e) => {
-                const v = e.target.value.trim()
-                updateInvoicePayment('stripeConnectAccountId', v === '' ? null : v)
-              }}
-              placeholder="acct_…"
-            />
-          </Field>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
+            {profile.invoicePayment?.payoutsEnabled
+              ? 'Card payments are paid out to the bank you linked in Financials.'
+              : profile.invoicePayment?.stripeConnectAccountId
+                ? 'Stripe is still verifying the payout account. Finish bank linking in Financials if that step is still open.'
+                : 'Payouts are set up from Financials → Overview → Link Bank. There is no account id to paste here.'}
+          </p>
           <SaveRow>
             <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</Btn>
           </SaveRow>

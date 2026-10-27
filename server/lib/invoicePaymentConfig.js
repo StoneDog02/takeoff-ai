@@ -12,6 +12,7 @@ function normalizeInvoicePaymentConfig(raw) {
     ach_instructions: '',
     cash_note: '',
     stripe_connect_account_id: null,
+    payouts_enabled: false,
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base
   const o = raw
@@ -27,7 +28,14 @@ function normalizeInvoicePaymentConfig(raw) {
       o.stripe_connect_account_id != null && String(o.stripe_connect_account_id).trim().startsWith('acct_')
         ? String(o.stripe_connect_account_id).trim()
         : null,
+    payouts_enabled: o.payouts_enabled === true,
   }
+}
+
+/** Card checkout is a direct charge on the contractor's Connect account, offered only once that account can take cards and pay out. */
+function cardPayoutsReady(config) {
+  const c = normalizeInvoicePaymentConfig(config)
+  return Boolean(c.card && c.stripe_connect_account_id && c.payouts_enabled)
 }
 
 /** Safe subset for GET invoice portal (no secrets beyond wire instructions you chose to show). */
@@ -37,12 +45,12 @@ function paymentOptionsForPortalResponse(config) {
     cash: c.cash,
     check: c.check,
     ach: c.ach,
-    card: c.card,
+    card: cardPayoutsReady(c),
     check_instructions: c.check_instructions.trim() || null,
     ach_instructions: c.ach_instructions.trim() || null,
     cash_note: c.cash_note.trim() || null,
   }
-  const anyMethod = out.cash || out.check || out.ach || out.card
+  const anyMethod = out.cash || out.check || out.ach || c.card
   const anyText = !!(out.check_instructions || out.ach_instructions || out.cash_note)
   if (!anyMethod && !anyText) {
     return {
@@ -70,6 +78,7 @@ function companySettingsInvoicePaymentFromRow(rowConfig) {
     achInstructions: c.ach_instructions,
     cashNote: c.cash_note,
     stripeConnectAccountId: c.stripe_connect_account_id,
+    payoutsEnabled: c.payouts_enabled,
   }
 }
 
@@ -88,11 +97,13 @@ function companySettingsInvoicePaymentToRow(apiShape) {
       String(apiShape.stripeConnectAccountId).trim().startsWith('acct_')
         ? String(apiShape.stripeConnectAccountId).trim()
         : null,
+    payouts_enabled: apiShape.payoutsEnabled === true,
   }
 }
 
 module.exports = {
   normalizeInvoicePaymentConfig,
+  cardPayoutsReady,
   paymentOptionsForPortalResponse,
   companySettingsInvoicePaymentFromRow,
   companySettingsInvoicePaymentToRow,

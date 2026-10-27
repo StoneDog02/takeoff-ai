@@ -21,9 +21,22 @@ const {
   deriveSubscriptionPricingFromStripeSubscription,
   mapStripeSubscriptionStatus,
 } = require('../lib/stripeSubscriptionDerive')
+const {
+  appOrigin,
+  readPaymentConfig,
+  saveConnectPayoutState,
+  findUserIdForConnectAccount,
+} = require('../lib/connectPayoutAccount')
+const {
+  notifyClientInvoicePaid,
+  notifyClientInvoicePaymentFailed,
+  notifyPayoutDeposited,
+  notifyPayoutFailed,
+} = require('../lib/eventNotificationEmails')
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+const connectWebhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET
 const signupProductId = process.env.STRIPE_SIGNUP_PRODUCT_ID
 let stripe = null
 if (stripeSecretKey) {
@@ -488,6 +501,106 @@ router.get('/financial-connections-status', requireAuth, async (req, res) => {
     return res.status(500).json({
       error: err.message || 'Failed to load bank links',
     })
+  }
+})
+
+function connectPayoutPayload(config) {
+  return {
+    stripeConnectAccountId: config.stripe_connect_account_id,
+    payoutsEnabled: config.payouts_enabled === true,
+  }
+}
+
+/**
+ * GET /api/stripe/connect/status
+ * Saved Connect payout account for invoice card payments.
+ */
+router.get('/connect/status', requireAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured on server.' })
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const current = await readPaymentConfig(supabase, userId)
+    return res.json(connectPayoutPayload(current.config))
+  } catch (err) {
+    console.error('[stripe] connect/status:', err.message)
+    return res.status(500).json({ error: err.message || 'Failed to load payout status' })
+  }
+})
+
+/**
+ * POST /api/stripe/connect/sync
+ * Refresh payouts_enabled from Stripe after onboarding returns.
+ */
+router.post('/connect/sync', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  if (!supabase) return res.status(503).json({ error: 'Database not configured on server.' })
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const current = await readPaymentConfig(supabase, userId)
+    const accountId = current.config.stripe_connect_account_id
+    if (!accountId) return res.json(connectPayoutPayload(current.config))
+    const account = await stripe.accounts.retrieve(accountId)
+    const saved = await saveConnectPayoutState(supabase, userId, {
+      accountId,
+      payoutsEnabled: account.charges_enabled === true && account.payouts_enabled === true,
+    })
+    return res.json(connectPayoutPayload(saved))
+  } catch (err) {
+    console.error('[stripe] connect/sync:', err.message)
+    return res.status(500).json({ error: err.message || 'Failed to refresh payout account' })
+  }
+})
+
+/**
+ * POST /api/stripe/connect/onboard
+ * Create or reuse an Express Connect account and return Stripe-hosted onboarding.
+ * Card payments are direct charges on that account, so invoice funds never settle on the platform.
+ */
+router.post('/connect/onboard', requireAuth, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in the server environment.',
+    })
+  }
+  if (!supabase) return res.status(503).json({ error: 'Database not configured on server.' })
+  const userId = req.user?.id
+  const email = typeof req.user?.email === 'string' ? req.user.email.trim() : ''
+  if (!userId || !email) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const current = await readPaymentConfig(supabase, userId)
+    let accountId = current.config.stripe_connect_account_id
+    let payoutsEnabled = current.config.payouts_enabled === true
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'US',
+        email,
+        capabilities: {
+          card_payments: { requested: true },
+        },
+      })
+      accountId = account.id
+      payoutsEnabled = account.charges_enabled === true && account.payouts_enabled === true
+      await saveConnectPayoutState(supabase, userId, { accountId, payoutsEnabled })
+    }
+    const origin = appOrigin()
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      type: 'account_onboarding',
+      refresh_url: `${origin}/financials/overview?connect=refresh`,
+      return_url: `${origin}/financials/overview?connect=return`,
+    })
+    if (!link.url) return res.status(500).json({ error: 'Could not start payout setup.' })
+    return res.json({ url: link.url, ...connectPayoutPayload({ stripe_connect_account_id: accountId, payouts_enabled: payoutsEnabled }) })
+  } catch (err) {
+    console.error('[stripe] connect/onboard:', err.message)
+    return res.status(500).json({ error: err.message || 'Failed to start payout setup' })
   }
 })
 
@@ -1246,21 +1359,130 @@ async function syncSubscriptionRowFromStripeWebhook(sub) {
   }
 }
 
+async function invoicePaymentContext(invoiceId) {
+  const { data: inv, error } = await supabase
+    .from('invoices')
+    .select('id, user_id, job_id, estimate_id, status, total_amount, schedule_snapshot, recipient_emails')
+    .eq('id', invoiceId)
+    .maybeSingle()
+  if (error) throw error
+  if (!inv) return null
+  let projectName = 'Invoice'
+  if (inv.job_id) {
+    const { data: project } = await supabase.from('projects').select('name').eq('id', inv.job_id).maybeSingle()
+    if (project?.name) projectName = String(project.name).trim()
+  } else if (inv.estimate_id) {
+    const { data: estimate } = await supabase.from('estimates').select('title').eq('id', inv.estimate_id).maybeSingle()
+    if (estimate?.title) projectName = String(estimate.title).trim()
+  }
+  const snap = inv.schedule_snapshot && typeof inv.schedule_snapshot === 'object' ? inv.schedule_snapshot : {}
+  const snapName = typeof snap.client_name === 'string' ? snap.client_name.trim() : ''
+  const recipient = Array.isArray(inv.recipient_emails) && inv.recipient_emails[0] ? String(inv.recipient_emails[0]).trim() : ''
+  return {
+    invoice: inv,
+    projectName,
+    clientName: snapName || recipient || 'Your client',
+  }
+}
+
+/**
+ * Record a successful client invoice Checkout and return details for the contractor email.
+ * @returns {Promise<{ userId: string, projectName: string, clientName: string, amount: number, invoiceId: string } | null>}
+ */
+async function applyClientInvoiceCheckout(session) {
+  const meta = session?.metadata || {}
+  if (meta.buildos_client_invoice !== '1' || !meta.invoice_id || !supabase) return null
+  const now = new Date().toISOString()
+  const milestoneIds = String(meta.milestone_ids || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const ctx = await invoicePaymentContext(meta.invoice_id)
+  if (!ctx?.invoice) return null
+  const inv = ctx.invoice
+  let recorded = false
+  if (milestoneIds.length > 0) {
+    const snap = normalizeInvoiceScheduleSnapshot(inv.schedule_snapshot)
+    const nextSnap = applyMilestonePaymentsToSnapshot(snap, milestoneIds)
+    const fullyPaid = allScheduleRowsPaid(nextSnap)
+    const patch = {
+      schedule_snapshot: nextSnap,
+      updated_at: now,
+    }
+    if (fullyPaid) {
+      patch.status = 'paid'
+      patch.paid_at = now
+    } else if (String(inv.status || '').toLowerCase() === 'draft') {
+      patch.status = 'sent'
+      patch.sent_at = now
+    }
+    const { error: invPayErr } = await supabase.from('invoices').update(patch).eq('id', meta.invoice_id)
+    if (invPayErr) {
+      console.error('[stripe] checkout.session.completed invoice milestone update:', invPayErr.message)
+    } else {
+      recorded = true
+    }
+  } else {
+    const { error: invPayErr } = await supabase
+      .from('invoices')
+      .update({ status: 'paid', paid_at: now, updated_at: now })
+      .eq('id', meta.invoice_id)
+    if (invPayErr) {
+      console.error('[stripe] checkout.session.completed invoice update:', invPayErr.message)
+    } else {
+      recorded = true
+    }
+  }
+  if (!recorded || !inv.user_id) return null
+  const amountCents = Number(session.amount_total)
+  const amount = Number.isFinite(amountCents) ? amountCents / 100 : Number(inv.total_amount) || 0
+  const sessionName = session.customer_details?.name ? String(session.customer_details.name).trim() : ''
+  return {
+    userId: inv.user_id,
+    projectName: ctx.projectName,
+    clientName: ctx.clientName !== 'Your client' ? ctx.clientName : sessionName || ctx.clientName,
+    amount,
+    invoiceId: inv.id,
+  }
+}
+
+async function payoutBankLast4(connectedAccountId, payout) {
+  const dest = payout?.destination
+  if (dest && typeof dest === 'object' && dest.last4) return String(dest.last4)
+  if (!stripe || !connectedAccountId || typeof dest !== 'string' || !dest.startsWith('ba_')) return null
+  try {
+    const bank = await stripe.accounts.retrieveExternalAccount(connectedAccountId, dest)
+    return bank?.last4 ? String(bank.last4) : null
+  } catch (err) {
+    console.warn('[stripe] payout bank last4:', err.message)
+    return null
+  }
+}
+
 /**
  * Webhook handler. Must be mounted with express.raw({ type: 'application/json' }) so body is raw.
  * Keeps public.subscriptions in sync with Stripe.
  */
 async function handleWebhook(req, res) {
-  if (!stripe || !webhookSecret) {
+  const secrets = [webhookSecret, connectWebhookSecret].filter(Boolean)
+  if (!stripe || secrets.length === 0) {
     return res.status(503).send('Webhook not configured')
   }
   const sig = req.headers['stripe-signature']
   if (!sig) return res.status(400).send('Missing Stripe-Signature')
   let event
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
-  } catch (err) {
-    console.error('[stripe] webhook signature verification failed:', err.message)
+  let verified = false
+  for (const secret of secrets) {
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, secret)
+      verified = true
+      break
+    } catch {
+      // Try the next signing secret. Account and Connect destinations use different secrets.
+    }
+  }
+  if (!verified) {
+    console.error('[stripe] webhook signature verification failed')
     return res.status(400).send('Invalid signature')
   }
 
@@ -1400,49 +1622,79 @@ async function handleWebhook(req, res) {
       }
       case 'checkout.session.completed': {
         const session = event.data?.object
-        const meta = session?.metadata || {}
+        try {
+          const paid = await applyClientInvoiceCheckout(session)
+          if (paid) await notifyClientInvoicePaid(supabase, paid)
+        } catch (e) {
+          console.error('[stripe] checkout.session.completed invoice:', e?.message || e)
+        }
+        break
+      }
+      case 'payment_intent.payment_failed': {
+        const paymentIntent = event.data?.object
+        const meta = paymentIntent?.metadata || {}
         if (meta.buildos_client_invoice === '1' && meta.invoice_id && supabase) {
-          const now = new Date().toISOString()
-          const milestoneIds = String(meta.milestone_ids || '')
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-          if (milestoneIds.length > 0) {
-            const { data: inv, error: loadErr } = await supabase
-              .from('invoices')
-              .select('id, status, schedule_snapshot')
-              .eq('id', meta.invoice_id)
-              .maybeSingle()
-            if (loadErr) {
-              console.error('[stripe] checkout.session.completed invoice load:', loadErr.message)
-            } else if (inv) {
-              const snap = normalizeInvoiceScheduleSnapshot(inv.schedule_snapshot)
-              const nextSnap = applyMilestonePaymentsToSnapshot(snap, milestoneIds)
-              const fullyPaid = allScheduleRowsPaid(nextSnap)
-              const patch = {
-                schedule_snapshot: nextSnap,
-                updated_at: now,
-              }
-              if (fullyPaid) {
-                patch.status = 'paid'
-                patch.paid_at = now
-              } else if (String(inv.status || '').toLowerCase() === 'draft') {
-                patch.status = 'sent'
-                patch.sent_at = now
-              }
-              const { error: invPayErr } = await supabase.from('invoices').update(patch).eq('id', meta.invoice_id)
-              if (invPayErr) {
-                console.error('[stripe] checkout.session.completed invoice milestone update:', invPayErr.message)
+          try {
+            const ctx = await invoicePaymentContext(meta.invoice_id)
+            const userId = ctx?.invoice?.user_id || meta.gc_user_id
+            if (userId) {
+              const amountCents = Number(paymentIntent.amount)
+              await notifyClientInvoicePaymentFailed(supabase, {
+                userId,
+                projectName: ctx?.projectName,
+                clientName: ctx?.clientName,
+                amount: Number.isFinite(amountCents) ? amountCents / 100 : null,
+                invoiceId: meta.invoice_id,
+                reason: paymentIntent.last_payment_error?.message || '',
+              })
+            }
+          } catch (e) {
+            console.error('[stripe] payment_intent.payment_failed invoice:', e?.message || e)
+          }
+        }
+        break
+      }
+      case 'account.updated': {
+        const account = event.data?.object
+        if (supabase && account?.id && String(account.id).startsWith('acct_')) {
+          try {
+            const userId = await findUserIdForConnectAccount(supabase, account.id)
+            if (userId) {
+              await saveConnectPayoutState(supabase, userId, {
+                accountId: account.id,
+                payoutsEnabled: account.charges_enabled === true && account.payouts_enabled === true,
+              })
+            }
+          } catch (e) {
+            console.error('[stripe] account.updated:', e?.message || e)
+          }
+        }
+        break
+      }
+      case 'payout.paid':
+      case 'payout.failed': {
+        const payout = event.data?.object
+        const connectedAccountId = typeof event.account === 'string' ? event.account : ''
+        if (supabase && connectedAccountId.startsWith('acct_') && payout) {
+          try {
+            const userId = await findUserIdForConnectAccount(supabase, connectedAccountId)
+            if (userId) {
+              const amountCents = Number(payout.amount)
+              const amount = Number.isFinite(amountCents) ? amountCents / 100 : 0
+              const last4 = await payoutBankLast4(connectedAccountId, payout)
+              if (event.type === 'payout.paid') {
+                await notifyPayoutDeposited(supabase, { userId, amount, last4 })
+              } else {
+                await notifyPayoutFailed(supabase, {
+                  userId,
+                  amount,
+                  last4,
+                  reason: payout.failure_message || payout.failure_code || '',
+                })
               }
             }
-          } else {
-            const { error: invPayErr } = await supabase
-              .from('invoices')
-              .update({ status: 'paid', paid_at: now, updated_at: now })
-              .eq('id', meta.invoice_id)
-            if (invPayErr) {
-              console.error('[stripe] checkout.session.completed invoice update:', invPayErr.message)
-            }
+          } catch (e) {
+            console.error('[stripe] payout event:', e?.message || e)
           }
         }
         break

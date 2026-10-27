@@ -8,6 +8,7 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton'
 const defaultPrefs: NotificationPreferences = {
   newBids: { email: true, sms: false, push: false },
   invoiceStatus: { email: true, sms: false, push: false },
+  invoicePayments: { email: true, sms: false, push: false },
   clockInOut: { email: false, sms: false, push: false },
   gpsClockOut: { email: true, sms: false, push: false },
   budgetThreshold: { email: true, sms: false, push: false },
@@ -16,6 +17,7 @@ const defaultPrefs: NotificationPreferences = {
 const NOTIF_EVENT_KEYS: (keyof NotificationPreferences)[] = [
   'newBids',
   'invoiceStatus',
+  'invoicePayments',
   'clockInOut',
   'gpsClockOut',
   'budgetThreshold',
@@ -24,6 +26,7 @@ const NOTIF_EVENT_KEYS: (keyof NotificationPreferences)[] = [
 const NOTIF_EVENTS: { id: keyof NotificationPreferences; label: string }[] = [
   { id: 'newBids', label: 'New bids received' },
   { id: 'invoiceStatus', label: 'Invoice status changes' },
+  { id: 'invoicePayments', label: 'Invoice payments' },
   { id: 'clockInOut', label: 'Employee clock-in/out alerts' },
   { id: 'gpsClockOut', label: 'GPS clock-out events' },
   { id: 'budgetThreshold', label: 'Budget threshold warnings' },
@@ -70,6 +73,7 @@ function prefsFromApi(raw: unknown): NotificationPreferences {
     return withSmsAllOff({
       newBids: { ...defaultPrefs.newBids },
       invoiceStatus: { ...defaultPrefs.invoiceStatus },
+      invoicePayments: { ...defaultPrefs.invoicePayments },
       clockInOut: { ...defaultPrefs.clockInOut },
       gpsClockOut: { ...defaultPrefs.gpsClockOut },
       budgetThreshold: { ...defaultPrefs.budgetThreshold },

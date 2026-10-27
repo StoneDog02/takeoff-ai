@@ -146,7 +146,7 @@ export function InvoiceClientFacing({
           'Request bank routing and account details from your contractor if you prefer ACH or wire.'
         )
       }
-      return 'Secure checkout by Stripe. If your contractor connected a Stripe account, funds route to them; otherwise payment is processed through the platform for their payout.'
+      return 'Secure checkout by Stripe. The payment goes directly to your contractor. Stripe’s card fee is taken before it reaches their bank.'
     },
     [pay.cash_note, pay.check_instructions, pay.ach_instructions, company?.name]
   )

@@ -88,3 +88,44 @@ export async function getFinancialConnectionsStatus(
     accounts: data.accounts || [],
   }
 }
+
+export type ConnectPayoutStatus = {
+  stripeConnectAccountId: string | null
+  payoutsEnabled: boolean
+}
+
+export async function getConnectPayoutStatus(accessToken: string): Promise<ConnectPayoutStatus> {
+  const res = await fetch(`${API_BASE}/stripe/connect/status`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const data = (await res.json().catch(() => ({}))) as ConnectPayoutStatus & { error?: string }
+  if (!res.ok) throw new Error(data.error || 'Failed to load payout status')
+  return {
+    stripeConnectAccountId: data.stripeConnectAccountId ?? null,
+    payoutsEnabled: data.payoutsEnabled === true,
+  }
+}
+
+export async function syncConnectPayout(accessToken: string): Promise<ConnectPayoutStatus> {
+  const res = await fetch(`${API_BASE}/stripe/connect/sync`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+  })
+  const data = (await res.json().catch(() => ({}))) as ConnectPayoutStatus & { error?: string }
+  if (!res.ok) throw new Error(data.error || 'Failed to refresh payout account')
+  return {
+    stripeConnectAccountId: data.stripeConnectAccountId ?? null,
+    payoutsEnabled: data.payoutsEnabled === true,
+  }
+}
+
+export async function startConnectOnboarding(accessToken: string): Promise<{ url: string }> {
+  const res = await fetch(`${API_BASE}/stripe/connect/onboard`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+  })
+  const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string }
+  if (!res.ok) throw new Error(data.error || 'Could not start payout setup')
+  if (!data.url) throw new Error('Could not start payout setup')
+  return { url: data.url }
+}

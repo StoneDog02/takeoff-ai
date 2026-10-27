@@ -505,8 +505,10 @@ export interface CompanyInvoicePaymentSettings {
   checkInstructions: string
   achInstructions: string
   cashNote: string
-  /** Stripe Connect Express / Standard account id (acct_…) so card charges transfer to the GC. */
+  /** Stripe Connect Express account id (acct_…). Set from Financials bank linking, not typed in. */
   stripeConnectAccountId?: string | null
+  /** True once Stripe can pay invoice card charges out to that account's bank. */
+  payoutsEnabled?: boolean
 }
 
 export interface CompanyProfile {
@@ -559,6 +561,7 @@ export interface NotificationChannel {
 export interface NotificationPreferences {
   newBids: NotificationChannel
   invoiceStatus: NotificationChannel
+  invoicePayments: NotificationChannel
   clockInOut: NotificationChannel
   gpsClockOut: NotificationChannel
   budgetThreshold: NotificationChannel
