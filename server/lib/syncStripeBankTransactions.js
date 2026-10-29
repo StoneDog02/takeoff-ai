@@ -45,7 +45,7 @@ async function syncStripeBankTransactionsForUser(opts) {
     const list = await stripe.financialConnections.accounts.list({
       account_holder: { customer: customerId },
       limit: 100,
-    })
+    }, { apiVersion: '2026-02-25.clover' })
     accounts = list.data || []
   } catch (err) {
     return { synced: 0, accounts: 0, error: err instanceof Error ? err.message : 'list_accounts_failed' }

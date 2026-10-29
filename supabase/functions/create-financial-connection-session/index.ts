@@ -84,6 +84,8 @@ serve(async (req) => {
     headers: {
       Authorization: `Bearer ${stripeSecret}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      // Account default API version rejects account_holder[type].
+      'Stripe-Version': '2026-02-25.clover',
     },
     body: form.toString(),
   })

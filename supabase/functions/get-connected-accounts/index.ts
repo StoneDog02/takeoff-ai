@@ -94,7 +94,11 @@ serve(async (req) => {
 
   const listRes = await fetch(`https://api.stripe.com/v1/financial_connections/accounts?${params}`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${stripeSecret}` },
+    headers: {
+      Authorization: `Bearer ${stripeSecret}`,
+      // Account default API version rejects account_holder[type].
+      'Stripe-Version': '2026-02-25.clover',
+    },
   })
   const listJson = (await listRes.json()) as FcList
   if (!listRes.ok) {

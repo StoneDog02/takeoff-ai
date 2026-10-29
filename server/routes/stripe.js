@@ -35,6 +35,9 @@ const {
 } = require('../lib/eventNotificationEmails')
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY
+// Financial Connections calls must stay on this version. The account default
+// rejects account_holder[type], which is what these requests send.
+const financialConnectionsRequest = { apiVersion: '2026-02-25.clover' }
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 const connectWebhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET
 const signupProductId = process.env.STRIPE_SIGNUP_PRODUCT_ID
@@ -396,7 +399,7 @@ router.post('/financial-connections-session', fcSessionLimiter, async (req, res)
       },
       permissions: ['transactions'],
       filters: { countries: ['US'] },
-    })
+    }, financialConnectionsRequest)
     return res.json({
       client_secret: session.client_secret,
       stripe_customer_id: customer.id,
@@ -443,7 +446,7 @@ router.post('/financial-connections-sync', requireAuth, async (req, res) => {
     const list = await stripe.financialConnections.accounts.list({
       account_holder: { customer: customer.id },
       limit: 100,
-    })
+    }, financialConnectionsRequest)
     const ids = list.data.map((a) => a.id)
     if (supabase) {
       const { error: upErr } = await supabase.from('user_financial_connections').upsert(
@@ -491,7 +494,7 @@ router.get('/financial-connections-status', requireAuth, async (req, res) => {
     const list = await stripe.financialConnections.accounts.list({
       account_holder: { customer: customer.id },
       limit: 100,
-    })
+    }, financialConnectionsRequest)
     return res.json({
       stripe_customer_id: customer.id,
       accounts: list.data.map(mapFcAccount),
